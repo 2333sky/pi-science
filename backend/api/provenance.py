@@ -24,6 +24,19 @@ async def query_provenance(
     }
 
 
+@router.get("/env/{hash}")
+async def get_env_lockfile(
+    hash: str,
+    cwd: str = Query(".", description="Working directory"),
+):
+    """Read a captured environment lockfile by its content hash."""
+    store = get_store(cwd)
+    env_file = store._env_dir / f"{hash}.txt"
+    if not env_file.exists():
+        raise HTTPException(status_code=404, detail="Environment lockfile not found")
+    return {"hash": hash, "text": env_file.read_text()}
+
+
 @router.get("/versions/{path:path}")
 async def get_versions(
     path: str,

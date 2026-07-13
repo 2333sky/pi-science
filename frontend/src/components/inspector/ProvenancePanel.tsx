@@ -6,6 +6,7 @@ import type { ProvenanceRecord, RunRecord } from "../../types/thread";
 import { listProvenance, readEnvLockfile } from "@/lib/provenance";
 import { listRuns, reproduceRunPrompt } from "@/lib/runs";
 import { useUiStore } from "@/lib/store";
+import { useRuntimeStore } from "@/lib/runtime-store";
 import { CodeViewer } from "@/components/code-viewer/CodeViewer";
 import { DiffView } from "@/components/code-viewer/DiffView";
 import { cn } from "@/lib/cn";
@@ -50,7 +51,8 @@ function longestBacktickRun(text: string): number {
  * conversation. Data comes from `.openscience/provenance.jsonl` (P0-3).
  */
 export function ProvenancePanel({ path, language }: { path: string; language?: string }) {
-  const { t } = useTranslation(["inspector", "common"]);
+  const { t } = useTranslation();
+  const cwd = useRuntimeStore((s) => s.cwd);
   const [records, setRecords] = useState<ProvenanceRecord[] | null>(null);
   const [expanded, setExpanded] = useState<number | null>(null);
   // Runs a version can be produced by, keyed by runId — links a file to its recipe.
@@ -67,7 +69,7 @@ export function ProvenancePanel({ path, language }: { path: string; language?: s
       return;
     }
     setLockfile({ hash, text: null });
-    void readEnvLockfile(hash).then((text) =>
+    void readEnvLockfile(cwd, hash).then((text) =>
       setLockfile((cur) => (cur?.hash === hash ? { hash, text: text ?? "(lockfile unavailable)" } : cur)),
     );
   };
@@ -85,7 +87,7 @@ export function ProvenancePanel({ path, language }: { path: string; language?: s
   useEffect(() => {
     let cancelled = false;
     setRecords(null);
-    void listProvenance(path).then((r) => {
+    void listProvenance(cwd, path).then((r) => {
       if (cancelled) return;
       setRecords([...r].reverse()); // newest first
       setExpanded(r.length > 0 ? r[r.length - 1].version : null);
@@ -100,7 +102,7 @@ export function ProvenancePanel({ path, language }: { path: string; language?: s
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [cwd, path]);
 
   if (records === null) {
     return (

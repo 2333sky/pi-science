@@ -1,15 +1,48 @@
+const API = "/api/provenance";
+
 export interface ProvenanceRecord {
   path: string; version: number; ts: number; tool: string;
   toolCallId?: string; sessionId: string; model?: string;
   contentHash?: string; diff?: string; runId?: string;
+  content?: string; log?: string;
   env?: Record<string, unknown>;
 }
-export async function loadProvenance(sessionId: string): Promise<ProvenanceRecord[]> { return []; }
 
-export async function listProvenance(sessionId: string): Promise<ProvenanceRecord[]> {
-  return [];
+/** Load all provenance records for a session. */
+export async function loadProvenance(cwd: string, sessionId: string): Promise<ProvenanceRecord[]> {
+  try {
+    const params = new URLSearchParams({ cwd, session_id: sessionId, limit: "200" });
+    const res = await fetch(`${API}?${params}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.records ?? [];
+  } catch {
+    return [];
+  }
 }
 
-export async function readEnvLockfile(sessionId: string, hash: string): Promise<string | null> {
-  return null;
+/** List all recorded versions of a file. */
+export async function listProvenance(cwd: string, path: string): Promise<ProvenanceRecord[]> {
+  try {
+    const params = new URLSearchParams({ cwd });
+    const res = await fetch(`${API}/versions/${encodeURIComponent(path)}?${params}`);
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.versions ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Read an environment lockfile snapshot by its content hash. */
+export async function readEnvLockfile(cwd: string, hash: string): Promise<string | null> {
+  try {
+    const params = new URLSearchParams({ cwd });
+    const res = await fetch(`${API}/env/${encodeURIComponent(hash)}?${params}`);
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data.text ?? null;
+  } catch {
+    return null;
+  }
 }
