@@ -94,15 +94,10 @@ async def get_messages(
     session_id: str,
     cwd: str = Query(".", description="Working directory"),
 ):
-    """Get message history for a session. Falls back to reading JSONL from disk."""
-    pi = pi_manager.get_by_session(session_id)
-    if pi:
-        result = await pi.send_command("get_entries")
-        if result.get("success"):
-            messages = _convert_entries_to_messages(result.get("data", {}))
-            return {"messages": messages}
-
-    # Session not active — read from disk
+    """Get message history from the session's durable JSONL record."""
+    # Reading the active process is racy while another request switches
+    # sessions: get_entries can return a newly active blank session under the
+    # old ID. The exact persisted file is the stable source for page restores.
     messages = _read_session_from_disk(session_id, cwd)
     return {"messages": messages}
 
@@ -178,8 +173,24 @@ async def set_session_model(
 
     result = await pi.send_command("set_model", provider=provider, modelId=model_id)
     if not result.get("success"):
+        # Custom providers are loaded from models.json at process startup. If
+        # one was added after this workspace process started, restart directly
+        # on the same persisted session to load it without losing the chat.
+        if provider.startswith("custom-"):
+            restarted = await pi_manager.restart_session(
+                session_id,
+                cwd,
+                PiConfig(model=model, thinking=pi.config.thinking),
+            )
+            if restarted:
+                return {
+                    "ok": True,
+                    "id": restarted.session_id,
+                    "model": model,
+                    "restarted": True,
+                }
         return {"ok": False, "error": result.get("error", "model not found")}
-    return {"ok": True, "id": pi.session_id, "model": model}
+    return {"ok": True, "id": pi.session_id, "model": model, "restarted": False}
 
 
 @router.post("/{session_id}/abort")

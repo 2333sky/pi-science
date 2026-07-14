@@ -40,12 +40,23 @@ class PiProcess:
         self.session_id = session_id
         self.config = config
         self.pending_requests: dict[str, asyncio.Future] = {}
+        # Reconnecting browsers can briefly leave more than one SSE reader.
+        # Broadcast events so a stale reader cannot steal conversation output
+        # from the active connection.
         self._event_queue: asyncio.Queue = asyncio.Queue()
+        self._event_subscribers: set[asyncio.Queue] = set()
         self._reader_task: Optional[asyncio.Task] = None
         self._started_at = datetime.now(timezone.utc)
 
     @classmethod
-    async def spawn(cls, cwd: str, session_dir: str, config: PiConfig) -> "PiProcess":
+    async def spawn(
+        cls,
+        cwd: str,
+        session_dir: str,
+        config: PiConfig,
+        *,
+        session_path: Optional[str] = None,
+    ) -> "PiProcess":
         """Spawn a new pi RPC subprocess.
 
         Args:
@@ -104,6 +115,10 @@ class PiProcess:
             "--no-extensions",
             "--no-skills",
         ])
+        if session_path:
+            # Resume directly instead of creating a blank session and then
+            # switching, which leaves a ghost conversation in the sidebar.
+            args.extend(["--session", session_path])
 
         # The MCP adapter registers this flag itself. Supplying a filtered
         # config makes the Settings allowlist effective for this process.
@@ -199,20 +214,27 @@ class PiProcess:
                     future.set_result(data)
                 return
             # Response without matching request -> treat as event
-            await self._event_queue.put(data)
+            await self._publish_event(data)
 
         elif msg_type == "extension_ui_request":
             # Extension requests user interaction - forward as event
             # The frontend will respond via extension_ui_response
-            await self._event_queue.put(data)
+            await self._publish_event(data)
 
         elif msg_type == "extension_error":
             print(f"[pi-manager] extension error: {data}")
-            await self._event_queue.put(data)
+            await self._publish_event(data)
 
         else:
             # Agent lifecycle event (message_start, tool_execution_start, etc.)
-            await self._event_queue.put(data)
+            await self._publish_event(data)
+
+    async def _publish_event(self, data: dict):
+        if self._event_subscribers:
+            for queue in tuple(self._event_subscribers):
+                queue.put_nowait(data)
+            return
+        await self._event_queue.put(data)
 
     async def send_command(self, cmd_type: str, **params) -> dict:
         """Send an RPC command and await the response.
@@ -264,32 +286,41 @@ class PiProcess:
 
     async def read_events(self) -> AsyncIterator[dict]:
         """Async generator yielding AgentSessionEvent dicts from the event queue."""
-        while True:
-            try:
-                # Check if process is still alive
-                if self.process.poll() is not None:
-                    # Process exited
-                    exit_code = self.process.returncode
-                    stderr_output = ""
-                    try:
-                        stderr_output = self.process.stderr.read()
-                    except Exception:
-                        pass
-                    yield {
-                        "type": "error",
-                        "sessionId": self.session_id,
-                        "message": f"pi process exited with code {exit_code}. stderr: {stderr_output[:500]}",
-                    }
-                    return
+        queue: asyncio.Queue = asyncio.Queue()
+        self._event_subscribers.add(queue)
+        # Preserve events emitted just before the first reader subscribed (the
+        # Reviewer intentionally sends its prompt before entering this loop).
+        while not self._event_queue.empty():
+            queue.put_nowait(self._event_queue.get_nowait())
+        try:
+            while True:
+                try:
+                    # Check if process is still alive
+                    if self.process.poll() is not None:
+                        # Process exited
+                        exit_code = self.process.returncode
+                        stderr_output = ""
+                        try:
+                            stderr_output = self.process.stderr.read()
+                        except Exception:
+                            pass
+                        yield {
+                            "type": "error",
+                            "sessionId": self.session_id,
+                            "message": f"pi process exited with code {exit_code}. stderr: {stderr_output[:500]}",
+                        }
+                        return
 
-                # Wait for next event with timeout to check process liveness
-                event = await asyncio.wait_for(self._event_queue.get(), timeout=1.0)
-                yield event
-            except asyncio.TimeoutError:
-                # No event yet, continue checking
-                continue
-            except asyncio.CancelledError:
-                return
+                    # Wait for next event with timeout to check process liveness
+                    event = await asyncio.wait_for(queue.get(), timeout=1.0)
+                    yield event
+                except asyncio.TimeoutError:
+                    # No event yet, continue checking
+                    continue
+                except asyncio.CancelledError:
+                    return
+        finally:
+            self._event_subscribers.discard(queue)
 
     async def shutdown(self):
         """Gracefully shut down the pi process."""
@@ -346,12 +377,26 @@ class PiManager:
                 # Dead process, clean up
                 await self._remove(cwd)
 
-        # Create session directory for this cwd
+        return await self._spawn_process(cwd, session_dir, config)
+
+    async def _spawn_process(
+        self,
+        cwd: str,
+        session_dir: str,
+        config: PiConfig,
+        *,
+        session_path: Optional[str] = None,
+    ) -> PiProcess:
         encoded_cwd = cwd.lstrip("/").replace("/", "-")
         cwd_session_dir = str(Path(session_dir) / encoded_cwd)
         os.makedirs(cwd_session_dir, exist_ok=True)
 
-        pi = await PiProcess.spawn(cwd, cwd_session_dir, config)
+        pi = await PiProcess.spawn(
+            cwd,
+            cwd_session_dir,
+            config,
+            session_path=session_path,
+        )
         self._processes[cwd] = pi
         self._session_map[pi.session_id] = cwd
         return pi
@@ -387,25 +432,45 @@ class PiManager:
             return None
 
         pi = self.get_by_cwd(cwd)
-        spawned = False
         if pi is None or not pi.is_alive:
             if pi is not None:
                 await self._remove(cwd)
             from config import get_sessions_dir
 
-            pi = await self.get_or_spawn(
+            # Start directly on the persisted session. This avoids creating an
+            # extra empty conversation every time the backend is restarted.
+            return await self._spawn_process(
                 cwd=cwd,
                 session_dir=str(get_sessions_dir(cwd)),
                 config=config,
+                session_path=str(session_path),
             )
-            spawned = True
 
         result = await pi.send_command("switch_session", sessionPath=str(session_path))
         if not result.get("success"):
-            if spawned:
-                await self._remove(cwd)
             return None
         return pi
+
+    async def restart_session(
+        self,
+        session_id: str,
+        cwd: str,
+        config: PiConfig,
+    ) -> Optional[PiProcess]:
+        """Restart the runtime while preserving the selected conversation."""
+        cwd = str(Path(cwd).resolve())
+        session_path = self._find_session_file(session_id, cwd)
+        if session_path is None:
+            return None
+        await self._remove(cwd)
+        from config import get_sessions_dir
+
+        return await self._spawn_process(
+            cwd=cwd,
+            session_dir=str(get_sessions_dir(cwd)),
+            config=config,
+            session_path=str(session_path),
+        )
 
     def unbind_session(self, session_id: str):
         """Remove a session alias from the in-memory process map."""
@@ -427,7 +492,9 @@ class PiManager:
         """Remove and shut down a pi process."""
         pi = self._processes.pop(cwd, None)
         if pi:
-            self._session_map.pop(pi.session_id, None)
+            for session_id, mapped_cwd in list(self._session_map.items()):
+                if mapped_cwd == cwd:
+                    self._session_map.pop(session_id, None)
             await pi.shutdown()
 
     async def shutdown_all(self):

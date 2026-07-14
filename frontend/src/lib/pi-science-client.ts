@@ -1,8 +1,6 @@
 /** PiScienceClient — HTTP+SSE client for the pi-science backend.
  *  Replaces open-science's OpenCodeClient. */
 
-import type { ThreadBlock } from "../types/thread";
-
 // ── Types ──
 
 export interface PiScienceEvent {
@@ -70,7 +68,10 @@ export class PiScienceClient {
   }
 
   get isConnected(): boolean {
-    return this.eventSource !== null && this.eventSource.readyState === EventSource.OPEN;
+    // CONNECTING is already a live stream attempt. Treating it as disconnected
+    // opens a second SSE reader during fast sends/model changes and can make
+    // response events appear to vanish.
+    return this.eventSource !== null && this.eventSource.readyState !== EventSource.CLOSED;
   }
 
   // ── REST ──
@@ -143,7 +144,7 @@ export class PiScienceClient {
     }
   }
 
-  async setModel(sessionId: string, model: string, cwd?: string): Promise<void> {
+  async setModel(sessionId: string, model: string, cwd?: string): Promise<{ restarted: boolean }> {
     const params = cwd ? `?${new URLSearchParams({ cwd })}` : "";
     const res = await fetch(`${this.baseUrl}/api/sessions/${sessionId}/model${params}`, {
       method: "POST",
@@ -154,6 +155,7 @@ export class PiScienceClient {
     if (!res.ok || data.ok === false) {
       throw new Error(data.error || `Set model failed: ${res.statusText}`);
     }
+    return { restarted: data.restarted === true };
   }
 
   async abort(sessionId: string): Promise<void> {
@@ -212,6 +214,24 @@ export class PiScienceClient {
     this.eventSource.onerror = () => {
       // EventSource auto-reconnects; no need to log every reconnect attempt
     };
+  }
+
+  async waitUntilConnected(timeoutMs = 5000): Promise<void> {
+    const source = this.eventSource;
+    if (!source) throw new Error("Conversation stream is not connected");
+    if (source.readyState === EventSource.OPEN) return;
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => {
+        source.removeEventListener("open", handleOpen);
+        reject(new Error("Conversation stream connection timed out"));
+      }, timeoutMs);
+      const handleOpen = () => {
+        window.clearTimeout(timer);
+        resolve();
+      };
+      source.addEventListener("open", handleOpen, { once: true });
+    });
   }
 
   disconnect(): void {

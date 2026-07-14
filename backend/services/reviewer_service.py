@@ -292,7 +292,17 @@ organization_policy: {json.dumps(policy, ensure_ascii=False)}
         process: PiProcess | None = None
         chunks: list[str] = []
         try:
-            process = await PiProcess.spawn(str(workspace), str(session_dir), PiConfig())
+            # Use the explicitly configured global model for the Reviewer,
+            # including Custom API providers and the selected thinking level.
+            from api.settings import _load_config
+            from config import PI_DEFAULT_MODEL, PI_DEFAULT_THINKING
+
+            settings = _load_config()
+            reviewer_config = PiConfig(
+                model=settings.get("model", PI_DEFAULT_MODEL),
+                thinking=settings.get("thinking", PI_DEFAULT_THINKING),
+            )
+            process = await PiProcess.spawn(str(workspace), str(session_dir), reviewer_config)
             response = await process.send_command("prompt", message=prompt)
             if not response.get("success"):
                 raise ReviewerError(response.get("error", "Reviewer prompt rejected"))

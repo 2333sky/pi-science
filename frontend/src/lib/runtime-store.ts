@@ -215,9 +215,9 @@ function _registerEventListener(client: PiScienceClient) {
     if (event.type === "agent_start") {
       _textBuffer = "";
       _currentTurnId = "";
-      state.working !== true && useRuntimeStore.setState({ working: true });
+      if (state.working !== true) useRuntimeStore.setState({ working: true });
     } else if (event.type === "agent_settled" || event.type === "session.idle") {
-      state.working !== false && useRuntimeStore.setState({ working: false });
+      if (state.working !== false) useRuntimeStore.setState({ working: false });
       loadSessionsInternal();
     }
 
@@ -268,6 +268,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       try {
         const result = await client.createSession(cwd);
         client.connect(result.id);
+        await client.waitUntilConnected();
         set({ client, activeSessionId: result.id, status: "ready" });
       } catch (err) {
         console.error("Failed to create session:", err);
@@ -286,7 +287,9 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   disconnect: () => {
     const { client } = get();
     client?.disconnect();
-    set({ status: "offline", client: null, activeSessionId: null });
+    // Preserve the selected conversation and rendered thread while navigating
+    // to Files/Knowledge. A workspace/session switch replaces them explicitly.
+    set({ status: "offline", client: null });
   },
 
   sendPrompt: async (message: string) => {
@@ -315,6 +318,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           await client.resumeSession(activeSessionId, cwd);
           client.connect(activeSessionId);
           _registerEventListener(client);
+          await client.waitUntilConnected();
           set({ client });
         } catch (err) {
           console.error("Failed to resume session:", err);
@@ -330,6 +334,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
           set((s) => ({ activeSessionId: result.id, sessions: [newSession, ...s.sessions].slice(0, 50) }));
           client.connect(result.id);
           _registerEventListener(client);
+          await client.waitUntilConnected();
           set({ client });
         } catch (err) {
           console.error("Failed to create session for prompt:", err);
@@ -349,7 +354,29 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       set({ working: false, status: "error" });
       return;
     }
-    await client.sendPrompt(activeSessionId, message, cwd);
+    try {
+      await client.waitUntilConnected();
+      await client.sendPrompt(activeSessionId, message, cwd);
+    } catch (error) {
+      const current = get();
+      const errorBlock: ThreadBlock = {
+        kind: "status-line",
+        id: `error-${Date.now()}`,
+        text: error instanceof Error ? error.message : "Unable to send message",
+        level: "error",
+      };
+      const nextBlocks = [...current.thread.blocks, errorBlock];
+      set({
+        thread: {
+          blocks: nextBlocks,
+          index: { ...current.thread.index, [errorBlock.id]: nextBlocks.length - 1 },
+          loaded: true,
+        },
+        working: false,
+        status: "error",
+      });
+      throw error;
+    }
   },
 
   abort: async () => {
@@ -372,7 +399,13 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
       _registerEventListener(client);
       set({ client });
     }
-    await client.setModel(activeSessionId, model, cwd);
+    const result = await client.setModel(activeSessionId, model, cwd);
+    if (result.restarted) {
+      client.connect(activeSessionId);
+      _registerEventListener(client);
+      await client.waitUntilConnected();
+      set({ client, status: "ready" });
+    }
   },
 
   loadSessions: async () => {
@@ -406,6 +439,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     blocks.forEach((b, i) => { index[b.id] = i; });
     client.connect(result.id);
     _registerEventListener(client);
+    await client.waitUntilConnected();
     set({
       client,
       activeSessionId: result.id,
@@ -430,6 +464,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
     const client = getClient();
     const result = await client.createSession(cwd);
     client.connect(result.id);
+    await client.waitUntilConnected();
     const newSession: SessionInfo = { id: result.id, cwd: cwd, name: "New Session" };
     set((s) => ({ sessions: [newSession, ...s.sessions].slice(0, 50) }));
     set({ client, activeSessionId: result.id, thread: emptyThread(), working: false });

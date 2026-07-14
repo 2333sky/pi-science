@@ -53,16 +53,22 @@ export function LiveSessionPage() {
   }, []);
 
   const handleModelChange = async (model: string) => {
+    const previousModel = selectedModel;
     setSelectedModel(model);
     setModelError(null);
     try {
       await setRuntimeModel(model);
-      await fetch("/api/settings/model", {
+      const response = await fetch("/api/settings/model", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model, thinking }),
       });
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || `Unable to save model: ${response.statusText}`);
+      }
     } catch (e) {
+      setSelectedModel(previousModel);
       setModelError(e instanceof Error ? e.message : "Unable to set model");
     }
   };
@@ -99,7 +105,9 @@ export function LiveSessionPage() {
 
     setInput("");
     setFiles([]);
-    sendPrompt(message);
+    void sendPrompt(message).catch(() => {
+      // The runtime keeps the failed message visible with an inline error.
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
