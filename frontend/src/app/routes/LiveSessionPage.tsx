@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { ArrowUp, Loader2, Square, Paperclip, X } from "lucide-react";
+import { ArrowUp, Loader2, Square, Paperclip, Sparkles, X } from "lucide-react";
 import { getSessionName, type AvailableModel } from "../../lib/pi-science-client";
 import { useRuntimeStore } from "../../lib/runtime-store";
 import { useUiStore } from "../../lib/store";
@@ -9,6 +9,7 @@ import type { ThreadBlock } from "../../types/thread";
 import { MarkdownViewer } from "../../components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock, fileInspectorFromBlock } from "../../lib/artifacts";
 import { setCurrentCwd } from "../../lib/files";
+import { projectKnowledgeApi } from "../../lib/project-knowledge";
 
 export function LiveSessionPage() {
   const { sessionId, cwd: rawCwd } = useParams<{ sessionId: string; cwd: string }>();
@@ -27,12 +28,14 @@ export function LiveSessionPage() {
   const [selectedModel, setSelectedModel] = useState("");
   const [thinking, setThinking] = useState("high");
   const [modelError, setModelError] = useState<string | null>(null);
+  const [reviewingProject, setReviewingProject] = useState(false);
+  const [reviewNotice, setReviewNotice] = useState<string | null>(null);
 
   useEffect(() => {
     setCurrentCwd(workspaceCwd);
     connect(workspaceCwd, sessionId || undefined);
     return () => disconnect();
-  }, [sessionId, workspaceCwd]);
+  }, [sessionId, workspaceCwd, connect, disconnect]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -121,6 +124,20 @@ export function LiveSessionPage() {
     }
   };
 
+  const handleProjectReview = async () => {
+    if (reviewingProject || working) return;
+    setReviewingProject(true);
+    setReviewNotice(null);
+    try {
+      const result = await projectKnowledgeApi.review(workspaceCwd, activeSessionId);
+      setReviewNotice(result.created > 0 ? `${result.created} update proposal${result.created === 1 ? "" : "s"} added` : result.message);
+    } catch (cause) {
+      setReviewNotice(cause instanceof Error ? cause.message : "Project review failed");
+    } finally {
+      setReviewingProject(false);
+    }
+  };
+
   const title = activeSessionId ? (getSessionName(activeSessionId) || activeSessionId.slice(0, 8)) : "New Session";
 
   return (
@@ -191,6 +208,16 @@ export function LiveSessionPage() {
               >
                 <Paperclip size={13} /> Attach
               </button>
+              <button
+                type="button"
+                onClick={() => void handleProjectReview()}
+                disabled={working || reviewingProject}
+                className="flex min-h-7 items-center gap-1 rounded-input px-2 py-1 text-xs text-muted hover:bg-surface-2 hover:text-text disabled:cursor-wait disabled:opacity-50"
+                title="Review this conversation for durable project knowledge"
+              >
+                {reviewingProject ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                Review
+              </button>
               <select
                 aria-label="Select model"
                 value={selectedModel}
@@ -201,6 +228,7 @@ export function LiveSessionPage() {
                 {models.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
               </select>
               {modelError && <span className="max-w-[180px] truncate text-[10px] text-error" title={modelError}>{modelError}</span>}
+              {reviewNotice && <span className="max-w-[220px] truncate text-[10px] text-muted" title={reviewNotice}>{reviewNotice}</span>}
             </div>
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFilePick} />
             {working ? (

@@ -2,7 +2,7 @@
 title: 项目知识文档与 Reviewer Agent 设计构想
 date: 2026-07-15
 context: Pi-Science 产品探索；仅形成设计方案，尚未进入代码实现
-status: draft
+status: implemented
 ---
 
 # 项目知识文档与 Reviewer Agent 设计构想
@@ -345,3 +345,22 @@ project/
 5. 将 MVP 拆成后端数据层、Reviewer 流程和前端审批界面三个可验收阶段。
 
 到达上述节点时，先向用户说明即将开始修改哪些模块、预计增加哪些数据文件和如何手动验收，再开始写代码。
+
+## 14. 实现结果（2026-07-15）
+
+本设计已完成首轮实现与验收：
+
+- 工作区初始化会创建 `PROJECT.md`、基础真实目录和 `.pi-science` 知识结构；
+- Reviewer 使用独立临时 Pi RPC 进程，兼容现有内置模型和 Custom API；
+- 对话结束后可异步自动审阅，也可从输入框或项目知识页手动触发；
+- 模型输出必须通过结构、来源消息、相关文件和路径安全校验；
+- 待整理区支持查看差异、证据、理由、安全预览、编辑、接受、拒绝和批量处理；
+- 接受知识建议后才更新结构化知识及 `PROJECT.md`；
+- 文件建议支持 `mkdir`、`move`、`rename`，执行前检查路径、冲突、锁定目录、Git 状态和引用；
+- 文件操作使用事务执行，失败自动回滚，成功后可从历史记录撤销；
+- 文件索引使用稳定文件 ID，并提供按类型、主题和月份的逻辑视图；
+- 项目文档每次更新生成可恢复版本；
+- 整理规则保存到 `.pi-science/policy.yaml`，接受和拒绝结果用于累计项目偏好；
+- 前端提供 Project Knowledge 页面、侧栏待确认徽标、暗色模式和窄屏布局。
+
+对应 AI 行为契约见 `project-knowledge-reviewer-ai-spec.md`，验收证据见 `project-knowledge-reviewer-uat.md`。

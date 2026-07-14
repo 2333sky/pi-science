@@ -1,15 +1,15 @@
 """Workspace management API — list and create workspace directories."""
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 import shutil
 
 from config import WORKSPACES_DIR
+from services.project_knowledge_store import initialize_project_workspace
 
 HARNESS_DIR = Path(__file__).parent.parent.parent / "harness"
 
@@ -75,6 +75,7 @@ async def create_workspace(body: CreateWorkspaceRequest):
     path.mkdir(parents=True)
     # Seed harness files (AGENTS.md, KNOWLEDGE.md) into new workspace
     _seed_harness(path)
+    initialize_project_workspace(path, create_base_directories=True)
     return WorkspaceInfo(
         name=name,
         path=str(path),
@@ -86,7 +87,6 @@ async def create_workspace(body: CreateWorkspaceRequest):
 @router.post("/open", response_model=WorkspaceInfo)
 async def open_folder(body: OpenFolderRequest):
     """Open an existing folder as a workspace."""
-    import os as _os
     folder = Path(body.path).expanduser().resolve()
     if not folder.exists():
         raise HTTPException(status_code=404, detail=f"Folder not found: {folder}")

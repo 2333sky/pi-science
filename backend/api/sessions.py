@@ -21,6 +21,7 @@ from models import (
 from services.pi_manager import pi_manager
 from services.event_normalizer import normalize_event
 from services.provenance_store import get_store
+from services.reviewer_service import schedule_auto_review
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -247,6 +248,7 @@ async def stream_events(session_id: str, request: Request):
 
                 if event.get("type") == "agent_settled":
                     had_text = False  # Reset for next turn
+                    schedule_auto_review(pi.cwd, session_id)
         except Exception as e:
             yield {
                 "event": "error",
