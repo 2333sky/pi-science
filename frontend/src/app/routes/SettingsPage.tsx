@@ -15,8 +15,13 @@ interface Provider {
   id: string; name: string; models: string[]; has_key: boolean;
 }
 
+interface CustomProvider {
+  id: string; name: string; base_url: string; api: string; models: string[]; has_key: boolean;
+}
+
 interface Config {
   api_keys: Record<string, boolean>; model: string; thinking: string; providers: Provider[];
+  custom_providers: CustomProvider[];
 }
 
 export function SettingsPage() {
@@ -85,7 +90,7 @@ export function SettingsPage() {
           ))}
         </div>
 
-        {tab === "llm" && <LLMTab config={config!} apiKeyInput={apiKeyInput} setApiKeyInput={setApiKeyInput} showKey={showKey} setShowKey={setShowKey} saving={saving} saveKey={saveKey} deleteKey={deleteKey} saveModel={saveModel} />}
+        {tab === "llm" && <LLMTab config={config!} apiKeyInput={apiKeyInput} setApiKeyInput={setApiKeyInput} showKey={showKey} setShowKey={setShowKey} saving={saving} saveKey={saveKey} deleteKey={deleteKey} saveModel={saveModel} onConfigReload={loadConfig} />}
         {tab === "extensions" && <ExtensionsTab />}
         {tab === "mcp" && <MCPTab />}
         {tab === "compute" && <ComputeTab />}
@@ -96,7 +101,7 @@ export function SettingsPage() {
 
 /* ── LLM Tab ── */
 
-function LLMTab({ config, apiKeyInput, setApiKeyInput, showKey, setShowKey, saving, saveKey, deleteKey, saveModel }: any) {
+function LLMTab({ config, apiKeyInput, setApiKeyInput, showKey, setShowKey, saving, saveKey, deleteKey, saveModel, onConfigReload }: any) {
   if (!config) return <div className="text-sm text-muted py-4"><Loader2 size={16} className="animate-spin inline mr-2" />Loading…</div>;
   return (
     <div className="space-y-6">
@@ -163,7 +168,131 @@ function LLMTab({ config, apiKeyInput, setApiKeyInput, showKey, setShowKey, savi
           </div>
         </div>
       </Section>
+
+      <CustomApiSection providers={config.custom_providers || []} onConfigReload={onConfigReload} />
     </div>
+  );
+}
+
+function CustomApiSection({ providers, onConfigReload }: { providers: CustomProvider[]; onConfigReload: () => Promise<void> }) {
+  const [name, setName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [apiKey, setApiKey] = useState("");
+  const [api, setApi] = useState("openai-completions");
+  const [discovered, setDiscovered] = useState<CustomProvider | null>(null);
+  const [busy, setBusy] = useState<"discover" | "save" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const discover = async () => {
+    if (!baseUrl.trim()) return;
+    setBusy("discover");
+    setError(null);
+    try {
+      const res = await fetch("/api/settings/custom-providers/discover", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() || "Custom API", base_url: baseUrl.trim(), api_key: apiKey, api }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Model discovery failed");
+      setDiscovered(data.provider);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const save = async () => {
+    if (!discovered) return;
+    setBusy("save");
+    setError(null);
+    try {
+      const res = await fetch(`/api/settings/custom-providers/${encodeURIComponent(discovered.id)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: discovered.name,
+          base_url: discovered.base_url,
+          api_key: apiKey,
+          api: discovered.api,
+          models: discovered.models,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || "Could not save custom provider");
+      setDiscovered(null);
+      setName(""); setBaseUrl(""); setApiKey("");
+      await onConfigReload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (id: string) => {
+    setError(null);
+    const res = await fetch(`/api/settings/custom-providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setError(data.detail || "Could not remove custom provider");
+      return;
+    }
+    await onConfigReload();
+  };
+
+  return (
+    <Section title="Custom API">
+      <div className="rounded-card border border-border bg-surface px-4 py-4 space-y-3">
+        <p className="text-[11px] text-muted">
+          Fill in an OpenAI-compatible endpoint. Pi-Science calls <code className="font-mono">/models</code> and adds the discovered models to the model selector.
+        </p>
+        {error && <p className="rounded-input bg-error/10 px-3 py-2 text-[11px] text-error">{error}</p>}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Provider name (optional)" className="rounded-input border border-border bg-surface-2 px-3 py-2 text-[12px] text-text outline-none" />
+          <select value={api} onChange={(e) => setApi(e.target.value)} className="rounded-input border border-border bg-surface-2 px-3 py-2 text-[12px] text-text outline-none">
+            <option value="openai-completions">OpenAI Chat Completions</option>
+            <option value="openai-responses">OpenAI Responses</option>
+            <option value="anthropic-messages">Anthropic Messages</option>
+          </select>
+        </div>
+        <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://api.example.com/v1" className="w-full rounded-input border border-border bg-surface-2 px-3 py-2 text-[12px] font-mono text-text outline-none" />
+        <div className="flex gap-2">
+          <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} placeholder="API key" className="min-w-0 flex-1 rounded-input border border-border bg-surface-2 px-3 py-2 text-[12px] font-mono text-text outline-none" />
+          <button onClick={discover} disabled={!baseUrl.trim() || busy !== null} className="rounded-input bg-accent px-3 py-2 text-[12px] font-medium text-accent-fg disabled:opacity-40">
+            {busy === "discover" ? "Discovering…" : "Discover models"}
+          </button>
+        </div>
+        {discovered && (
+          <div className="rounded-input border border-accent/30 bg-accent/5 px-3 py-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-text">{discovered.name}</span>
+              <button onClick={save} disabled={busy !== null} className="rounded-input bg-accent px-2.5 py-1 text-[11px] font-medium text-accent-fg disabled:opacity-40">
+                {busy === "save" ? "Saving…" : "Save provider"}
+              </button>
+            </div>
+            <p className="mt-2 text-[11px] text-muted">{discovered.models.length} models discovered</p>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {discovered.models.map((model) => <span key={model} className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px] text-text">{model}</span>)}
+            </div>
+          </div>
+        )}
+        {providers.map((provider) => (
+          <div key={provider.id} className="flex items-start justify-between gap-3 border-t border-faint pt-3">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-xs font-medium text-text">
+                <span className="truncate">{provider.name}</span>
+                {provider.has_key && <span className="text-[10px] text-ok">key saved</span>}
+              </div>
+              <p className="truncate font-mono text-[10px] text-muted">{provider.base_url}</p>
+              <p className="mt-1 text-[10px] text-muted">{provider.models.join(", ")}</p>
+            </div>
+            <button onClick={() => remove(provider.id)} className="shrink-0 rounded-input px-2 py-1 text-[11px] text-error hover:bg-error/10">Remove</button>
+          </div>
+        ))}
+      </div>
+    </Section>
   );
 }
 
@@ -179,7 +308,7 @@ function ExtensionsTab() {
         <ExtCard name="MCP Adapter" pkg="pi-mcp-adapter" desc="Bridges MCP servers into pi. One proxy tool for all servers with lazy loading and OAuth support." checked />
         <ExtCard name="Subagents" pkg="pi-subagents" desc="Delegate work to focused child agents: scout, researcher, planner, worker, reviewer, oracle." checked />
         <ExtCard name="Web Access" pkg="pi-web-access" desc="Web search, URL fetching, YouTube/video understanding. Multi-provider with smart fallbacks." checked />
-        <ExtCard name="Context Mode" pkg="context-mode" desc="Sandboxed code execution (12 languages) + FTS5 knowledge index. Reduces context bloat by up to 98% in long scientific sessions. Auto-installs ctx_execute, ctx_search, ctx_index tools." checked />
+        <ExtCard name="Context Mode" pkg="context-mode" desc="Sandboxed code execution (12 languages) + FTS5 knowledge index. Reduces context bloat by up to 98% in long scientific sessions." checked />
       </Section>
     </div>
   );
@@ -205,6 +334,7 @@ function ExtCard({ name, pkg, desc, checked }: { name: string; pkg: string; desc
 function MCPTab() {
   const [enabled, setEnabled] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/settings/mcp").then(r => r.json()).then(d => {
@@ -215,8 +345,15 @@ function MCPTab() {
   }, []);
 
   const toggle = async (id: string, on: boolean) => {
+    const previous = !!enabled[id];
+    setError(null);
     setEnabled((prev) => ({ ...prev, [id]: on }));
-    await fetch(`/api/settings/mcp/${id}?enabled=${on}`, { method: "PUT" });
+    const res = await fetch(`/api/settings/mcp/${id}?enabled=${on}`, { method: "PUT" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      setEnabled((prev) => ({ ...prev, [id]: previous }));
+      setError(data.detail || `Could not update MCP server: ${res.statusText}`);
+    }
   };
 
   if (loading) return <div className="text-sm text-muted py-4"><Loader2 size={16} className="animate-spin inline mr-2" />Loading…</div>;
@@ -224,6 +361,7 @@ function MCPTab() {
   return (
     <div className="space-y-6">
       <Section title="Science MCP Connectors">
+        {error && <p className="mb-3 rounded-input bg-error/10 px-3 py-2 text-[11px] text-error">{error}</p>}
         <p className="text-[11px] text-muted mb-3">
           Open-source scientific MCP servers. Enable to give the agent access to literature databases, material properties, weather data, and more.
           Requires the MCP Adapter extension.
@@ -275,7 +413,8 @@ function McpRow({ id, label, disc, desc, src, keyEnv, enabled, onToggle }: {
 /* ── Compute Tab ── */
 
 interface Machine {
-  host: string; label: string; user: string; port: number; identity_file: string; scheduler: string;
+  label: string; host: string; user: string; port: number;
+  identity_file: string; scheduler: string;
 }
 
 function ComputeTab() {
@@ -316,14 +455,14 @@ function ComputeTab() {
   };
 
   const handleProbe = async (machine: Machine) => {
-    setProbing((p: any) => ({ ...p, [machine.label]: true }));
+    setProbing((p) => ({ ...p, [machine.label]: true }));
     try {
       const params = new URLSearchParams({ host: machine.host, user: machine.user, port: String(machine.port), identity_file: machine.identity_file });
       const res = await fetch(`/api/compute/probe?${params}`, { method: "POST" });
       const info = await res.json();
-      setProbing((p: any) => ({ ...p, [machine.label]: info }));
+      setProbing((p) => ({ ...p, [machine.label]: info }));
     } catch (e) { console.error(e); }
-    finally { setProbing((p: any) => ({ ...p, [machine.label]: false })); }
+    finally { setProbing((p) => ({ ...p, [machine.label]: false })); }
   };
 
   if (loading) return <div className="text-sm text-muted py-4">Loading…</div>;
@@ -335,8 +474,6 @@ function ComputeTab() {
           Configure SSH servers, GPU boxes, or Slurm clusters for remote computation.
           Config is saved to <code className="font-mono text-[11px] bg-surface-2 px-1 rounded">.pi-science/compute.json</code>.
         </p>
-
-        {/* Add form */}
         <div className="rounded-card border border-border bg-surface p-4 mb-3">
           <div className="grid grid-cols-3 gap-2 mb-2">
             <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })} placeholder="Label*" className="rounded-input border border-border bg-surface-2 px-2 py-1.5 text-xs text-text outline-none" />
@@ -353,8 +490,6 @@ function ComputeTab() {
             {error && <span className="text-xs text-error">{error}</span>}
           </div>
         </div>
-
-        {/* Machine list */}
         {machines.length === 0 ? (
           <p className="text-[12px] text-muted/60 italic">No machines configured</p>
         ) : (
