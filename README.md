@@ -23,6 +23,23 @@ The core interface: a streaming chat where AI agents write, execute, and visuali
 - **Session management** — create, resume, fork, and delete conversations; history preserved per workspace
 - **AGENTS.md / KNOWLEDGE.md** — per-workspace agent instructions auto-seeded on session creation
 
+### Project Knowledge Reviewer · 项目知识审稿人
+
+Each workspace has a durable `PROJECT.md` and a Reviewer-managed inbox. Conversations and project files are analyzed for useful knowledge, but nothing enters the formal project record until the user accepts it.
+
+每个工作区都有持续演化的 `PROJECT.md` 和 Reviewer 待整理区。系统会从对话和项目文件中识别有效知识，但只有用户确认后才能写入正式项目记录。
+
+- **Proposal-only Reviewer** — extracts findings, conclusions, decisions, hypotheses, open questions, tasks, project changes, and artifacts
+- **Evidence links** — proposals retain their source session, message IDs, related files, confidence, and conflicts
+- **Human approval** — accept, edit, reject, or batch-review proposals before they update `PROJECT.md`
+- **Automatic or manual review** — run silently after settled conversations, or trigger “Review” from the composer
+- **Hybrid file organization** — shallow physical folders plus logical views by type, topic, and time
+- **Safe file plans** — preview moves/renames, detect collisions and references, execute transactionally, and undo from history
+- **Project versions** — every reviewed document update creates a restorable project-document version
+- **Per-project policy** — lock paths, set naming conventions, and learn from accepted/rejected proposal categories
+
+Workspace-local data is stored under `.pi-science/knowledge/`, `.pi-science/inbox/`, `.pi-science/history/`, `.pi-science/index.json`, and `.pi-science/policy.yaml`.
+
 ### Scientific File Viewers · 科学文件查看器
 
 15+ built-in viewers render scientific data formats natively in the browser. No plugin needed.
@@ -115,6 +132,7 @@ Every file the agent creates or edits is automatically recorded with full lineag
 | **Files** | `/files` | Full file browser — breadcrumb nav, table/chart views for data files |
 | **Notebooks** | `/notebooks` | .ipynb listing, Jupyter Lab start/stop, kernel status |
 | **Runs** | `/runs` | Experiment history — command, status, host, outputs |
+| **Project Knowledge** | `/knowledge` | Review proposals, inspect `PROJECT.md`, browse logical files, and undo changes |
 | **Skills** | `/skills` | Installed agent skills and scientific tool detection |
 | **Settings** | `/settings` | LLM config, API keys, model selection, extensions, MCP servers |
 

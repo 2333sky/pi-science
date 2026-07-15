@@ -1,6 +1,5 @@
 """Workspace management API — list and create workspace directories."""
 
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from pydantic import BaseModel
 import shutil
 
 from config import WORKSPACES_DIR
+from services.project_knowledge_store import initialize_project_workspace
 
 HARNESS_DIR = Path(__file__).parent.parent.parent / "harness"
 
@@ -75,6 +75,7 @@ async def create_workspace(body: CreateWorkspaceRequest):
     path.mkdir(parents=True)
     # Seed harness files (AGENTS.md, KNOWLEDGE.md) into new workspace
     _seed_harness(path)
+    initialize_project_workspace(path, create_base_directories=True)
     return WorkspaceInfo(
         name=name,
         path=str(path),

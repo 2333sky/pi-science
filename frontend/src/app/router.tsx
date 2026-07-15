@@ -6,6 +6,7 @@ import { SkillsPage } from "./routes/SkillsPage";
 import { FilesPage } from "./routes/FilesPage";
 import { NotebooksPage } from "./routes/NotebooksPage";
 import { RunsPage } from "./routes/RunsPage";
+import { KnowledgePage } from "./routes/KnowledgePage";
 import { ProjectsLayout } from "./layout/ProjectsLayout";
 
 export const router = createBrowserRouter([
@@ -21,6 +22,7 @@ export const router = createBrowserRouter([
       { path: "workspace/:cwd/files", element: <FilesPage /> },
       { path: "workspace/:cwd/notebooks", element: <NotebooksPage /> },
       { path: "workspace/:cwd/runs", element: <RunsPage /> },
+      { path: "workspace/:cwd/knowledge", element: <KnowledgePage /> },
     ],
   },
 ]);

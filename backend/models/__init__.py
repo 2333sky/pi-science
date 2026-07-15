@@ -4,6 +4,38 @@ from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field
 
+from .project_knowledge import (
+    BatchDecisionRequest,
+    FileOperation,
+    KnowledgeItem,
+    ProjectPolicy,
+    ProjectPolicyUpdate,
+    Proposal,
+    ProposalDecisionRequest,
+    ProposalUpdateRequest,
+    ReviewerProposalInput,
+    ReviewerResult,
+    ReviewRequest,
+    ReviewResponse,
+    SourceReference,
+)
+
+__all__ = [
+    "BatchDecisionRequest",
+    "FileOperation",
+    "KnowledgeItem",
+    "ProjectPolicy",
+    "ProjectPolicyUpdate",
+    "Proposal",
+    "ProposalDecisionRequest",
+    "ProposalUpdateRequest",
+    "ReviewerProposalInput",
+    "ReviewerResult",
+    "ReviewRequest",
+    "ReviewResponse",
+    "SourceReference",
+]
+
 
 # ── Session ──
 

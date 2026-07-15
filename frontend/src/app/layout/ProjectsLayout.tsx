@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useParams, useLocation } from "react-router-dom";
 import { useState, useEffect } from "react";
-import { PanelLeft, Settings, MessageSquare, Plus, Trash2, FolderOpen, ArrowLeft, Sun, Moon, Puzzle, FileText, BookOpen, Play } from "lucide-react";
+import { PanelLeft, Settings, MessageSquare, Plus, Trash2, FolderOpen, ArrowLeft, Sun, Moon, Puzzle, FileText, BookOpen, Play, Inbox } from "lucide-react";
 import { useUiStore } from "../../lib/store";
 import { useRuntimeStore } from "../../lib/runtime-store";
 import { InspectorShell } from "../../components/inspector/InspectorShell";
@@ -52,6 +52,7 @@ export function ProjectsLayout() {
               <CollapsedNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/files`} icon={<FileText size={16} />} label="Files" />
               <CollapsedNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/notebooks`} icon={<BookOpen size={16} />} label="Notebooks" />
               <CollapsedNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/runs`} icon={<Play size={16} />} label="Runs" />
+              <CollapsedNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/knowledge`} icon={<Inbox size={16} />} label="Knowledge" />
             </>
           )}
           <div className="flex-1" />
@@ -87,6 +88,7 @@ export function ProjectsLayout() {
                   <SidebarNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/files`} label="Files" icon={<FileText size={16} />} active={false} />
                   <SidebarNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/notebooks`} label="Notebooks" icon={<BookOpen size={16} />} active={false} />
                   <SidebarNavItem to={`/workspace/${encodeURIComponent(activeCwd!)}/runs`} label="Runs" icon={<Play size={16} />} active={false} />
+                  <KnowledgeNavItem cwd={activeCwd!} />
                 </>
               )}
             </nav>
@@ -270,7 +272,7 @@ function CollapsedNavItem({ to, icon, label }: { to: string; icon: React.ReactNo
   );
 }
 
-function SidebarNavItem({ to, label, icon, active }: { to: string; label: string; icon?: React.ReactNode; active: boolean }) {
+function SidebarNavItem({ to, label, icon, active, badge }: { to: string; label: string; icon?: React.ReactNode; active: boolean; badge?: number }) {
   const navigate = useNavigate();
   return (
     <button
@@ -282,7 +284,35 @@ function SidebarNavItem({ to, label, icon, active }: { to: string; label: string
     >
       {icon && <span className="shrink-0 text-muted">{icon}</span>}
       {label}
+      {badge !== undefined && badge > 0 && (
+        <span className="ml-auto rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold text-accent-fg leading-none">{badge}</span>
+      )}
     </button>
+  );
+}
+
+function KnowledgeNavItem({ cwd }: { cwd: string }) {
+  const location = useLocation();
+  const active = location.pathname.endsWith("/knowledge");
+  const [pending, setPending] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    const poll = () => fetch(`/api/project-knowledge/proposals/count?cwd=${encodeURIComponent(cwd)}`)
+      .then((response) => response.ok ? response.json() : { pending_count: 0 })
+      .then((data) => { if (!cancelled) setPending(Number(data.pending_count) || 0); })
+      .catch(() => { if (!cancelled) setPending(0); });
+    void poll();
+    const interval = setInterval(poll, 8000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [cwd]);
+  return (
+    <SidebarNavItem
+      to={`/workspace/${encodeURIComponent(cwd)}/knowledge`}
+      label="Knowledge"
+      icon={<Inbox size={16} />}
+      active={active}
+      badge={pending > 0 ? pending : undefined}
+    />
   );
 }
 

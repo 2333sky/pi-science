@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "test:uat:knowledge": "node scripts/uat-project-knowledge.mjs",
     "lint": "oxlint",
     "preview": "vite preview"
   },
@@ -21,7 +23,6 @@
     "3dmol": "^2.5.5",
     "autoprefixer": "^10.5.2",
     "clsx": "^2.1.1",
-    "context-mode": "^1.0.169",
     "docx-preview": "^0.4.0",
     "exceljs": "^4.4.0",
     "highlight.js": "^11.11.1",
@@ -47,7 +48,9 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
     "oxlint": "^1.71.0",
+    "playwright-core": "^1.61.1",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "vitest": "^4.1.10"
   }
 }
