@@ -1,7 +1,5 @@
 """Skills API — list and manage agent skills."""
 
-import glob
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -29,24 +27,50 @@ class ToolInfo(BaseModel):
 @router.get("", response_model=list[SkillInfo])
 async def list_skills(cwd: str = Query(".", description="Working directory")):
     """List all skills from project, user, and builtin locations."""
-    skills = []
-    cwd_path = Path(cwd).resolve()
+    return [
+        SkillInfo(name=name, description="", location=path, source=source)
+        for name, path, source in _discover_all_skills(cwd)
+    ]
 
-    # 1. Project skills: .pi/skills/
-    project_dir = cwd_path / ".pi" / "skills"
-    skills.extend(_scan_skills(project_dir, "project"))
 
-    # 2. User skills: ~/.pi/agent/skills/
-    user_dir = Path.home() / ".pi" / "agent" / "skills"
-    skills.extend(_scan_skills(user_dir, "user"))
+def _discover_all_skills(cwd: str = ".") -> list[tuple[str, str, str]]:
+    """Discover project, user, bundled, and installed package skills."""
+    results: list[tuple[str, str, str]] = []
+    project_dir = Path(cwd).expanduser().resolve() / ".pi" / "skills"
+    for info in _scan_skills(project_dir, "project"):
+        results.append((info.name, info.location, info.source))
 
-    # 3. Builtin: bundled with pi
-    pi_repo = Path(__file__).parent.parent.parent.parent / "pi"
-    if pi_repo.exists():
-        builtin_dir = pi_repo / ".pi" / "skills"
-        skills.extend(_scan_skills(builtin_dir, "builtin"))
+    for user_dir in (Path.home() / ".pi" / "agent" / "skills", Path.home() / ".agents" / "skills"):
+        for info in _scan_skills(user_dir, "user"):
+            results.append((info.name, info.location, info.source))
 
-    return skills
+    # Support both a local Pi checkout and the npm runtime layout.
+    from config import PI_CLI_PATH
+    cli_path = Path(PI_CLI_PATH).resolve()
+    if "packages" in cli_path.parts:
+        package_index = cli_path.parts.index("packages")
+        dev_root = Path(*cli_path.parts[:package_index])
+    else:
+        dev_root = cli_path.parent
+    candidates = [
+        dev_root,
+        cli_path.parent.parent.parent.parent if "node_modules" in cli_path.parts else cli_path.parent,
+        Path(__file__).resolve().parents[2] / "runtime" / "pi",
+    ]
+    seen_roots: set[Path] = set()
+    for pi_root in candidates:
+        if pi_root in seen_roots or not pi_root.exists():
+            continue
+        seen_roots.add(pi_root)
+        for info in _scan_skills(pi_root / ".pi" / "skills", "builtin"):
+            results.append((info.name, info.location, info.source))
+        node_modules = pi_root / "node_modules"
+        if node_modules.exists():
+            for child in node_modules.iterdir():
+                skills_dir = child / "skills"
+                for info in _scan_skills(skills_dir, "builtin"):
+                    results.append((info.name, info.location, info.source))
+    return results
 
 
 @router.get("/tools", response_model=list[ToolInfo])

@@ -2,13 +2,28 @@
 // Pure and transport-agnostic so it can be unit-tested without a live runtime.
 
 // Local types — originally from @ai4s/sdk and @ai4s/shared
+import type {
+  ArtifactInspector,
+  ArtifactKind,
+  ArtifactVersion,
+  FileRoot,
+  FilePreviewInspector,
+  NotebookFileInspector,
+} from "../types/thread";
+
+export type {
+  ArtifactInspector,
+  ArtifactKind,
+  ArtifactVersion,
+  FilePreviewInspector,
+  NotebookFileInspector,
+} from "../types/thread";
+
 interface ToolUpdatedEvent {
   status: string;
   tool: string;
   input?: Record<string, unknown>;
 }
-
-export type ArtifactKind = "code" | "data" | "figure" | "model" | "report" | "notebook" | "script" | "table" | "other";
 
 export interface ArtifactBlock {
   kind: "artifact";
@@ -19,46 +34,6 @@ export interface ArtifactBlock {
   tool: string;
   language?: string;
   content?: string;
-}
-
-export interface ArtifactVersion {
-  label: string;
-  code?: string;
-  executionLog?: string;
-  messages?: string[];
-  environment?: string;
-  reviewPassed?: boolean;
-}
-
-export interface ArtifactInspector {
-  variant: "artifact";
-  title: string;
-  filename: string;
-  versions: ArtifactVersion[];
-  activeVersion: string;
-  inputs?: string[];
-  language?: string;
-  code?: string;
-  executionLog?: string;
-  environment?: string;
-  messages?: string[];
-  reviewPassed?: boolean;
-}
-
-export interface FilePreviewInspector {
-  variant: "file";
-  path?: string;
-  filename: string;
-  artifact?: ArtifactKind;
-  language?: string;
-  content?: string;
-  root?: string;
-}
-
-export interface NotebookFileInspector {
-  variant: "notebook-file";
-  path?: string;
-  root?: string;
 }
 
 const EXT_KIND: Record<string, ArtifactKind> = {
@@ -222,15 +197,35 @@ export function previewKindForName(filename: string): PreviewKind {
 export function fileInspectorFromBlock(
   a: ArtifactBlock,
 ): FilePreviewInspector | NotebookFileInspector {
-  // Notebooks open in the runnable editor, not the raw-JSON preview.
-  if (extOf(a.filename) === "ipynb") return { variant: "notebook-file", path: a.path };
+  const path = a.path ?? a.filename;
+  const inspector = fileInspectorForPath(path, a.filename);
+  if (inspector.variant === "notebook-file") return inspector;
   return {
-    variant: "file",
-    path: a.path,
-    filename: a.filename,
+    ...inspector,
     artifact: a.artifact,
     language: a.language ?? EXT_LANG[extOf(a.filename)],
     content: a.content,
+  };
+}
+
+/** Build the correct inspector for any workspace path. */
+export function fileInspectorForPath(
+  path: string,
+  filename = path.split(/[\\/]/).pop() || path,
+  root?: FileRoot,
+  cwd?: string,
+): FilePreviewInspector | NotebookFileInspector {
+  if (extOf(filename) === "ipynb") {
+    return { variant: "notebook-file", path, root, cwd };
+  }
+  return {
+    variant: "file",
+    path,
+    filename,
+    root,
+    cwd,
+    artifact: extToKind(extOf(filename)),
+    language: EXT_LANG[extOf(filename)],
   };
 }
 
@@ -295,7 +290,7 @@ export function deriveArtifact(event: ToolUpdatedEvent): ArtifactBlock | null {
 /** Resolve the content shown for the active version, falling back to inspector-level fields. */
 export function resolveArtifactContent(
   data: ArtifactInspector,
-  activeLabel: string,
+  activeVersion: string,
 ): {
   code: string;
   executionLog?: string;
@@ -303,9 +298,11 @@ export function resolveArtifactContent(
   environment?: string;
   reviewPassed?: boolean;
 } {
-  const v: ArtifactVersion | undefined = data.versions.find((x) => x.label === activeLabel);
+  const v: ArtifactVersion | undefined = data.versions.find(
+    (version) => version.id === activeVersion || version.label === activeVersion,
+  );
   return {
-    code: v?.code ?? data.code,
+    code: v?.code ?? v?.content ?? data.code ?? "",
     executionLog: v?.executionLog ?? data.executionLog,
     messages: v?.messages ?? data.messages,
     environment: v?.environment ?? data.environment,

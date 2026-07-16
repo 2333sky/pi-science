@@ -2,13 +2,13 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "react-router-dom";
 import "./index.css";
+import "./i18n";
 import { router } from "./app/router";
+import { useUiStore } from "./lib/store";
 
-// Initialize theme from localStorage
-const theme = localStorage.getItem("pi-science.theme");
-if (theme) {
-  document.documentElement.setAttribute("data-theme", JSON.parse(theme));
-}
+const initialUi = useUiStore.getState();
+document.documentElement.setAttribute("data-theme", initialUi.theme);
+document.documentElement.lang = initialUi.locale;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

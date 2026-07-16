@@ -43,12 +43,17 @@ if [ -d "$LOCAL_PI_REPO/packages/coding-agent/src" ]; then
 fi
 
 # ── Strategy 2: npm install (production) ──
-echo "==> Installing @earendil-works/pi-coding-agent@$PI_VERSION from npm..."
+echo "==> Installing @earendil-works/pi-coding-agent@$PI_VERSION and extensions from npm..."
 cd "$RUNTIME_DIR"
 if [ ! -f "node_modules/.package-lock.json" ]; then
   npm init -y --silent 2>/dev/null
 fi
-npm install "@earendil-works/pi-coding-agent@$PI_VERSION" --ignore-scripts 2>&1 | tail -3
+npm install \
+  "@earendil-works/pi-coding-agent@$PI_VERSION" \
+  pi-mcp-adapter \
+  pi-subagents \
+  pi-web-access \
+  --ignore-scripts 2>&1 | tail -3
 
 PI_INSTALLED="$RUNTIME_DIR/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"
 if [ -f "$PI_INSTALLED" ]; then

@@ -114,7 +114,7 @@ PI_NODE_PATH=/usr/bin/node
 
 ### Full list
 
-See [README.md](./README.md#2-start-the-backend) for all available variables.
+See the environment table above and [`backend/config.py`](./backend/config.py) for the authoritative defaults.
 
 ---
 
@@ -147,7 +147,7 @@ npm run build    # → dist/
 cd /opt/pi-science/backend
 python3 -m venv venv
 source venv/bin/activate
-pip install fastapi uvicorn pydantic sse-starlette aiofiles
+pip install /opt/pi-science/backend
 ```
 
 #### 4. Create environment file
@@ -177,7 +177,7 @@ Group=app
 EnvironmentFile=/etc/pi-science/env
 WorkingDirectory=/opt/pi-science/backend
 ExecStart=/opt/pi-science/backend/venv/bin/uvicorn main:app \
-  --host 127.0.0.1 --port 8787 --workers 4
+  --host 127.0.0.1 --port 8787 --workers 1
 Restart=always
 RestartSec=5
 
@@ -220,10 +220,12 @@ RUN npm install -g @earendil-works/pi-coding-agent@${PI_VERSION}
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
+COPY pyproject.toml main.py config.py ./
+COPY api ./api
+COPY models ./models
+COPY services ./services
+COPY pi_science ./pi_science
+RUN pip install --no-cache-dir .
 
 ENV PI_CLI_PATH=/usr/local/lib/node_modules/@earendil-works/pi-coding-agent/dist/cli.js
 ENV PI_NODE_PATH=/usr/bin/node
@@ -235,7 +237,7 @@ VOLUME ["/data", "/workspaces"]
 
 EXPOSE 8787
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8787", "--workers", "4"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8787", "--workers", "1"]
 ```
 
 #### 2. Frontend Dockerfile
@@ -680,17 +682,18 @@ grep -r "proxy_read_timeout" /etc/nginx/
 
 ### Single-node scaling
 
-- Use `--workers N` in uvicorn to handle multiple concurrent connections
-- Each worker handles its own pi subprocesses
-- Monitor memory — 4 workers × 4 sessions = ~800 MB baseline + kernel overhead
+- Run exactly one Uvicorn worker per Pi-Science instance. Conversation locks, SSE queues, Pi subprocesses, kernels, and the managed Jupyter process are held in that worker's memory.
+- Scale vertically by increasing CPU/RAM and limiting the number of simultaneously active workspaces.
+- To use multiple application processes, explicitly partition workspaces between separate instances; do not point independent workers at the same active workspace.
+- Monitor memory — every active workspace owns a Pi subprocess, and Python/R kernels add their own memory overhead.
 
 ### Multi-node scaling
 
-Pi-science is **stateful by design** (one pi process per session). For multi-node:
+Pi-science is **stateful by design** (one Pi process per active workspace). For multi-node:
 
-1. **Session affinity is required** — route requests for a given session to the same node
+1. **Workspace affinity is required** — all sessions and SSE requests for a workspace must reach the same node
 2. Use a shared filesystem (NFS, EFS) for session data and workspaces
-3. Consider Redis for session-to-node mapping
+3. A shared filesystem alone does not share live locks or event queues; maintain an explicit workspace-to-node registry
 4. Use Kubernetes with StatefulSet and persistent volumes
 
 ### Database (future)

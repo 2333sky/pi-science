@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from config import BASE_DIR
+from services.runtime_extensions import runtime_extension_status
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -70,6 +71,12 @@ class CustomProviderRequest(BaseModel):
     api_key: str = ""
     api: Literal["openai-completions", "openai-responses", "anthropic-messages"] = "openai-completions"
     models: list[str] = Field(default_factory=list)
+
+
+@router.get("/extensions")
+async def list_runtime_extensions():
+    """Report extension entrypoints that the next Pi process will actually load."""
+    return {"extensions": runtime_extension_status()}
 
 
 # ── Helpers ──
@@ -226,6 +233,40 @@ def _available_models(config: Optional[dict] = None) -> list[dict]:
     return models
 
 
+def _custom_model_supports_reasoning(model_id: str) -> bool:
+    """Infer thinking support from common reasoning-model naming schemes."""
+    value = model_id.strip().lower()
+    if any(token in value for token in ("gpt-5", "reasoning", "thinking", "thinker", "deepseek-r1", "qwq", "qwen3")):
+        return True
+    if re.search(r"(^|[-_/])(o1|o3|o4|r1)([-_./]|$)", value):
+        return True
+    if "claude" in value and any(token in value for token in ("3-7", "3.7", "sonnet-4", "opus-4", "haiku-4")):
+        return True
+    if "gemini-2.5" in value or "gemini-3" in value:
+        return True
+    return False
+
+
+def _custom_model_supports_max(model_id: str) -> bool:
+    """Conservatively identify custom models that accept a literal ``max``.
+
+    OpenAI-compatible gateways often expose reasoning models but only accept
+    ``high`` for older GPT-5 variants. Mapping max to high for those models
+    prevents a selectable model from producing an empty turn merely because
+    the workspace's previous model used max thinking.
+    """
+    value = model_id.strip().lower()
+    return any(token in value for token in (
+        "gpt-5.6",
+        "codex",
+        "reasoning-max",
+        "thinking-max",
+        "deepseek-r1",
+        "qwq",
+        "qwen3",
+    ))
+
+
 def get_custom_models_runtime(cwd: Optional[str] = None) -> tuple[Optional[Path], dict[str, str]]:
     """Materialize custom providers as a pi models.json plus env-backed keys."""
     providers = _custom_providers()
@@ -244,19 +285,28 @@ def get_custom_models_runtime(cwd: Optional[str] = None) -> tuple[Optional[Path]
             "name": provider["name"],
             "baseUrl": provider["base_url"],
             "api": provider["api"],
-            "models": [
-                {
-                    "id": model,
-                    "name": model,
-                    "reasoning": False,
-                    "input": ["text"],
-                    "contextWindow": 128000,
-                    "maxTokens": 16384,
-                    "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
-                }
-                for model in provider["models"]
-            ],
+            "models": [],
         }
+        for model in provider["models"]:
+            reasoning = _custom_model_supports_reasoning(model)
+            model_definition = {
+                "id": model,
+                "name": model,
+                "reasoning": reasoning,
+                "input": ["text"],
+                "contextWindow": 128000,
+                "maxTokens": 16384,
+                "cost": {"input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0},
+            }
+            if reasoning:
+                # pi exposes xhigh/max only when the model explicitly maps
+                # those levels. OpenAI-compatible reasoning models also need
+                # the compatibility flag to emit reasoning_effort.
+                max_level = "max" if _custom_model_supports_max(model) else "high"
+                model_definition["thinkingLevelMap"] = {"xhigh": max_level, "max": max_level}
+                if provider["api"] == "openai-completions":
+                    model_definition["compat"] = {"supportsReasoningEffort": True}
+            definition["models"].append(model_definition)
         if provider.get("api_key"):
             definition["apiKey"] = f"${env_name}"
             env[env_name] = provider["api_key"]
@@ -546,3 +596,72 @@ async def toggle_mcp_server(server_id: str, enabled: bool = Query(True)):
         "enabled": enabled,
         "runtime_config": str(runtime_path) if runtime_path else None,
     }
+
+
+# ── Skill Management ──
+
+
+class SkillToggleRequest(BaseModel):
+    name: str
+    enabled: bool = True
+
+
+@router.get("/skills")
+async def get_skills_state():
+    """Return discovered skills and their effective enabled state."""
+    from api.skills import _discover_all_skills
+
+    config = _load_config()
+    configured = bool(config.get("skills_configured", False))
+    enabled_paths = set(config.get("skill_paths", []))
+    skills = []
+    for name, path, source in _discover_all_skills():
+        skills.append({
+            "name": name,
+            "path": path,
+            "source": source,
+            "enabled": path in enabled_paths if configured else True,
+        })
+    return {"skills": skills, "configured": configured}
+
+
+@router.put("/skills/toggle")
+async def toggle_skill(body: SkillToggleRequest):
+    """Enable or disable one skill for subsequently spawned Pi processes."""
+    from api.skills import _discover_all_skills
+
+    config = _load_config()
+    discovered = _discover_all_skills()
+    name_to_path = {name: path for name, path, _source in discovered}
+    if body.name not in name_to_path:
+        raise HTTPException(status_code=404, detail=f"Skill '{body.name}' not found")
+
+    if config.get("skills_configured"):
+        enabled_paths = set(config.get("skill_paths", []))
+    else:
+        enabled_paths = {path for _name, path, _source in discovered}
+    skill_path = name_to_path[body.name]
+    if body.enabled:
+        enabled_paths.add(skill_path)
+    else:
+        enabled_paths.discard(skill_path)
+    config["skills_configured"] = True
+    config["skill_paths"] = sorted(enabled_paths)
+    _save_config(config)
+    return {
+        "ok": True,
+        "name": body.name,
+        "enabled": body.enabled,
+        "enabled_count": len(enabled_paths),
+        "total_count": len(discovered),
+    }
+
+
+@router.delete("/skills")
+async def reset_skills():
+    """Return skill loading to automatic discovery mode."""
+    config = _load_config()
+    config.pop("skills_configured", None)
+    config.pop("skill_paths", None)
+    _save_config(config)
+    return {"ok": True, "message": "Skills reset to auto-discover mode"}

@@ -12,11 +12,10 @@ from api.sessions import router as sessions_router
 from api.files import router as files_router
 from api.kernels import router as kernels_router
 from api.provenance import router as provenance_router
-from api.compute import router as compute_router
 from api.settings import router as settings_router
 from api.workspaces import router as workspaces_router
 from api.skills import router as skills_router
-from api.notebooks import router as notebooks_router
+from api.notebooks import router as notebooks_router, shutdown_jupyter_server
 from api.runs import router as runs_router
 from api.project_knowledge import router as project_knowledge_router
 from services.pi_manager import pi_manager
@@ -33,6 +32,8 @@ async def lifespan(app: FastAPI):
     # Cleanup on shutdown
     print("[pi-science] Shutting down kernels...")
     await kernel_manager.shutdown_all()
+    print("[pi-science] Shutting down Jupyter Lab...")
+    await shutdown_jupyter_server()
     print("[pi-science] Shutting down pi processes...")
     await pi_manager.shutdown_all()
 
@@ -58,7 +59,6 @@ app.include_router(sessions_router)
 app.include_router(files_router)
 app.include_router(kernels_router)
 app.include_router(provenance_router)
-app.include_router(compute_router)
 app.include_router(settings_router)
 app.include_router(workspaces_router)
 app.include_router(skills_router)

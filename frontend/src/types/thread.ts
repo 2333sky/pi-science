@@ -92,7 +92,16 @@ export interface ArtifactBlock {
   path?: string;
 }
 
-export type ArtifactKind = "code" | "data" | "figure" | "model" | "report" | "notebook" | "other";
+export type ArtifactKind =
+  | "code"
+  | "data"
+  | "figure"
+  | "model"
+  | "report"
+  | "notebook"
+  | "script"
+  | "table"
+  | "other";
 
 export interface RunningJobsBlock {
   kind: "running-jobs";
@@ -153,6 +162,7 @@ export interface ArtifactInspector {
   activeVersion: string;
   inputs?: string[];
   code?: string;
+  codeStartLine?: number;
   language?: string;
   executionLog?: string;
   environment?: string;
@@ -182,18 +192,20 @@ export interface NotebookInspector {
 
 export interface FilePreviewInspector {
   variant: "file";
-  path?: string;
+  path: string;
   filename: string;
   artifact?: ArtifactKind;
   language?: string;
   content?: string;
-  root?: string;
+  root?: FileRoot;
+  cwd?: string;
 }
 
 export interface NotebookFileInspector {
   variant: "notebook-file";
-  path?: string;
-  root?: string;
+  path: string;
+  root?: FileRoot;
+  cwd?: string;
 }
 
 export interface PdfInspector {
@@ -203,7 +215,7 @@ export interface PdfInspector {
   url?: string;
 }
 
-export type ArtifactTab = "code" | "environment" | "log" | "review" | "provenance";
+export type ArtifactTab = "code" | "environment" | "log" | "messages" | "review" | "provenance";
 
 export type FileRoot = "workspace" | "base";
 
@@ -218,13 +230,27 @@ export interface ProvenanceRecord {
   sessionId: string;
   model?: string;
   contentHash?: string;
+  content?: string;
   diff?: string;
+  log?: string;
   runId?: string;
-  env?: Record<string, unknown>;
+  env?: ProvenanceEnvironment;
+}
+
+export interface ProvenanceEnvironment {
+  python?: string;
+  platform?: string;
+  app?: string;
+  packages?: { hash: string; count: number };
+  packages_hash?: string;
+  package_count?: number;
+  cpu_count?: number;
+  [key: string]: unknown;
 }
 
 export interface RunRecord {
   runId: string;
+  sessionId?: string;
   command?: string;
   surface: "local" | "hpc" | "ssh";
   status: "ok" | "failed" | "running";

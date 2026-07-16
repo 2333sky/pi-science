@@ -1,9 +1,7 @@
 """File service for reading/previewing workspace files."""
 
 import base64
-import json
 from pathlib import Path
-from typing import Optional
 
 from models import FileContent, PreviewData
 
@@ -108,6 +106,11 @@ def read_file_content(workspace_dir: Path, path: str, encoding: str = "utf8") ->
 def get_preview_data(workspace_dir: Path, path: str) -> PreviewData:
     """Get preview data for a scientific file."""
     full_path = resolve_workspace_path(workspace_dir, path)
+
+    if not full_path.exists():
+        raise FileNotFoundError(f"File not found: {path}")
+    if not full_path.is_file():
+        raise ValueError(f"Not a file: {path}")
 
     kind = detect_preview_kind(path)
     preview = PreviewData(kind=kind, filename=Path(path).name)

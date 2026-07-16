@@ -6,7 +6,7 @@ import { useRuntimeStore } from "../../lib/runtime-store";
 import { InspectorShell } from "../../components/inspector/InspectorShell";
 import { RightPane } from "../../components/inspector/RightPane";
 import { cn } from "../../lib/cn";
-import { getClient, type SessionInfo } from "../../lib/pi-science-client";
+import { getClient } from "../../lib/pi-science-client";
 
 export function AppShell() {
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
@@ -113,8 +113,12 @@ function SessionList() {
         </span>
         <button
           onClick={async () => {
-            const newId = await createNewSession();
-            navigate(`/session/${newId}`);
+            try {
+              const newId = await createNewSession();
+              navigate(`/session/${newId}`);
+            } catch (err) {
+              console.error("Create session failed:", err);
+            }
           }}
           className="rounded p-0.5 text-muted hover:text-text hover:bg-surface-2"
           title="New session"

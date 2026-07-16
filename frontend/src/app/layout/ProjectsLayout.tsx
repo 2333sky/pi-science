@@ -7,7 +7,8 @@ import { InspectorShell } from "../../components/inspector/InspectorShell";
 import { RightPane } from "../../components/inspector/RightPane";
 import { FileBrowser } from "../../components/sidebar/FileBrowser";
 import { cn } from "../../lib/cn";
-import { getClient } from "../../lib/pi-science-client";
+import { getClient, getSessionName } from "../../lib/pi-science-client";
+import { setCurrentCwd } from "../../lib/files";
 
 export function ProjectsLayout() {
   const sidebarCollapsed = useUiStore((s) => s.sidebarCollapsed);
@@ -22,6 +23,10 @@ export function ProjectsLayout() {
   // Decode workspace cwd from URL
   const activeCwd = workspaceCwd ? decodeURIComponent(workspaceCwd) : null;
   const isWorkspace = !!activeCwd;
+
+  useEffect(() => {
+    if (activeCwd) setCurrentCwd(activeCwd);
+  }, [activeCwd]);
 
   return (
     <div className="flex h-dvh w-screen overflow-hidden bg-bg text-text">
@@ -105,7 +110,7 @@ export function ProjectsLayout() {
       {/* Inspector */}
       {inspectorOpen && inspectorData && (
         <RightPane onClose={closeInspector}>
-          <InspectorShell inspector={inspectorData} onClose={closeInspector} />
+          <InspectorShell inspector={inspectorData} onClose={closeInspector} cwd={activeCwd || undefined} />
         </RightPane>
       )}
     </div>
@@ -117,7 +122,7 @@ export function ProjectsLayout() {
 function WorkspaceSessionList({ cwd }: { cwd: string }) {
   const sessions = useRuntimeStore((s) => s.sessions);
   const activeSessionId = useRuntimeStore((s) => s.activeSessionId);
-  const loadSession = useRuntimeStore((s) => s.loadSession);
+  const working = useRuntimeStore((s) => s.working);
   const forkSession = useRuntimeStore((s) => s.forkSession);
   const createNewSession = useRuntimeStore((s) => s.createNewSession);
   const navigate = useNavigate();
@@ -126,22 +131,32 @@ function WorkspaceSessionList({ cwd }: { cwd: string }) {
   const [forking, setForking] = useState<string | null>(null);
 
   useEffect(() => {
-    getClient().listSessions(cwd).then((list) => {
-      useRuntimeStore.setState({ sessions: list, cwd });
-      // Auto-load most recent session if none active
-      const state = useRuntimeStore.getState();
-      const workspaceRoot = `/workspace/${encodeURIComponent(cwd)}`;
-      if (list.length > 0 && !state.activeSessionId && location.pathname === workspaceRoot) {
-        const latest = list[0];
-        state.loadSession(latest.id);
-        navigate(`/workspace/${encodeURIComponent(cwd)}/session/${latest.id}`);
-      }
-    });
+    let cancelled = false;
+    getClient().listSessions(cwd)
+      .then((list) => {
+        if (cancelled) return;
+        const named = list.map((session) => ({
+          ...session,
+          name: session.name || getSessionName(session.id) || undefined,
+        }));
+        useRuntimeStore.setState({ sessions: named, cwd });
+        // Auto-load most recent session if none active
+        const state = useRuntimeStore.getState();
+        const workspaceRoot = `/workspace/${encodeURIComponent(cwd)}`;
+        if (named.length > 0 && !state.activeSessionId && location.pathname === workspaceRoot) {
+          const latest = named[0];
+          navigate(`/workspace/${encodeURIComponent(cwd)}/session/${latest.id}`);
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) console.error("Failed to load workspace sessions:", error);
+      });
+    return () => { cancelled = true; };
   }, [cwd, location.pathname, navigate]);
 
   const handleDelete = async (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
-    if (deleting) return;
+    if (deleting || working) return;
     setDeleting(sessionId);
     try {
       await getClient().deleteSession(sessionId, cwd);
@@ -158,22 +173,20 @@ function WorkspaceSessionList({ cwd }: { cwd: string }) {
   };
 
   const handleNew = async () => {
-    const existingEmpty = sessions.find((s) => s.name === "New Session");
-    if (existingEmpty) {
-      loadSession(existingEmpty.id);
-      navigate(`/workspace/${encodeURIComponent(cwd)}/session/${existingEmpty.id}`);
-      return;
-    }
-    const newId = await createNewSession();
-    if (newId) {
-      loadSession(newId);
-      navigate(`/workspace/${encodeURIComponent(cwd)}/session/${newId}`);
+    if (working) return;
+    try {
+      const newId = await createNewSession();
+      if (newId) {
+        navigate(`/workspace/${encodeURIComponent(cwd)}/session/${newId}`);
+      }
+    } catch (err) {
+      console.error("Create session failed:", err);
     }
   };
 
   const handleFork = async (e: React.MouseEvent, sessionId: string) => {
     e.stopPropagation();
-    if (forking) return;
+    if (forking || working) return;
     setForking(sessionId);
     try {
       const newId = await forkSession(sessionId);
@@ -189,7 +202,12 @@ function WorkspaceSessionList({ cwd }: { cwd: string }) {
     <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
       <div className="flex items-center justify-between px-2 mb-1">
         <span className="text-xs font-medium uppercase tracking-wider text-muted">Sessions</span>
-        <button onClick={handleNew} className="rounded p-0.5 text-muted hover:text-text hover:bg-surface-2" title="New session">
+        <button
+          onClick={handleNew}
+          disabled={working}
+          className="rounded p-0.5 text-muted hover:text-text hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
+          title={working ? "Stop the current task before creating a new session" : "New session"}
+        >
           <Plus size={14} />
         </button>
       </div>
@@ -201,12 +219,13 @@ function WorkspaceSessionList({ cwd }: { cwd: string }) {
             <div key={s.id} className="group relative flex items-center rounded-input hover:bg-surface-2">
               <button
                 onClick={() => {
-                  loadSession(s.id);
                   navigate(`/workspace/${encodeURIComponent(cwd)}/session/${s.id}`);
                 }}
+                disabled={working && activeSessionId !== s.id}
                 className={cn(
                   "flex items-center gap-2 min-w-0 flex-1 py-1 pl-2 pr-1 text-[13px] text-left",
                   activeSessionId === s.id ? "text-text font-medium" : "text-text/90",
+                  working && activeSessionId !== s.id && "cursor-not-allowed opacity-40",
                 )}
               >
                 <MessageSquare size={12} className="shrink-0 text-muted" />
@@ -219,9 +238,10 @@ function WorkspaceSessionList({ cwd }: { cwd: string }) {
               </button>
               <button
                 onClick={(e) => handleFork(e, s.id)}
+                disabled={working}
                 className={cn(
                   "shrink-0 rounded p-1 text-muted hover:text-accent hover:bg-accent/10",
-                  "hidden group-hover:block", forking === s.id && "block",
+                  "hidden group-hover:block disabled:cursor-not-allowed disabled:opacity-40", forking === s.id && "block",
                 )}
                 title="Fork session"
               >
@@ -229,9 +249,10 @@ function WorkspaceSessionList({ cwd }: { cwd: string }) {
               </button>
               <button
                 onClick={(e) => handleDelete(e, s.id)}
+                disabled={working}
                 className={cn(
                   "shrink-0 rounded p-1 mr-1 text-muted hover:text-error hover:bg-error/10",
-                  "hidden group-hover:block", deleting === s.id && "block",
+                  "hidden group-hover:block disabled:cursor-not-allowed disabled:opacity-40", deleting === s.id && "block",
                 )}
               >
                 <Trash2 size={12} />

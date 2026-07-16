@@ -1,10 +1,13 @@
 import { useEffect, useState, useCallback } from "react";
-import { Key, Trash2, Eye, EyeOff, Check, Loader2, Cpu, Puzzle, FlaskConical } from "lucide-react";
+import { Key, Trash2, Eye, EyeOff, Check, Loader2, Cpu, Puzzle, FlaskConical, Languages } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { shippedLocales } from "../../i18n/config";
+import { useUiStore } from "../../lib/store";
 
-type Tab = "llm" | "extensions" | "mcp";
+type Tab = "general" | "llm" | "extensions" | "mcp";
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
+  { id: "general", label: "General", icon: <Languages size={14} /> },
   { id: "llm", label: "LLM", icon: <Cpu size={14} /> },
   { id: "extensions", label: "Extensions", icon: <Puzzle size={14} /> },
   { id: "mcp", label: "MCP", icon: <FlaskConical size={14} /> },
@@ -24,7 +27,7 @@ interface Config {
 }
 
 export function SettingsPage() {
-  const [tab, setTab] = useState<Tab>("llm");
+  const [tab, setTab] = useState<Tab>("general");
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
@@ -89,10 +92,33 @@ export function SettingsPage() {
           ))}
         </div>
 
+        {tab === "general" && <GeneralTab />}
         {tab === "llm" && <LLMTab config={config!} apiKeyInput={apiKeyInput} setApiKeyInput={setApiKeyInput} showKey={showKey} setShowKey={setShowKey} saving={saving} saveKey={saveKey} deleteKey={deleteKey} saveModel={saveModel} onConfigReload={loadConfig} />}
         {tab === "extensions" && <ExtensionsTab />}
         {tab === "mcp" && <MCPTab />}
       </div>
+    </div>
+  );
+}
+
+function GeneralTab() {
+  const locale = useUiStore((state) => state.locale);
+  const setLocale = useUiStore((state) => state.setLocale);
+  return (
+    <div className="space-y-6">
+      <Section title="Language / 语言">
+        <p className="mb-3 text-[11px] text-muted">
+          Project Knowledge and scientific inspectors update immediately. Other workbench labels currently remain in English.
+        </p>
+        <select
+          aria-label="Language"
+          value={locale}
+          onChange={(event) => setLocale(event.target.value)}
+          className="min-h-11 w-full rounded-input border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-accent"
+        >
+          {shippedLocales.map((entry) => <option key={entry.code} value={entry.code}>{entry.label}</option>)}
+        </select>
+      </Section>
     </div>
   );
 }
@@ -297,17 +323,127 @@ function CustomApiSection({ providers, onConfigReload }: { providers: CustomProv
 /* ── Extensions Tab ── */
 
 function ExtensionsTab() {
+  const [extensions, setExtensions] = useState<Array<{
+    id: string;
+    name: string;
+    description: string;
+    installed: boolean;
+  }> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/settings/extensions")
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.detail || "Unable to inspect runtime extensions");
+        if (!cancelled) setExtensions(data.extensions || []);
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   return (
     <div className="space-y-6">
       <Section title="Installed Extensions">
         <p className="text-[11px] text-muted mb-3">
-          Extensions loaded from the pi runtime. Install via <code className="font-mono text-[11px] bg-surface-2 px-1 rounded">npm install</code> in the pi repo.
+          Status reflects what the next Pi conversation process will actually load. Run <code className="font-mono text-[11px] bg-surface-2 px-1 rounded">bash scripts/fetch-pi.sh</code> after installing or updating the runtime.
         </p>
-        <ExtCard name="MCP Adapter" pkg="pi-mcp-adapter" desc="Bridges MCP servers into pi. One proxy tool for all servers with lazy loading and OAuth support." checked />
-        <ExtCard name="Subagents" pkg="pi-subagents" desc="Delegate work to focused child agents: scout, researcher, planner, worker, reviewer, oracle." checked />
-        <ExtCard name="Web Access" pkg="pi-web-access" desc="Web search, URL fetching, YouTube/video understanding. Multi-provider with smart fallbacks." checked />
+        {error && <p role="alert" className="mb-3 text-xs text-error">{error}</p>}
+        {extensions === null && !error && <p className="text-xs text-muted">Checking runtime…</p>}
+        {extensions?.map((extension) => (
+          <ExtCard
+            key={extension.id}
+            name={extension.name}
+            pkg={extension.id}
+            desc={extension.description}
+            checked={extension.installed}
+          />
+        ))}
       </Section>
+      <SkillSettings />
     </div>
+  );
+}
+
+function SkillSettings() {
+  const [skills, setSkills] = useState<Array<{ name: string; source: string; enabled: boolean }>>([]);
+  const [configured, setConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/settings/skills");
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Unable to load skills");
+      setSkills(data.skills || []);
+      setConfigured(data.configured === true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const toggle = async (name: string, enabled: boolean) => {
+    setSkills((current) => current.map((skill) => skill.name === name ? { ...skill, enabled } : skill));
+    const response = await fetch("/api/settings/skills/toggle", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, enabled }),
+    });
+    if (!response.ok) {
+      setError("Unable to update skill settings");
+      await load();
+    } else {
+      setConfigured(true);
+    }
+  };
+
+  const reset = async () => {
+    const response = await fetch("/api/settings/skills", { method: "DELETE" });
+    if (!response.ok) {
+      setError("Unable to reset skill settings");
+      return;
+    }
+    await load();
+  };
+
+  return (
+    <Section title="Skills">
+      <p className="mb-3 text-[11px] text-muted">
+        Skills apply to newly started Pi processes. Existing conversations keep their current runtime until restarted.
+      </p>
+      {error && <p role="alert" className="mb-3 text-xs text-error">{error}</p>}
+      {loading ? <p className="text-xs text-muted">Loading skills…</p> : (
+        <>
+          <div className="space-y-1">
+            {skills.map((skill) => (
+              <label key={`${skill.source}-${skill.name}`} className="flex items-center gap-3 rounded-input px-2 py-2 hover:bg-surface-2">
+                <input
+                  type="checkbox"
+                  checked={skill.enabled}
+                  onChange={(event) => void toggle(skill.name, event.target.checked)}
+                />
+                <span className="min-w-0 flex-1 truncate text-xs text-text">{skill.name}</span>
+                <span className="text-[10px] text-muted">{skill.source}</span>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex items-center justify-between border-t border-faint pt-3">
+            <span className="text-[10px] text-muted">{configured ? "Custom allowlist" : "Auto-discovery enabled"}</span>
+            <button type="button" onClick={() => void reset()} className="rounded-input px-2 py-1 text-[11px] text-muted hover:bg-surface-2 hover:text-text">
+              Reset to auto-discover
+            </button>
+          </div>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -320,7 +456,11 @@ function ExtCard({ name, pkg, desc, checked }: { name: string; pkg: string; desc
           <span className="ml-2 font-mono text-[10px] text-muted">{pkg}</span>
           <p className="text-[11px] text-muted mt-0.5">{desc}</p>
         </div>
-        {checked && <span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] font-medium text-ok ring-1 ring-ok/30"><Check size={10} className="inline mr-0.5" />Installed</span>}
+        {checked ? (
+          <span className="rounded-full bg-ok/15 px-2 py-0.5 text-[10px] font-medium text-ok ring-1 ring-ok/30"><Check size={10} className="inline mr-0.5" />Installed</span>
+        ) : (
+          <span className="rounded-full bg-error/10 px-2 py-0.5 text-[10px] font-medium text-error ring-1 ring-error/20">Missing</span>
+        )}
       </div>
     </div>
   );

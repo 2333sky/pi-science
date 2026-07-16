@@ -5,8 +5,6 @@ environment snapshot, enabling full artifact lineage reconstruction.
 """
 
 import hashlib
-import json
-import os
 import time
 from pathlib import Path
 from typing import Optional
@@ -14,6 +12,8 @@ from typing import Optional
 import aiofiles
 
 from models import ProvenanceRecord
+
+MAX_CONTENT_CHARS = 100_000
 
 
 class ProvenanceStore:
@@ -43,8 +43,12 @@ class ProvenanceStore:
         """Append a provenance record. Returns the created record."""
         version = await self._next_version(path)
         content_hash = None
+        stored_content = None
         if content is not None:
             content_hash = hashlib.sha256(content.encode()).hexdigest()[:16]
+            stored_content = content
+            if len(stored_content) > MAX_CONTENT_CHARS:
+                stored_content = stored_content[:MAX_CONTENT_CHARS] + "\n[truncated]"
 
         record = ProvenanceRecord(
             path=path,
@@ -55,6 +59,7 @@ class ProvenanceStore:
             sessionId=session_id,
             model=model,
             contentHash=content_hash,
+            content=stored_content,
             diff=diff,
             runId=run_id,
         )
@@ -128,7 +133,9 @@ class ProvenanceStore:
             freeze_text = result.stdout
             freeze_hash = hashlib.sha256(freeze_text.encode()).hexdigest()[:16]
             env_data["packages_hash"] = freeze_hash
-            env_data["package_count"] = len([l for l in freeze_text.split("\n") if l.strip()])
+            env_data["package_count"] = len(
+                [line for line in freeze_text.split("\n") if line.strip()]
+            )
 
             # Store the freeze output for reproducibility
             env_file = self._env_dir / f"{freeze_hash}.txt"
