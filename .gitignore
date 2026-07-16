@@ -43,3 +43,16 @@ coverage/
 # Project documentation (local only, not versioned)
 ARCHITECTURE.md
 CHANGELOG.md
+CODE_REVIEW.md
+DEPLOYMENT.md
+
+# Dev-only data
+.env.example
+.data/
+workspaces/
+
+# Generated / cache
+*.pyc
+*.pyo
+*.log
+

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -9,6 +10,8 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, Optional
+
+logger = logging.getLogger(__name__)
 
 from config import (
     PI_CLI_PATH,
@@ -20,6 +23,21 @@ from config import (
     PI_TSCONFIG_PATH,
 )
 from models import PiConfig
+
+
+def _is_pi_process(pid: int) -> bool:
+    """Check if a PID belongs to a pi/node process (avoid killing unrelated processes)."""
+    try:
+        result = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            cmd = result.stdout.strip().lower()
+            return any(kw in cmd for kw in ("node", "pi", "tsx"))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return True  # If we can't verify, preserve old behavior
 
 
 class PiProcess:
@@ -47,6 +65,7 @@ class PiProcess:
         self._event_queue: asyncio.Queue = asyncio.Queue()
         self._reader_task: Optional[asyncio.Task] = None
         self._stderr_task: Optional[asyncio.Task] = None
+        self._stderr_buffer: str = ""
         self._started_at = datetime.now(timezone.utc)
         self._last_activity = datetime.now(timezone.utc)
 
@@ -68,7 +87,7 @@ class PiProcess:
                 if cfg.get("model"):
                     effective_model = cfg["model"]
             except Exception:
-                pass
+                logger.debug("Failed to load model override from config.json", exc_info=True)
 
         # Dev mode: tsx + TypeScript source (no build needed)
         # Prod mode: node + built JS
@@ -105,8 +124,25 @@ class PiProcess:
             "--thinking", thinking,
             "--session-dir", session_dir,
             "--no-extensions",
-            "--no-skills",
         ])
+
+        # ── Skills: respect user-configured enable/disable list ──
+        # If skills have been explicitly configured in settings, only load those.
+        # Otherwise auto-discover all skills from standard locations.
+        skills_configured = False
+        enabled_skill_paths: list[str] = []
+        try:
+            from api.settings import _load_config
+            cfg = _load_config()
+            if cfg.get("skills_configured"):
+                enabled_skill_paths = cfg.get("skill_paths", [])
+                skills_configured = True
+        except Exception:
+            pass
+
+        if skills_configured:
+            args.append("--no-skills")
+        # else: auto-discover all skills (don't pass --no-skills)
 
         if mcp_ext.exists():
             args.extend(["-e", str(mcp_ext)])
@@ -115,12 +151,17 @@ class PiProcess:
         # context-mode: sandbox code execution + session continuity via FTS5
         if ctx_ext.exists():
             args.extend(["-e", str(ctx_ext)])
-        if ctx_skills.exists():
-            args.extend(["--skill", str(ctx_skills)])
 
-        # Add explicitly configured skills
-        for skill_path in config.skills:
-            args.extend(["--skill", skill_path])
+        if skills_configured:
+            # Only load explicitly enabled skills by path
+            for skill_path in enabled_skill_paths:
+                args.extend(["--skill", skill_path])
+        else:
+            # Auto-discover: load context-mode + any explicitly configured skills
+            if ctx_skills.exists():
+                args.extend(["--skill", str(ctx_skills)])
+            for skill_path in config.skills:
+                args.extend(["--skill", skill_path])
 
         # Add explicitly configured extensions
         for ext_path in config.extensions:
@@ -137,9 +178,20 @@ class PiProcess:
         if config.provider:
             env["PI_DEFAULT_PROVIDER"] = config.provider
 
-        # Pi also supports --api-key flag for runtime override
-        if config.api_key:
-            args.extend(["--api-key", config.api_key])
+        # ── Subagent spawn support ──
+        # pi-subagents uses getPiSpawnCommand() which checks PI_SUBAGENT_PI_BINARY_ENV
+        # then falls back to "pi" (not in PATH for dev mode). We provide both:
+        # 1. PI_SUBAGENT_PI_BINARY_ENV → wrapper script (primary path)
+        # 2. ~/.pi-science/pi in PATH → fallback for code paths that use "pi" directly
+        wrapper_path = _ensure_pi_subagent_wrapper(BASE_DIR, args)
+        if wrapper_path:
+            env["PI_SUBAGENT_PI_BINARY_ENV"] = wrapper_path
+        # Add ~/.pi-science to front of PATH so `pi` command resolves
+        pi_bin_dir = str(BASE_DIR)
+        env["PATH"] = f"{pi_bin_dir}:{env.get('PATH', '')}"
+
+        # API keys are passed via environment variables (get_env_with_keys),
+        # never as CLI args — `ps aux` would leak them to other users.
 
         process = subprocess.Popen(
             args,
@@ -174,7 +226,7 @@ class PiProcess:
 
     async def _read_stdout(self):
         """Background task: read JSONL lines from stdout and dispatch."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def read_lines():
             """Synchronous line reader running in executor."""
@@ -199,16 +251,18 @@ class PiProcess:
         """Background task: drain stderr to prevent pipe buffer deadlock.
         If stderr fills up (>64KB OS pipe buffer), the pi process blocks on
         stderr write and never produces more stdout. We drain it continuously."""
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         def drain():
             for line in self.process.stderr:
-                print(f"[pi-manager:stderr] {line.rstrip()}")
+                stripped = line.rstrip()
+                print(f"[pi-manager:stderr] {stripped}")
+                self._stderr_buffer += stripped + "\n"
 
         try:
             await loop.run_in_executor(None, drain)
         except Exception:
-            pass  # Process already exited, pipe closed
+            logger.debug("stderr drain task ended", exc_info=True)  # Process already exited, pipe closed
 
     async def _dispatch(self, data: dict):
         """Route stdout data to either pending request future or event queue."""
@@ -257,7 +311,7 @@ class PiProcess:
 
     async def _send_command_internal(self, cmd_type: str, **params) -> dict:
         """Internal: send an RPC command and await the response."""
-        req_id = str(uuid.uuid4())[:8]
+        req_id = uuid.uuid4().hex
         cmd = {"id": req_id, "type": cmd_type, **params}
         line = json.dumps(cmd, ensure_ascii=False) + "\n"
 
@@ -265,7 +319,7 @@ class PiProcess:
         self.pending_requests[req_id] = future
 
         # Write to stdin (run in executor to avoid blocking)
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._write_stdin, line)
 
         try:
@@ -292,13 +346,10 @@ class PiProcess:
             try:
                 # Check if process is still alive
                 if self.process.poll() is not None:
-                    # Process exited
+                    # Process exited — read stderr from buffer (not the pipe,
+                    # which _read_stderr is already consuming)
                     exit_code = self.process.returncode
-                    stderr_output = ""
-                    try:
-                        stderr_output = self.process.stderr.read()
-                    except Exception:
-                        pass
+                    stderr_output = self._stderr_buffer[-500:] if self._stderr_buffer else ""
                     yield {
                         "type": "error",
                         "sessionId": self.session_id,
@@ -352,7 +403,7 @@ class PiProcess:
             if pid_file and pid_file.exists():
                 pid_file.unlink()
         except Exception:
-            pass
+            logger.debug("Failed to remove PID file on shutdown", exc_info=True)
 
         # Fail all pending requests
         for req_id, future in self.pending_requests.items():
@@ -403,7 +454,7 @@ class PiManager:
             except asyncio.CancelledError:
                 return
             except Exception:
-                pass  # Don't crash the cleanup loop
+                logger.warning("Idle cleanup loop iteration failed", exc_info=True)  # Don't crash the cleanup loop
 
     async def get_or_spawn(
         self,
@@ -443,8 +494,11 @@ class PiManager:
                     old_pid = int(pid_file.read_text().strip())
                     try:
                         os.kill(old_pid, 0)
-                        print(f"[pi-manager] Killing stale pi process (pid={old_pid}) for {cwd}")
-                        os.kill(old_pid, 9)
+                        if _is_pi_process(old_pid):
+                            print(f"[pi-manager] Killing stale pi process (pid={old_pid}) for {cwd}")
+                            os.kill(old_pid, 9)
+                        else:
+                            print(f"[pi-manager] PID {old_pid} is not a pi process, skipping kill")
                     except OSError:
                         pass
                 except (ValueError, FileNotFoundError):
@@ -487,6 +541,55 @@ class PiManager:
     @property
     def active_count(self) -> int:
         return sum(1 for p in self._processes.values() if p.is_alive)
+
+
+def _ensure_pi_subagent_wrapper(base_dir: Path, parent_args: list[str]) -> str | None:
+    """Create or refresh a shell wrapper so pi-subagents can spawn child pi processes.
+
+    pi-subagents calls `getPiSpawnCommand()` which checks the env var
+    PI_SUBAGENT_PI_BINARY_ENV, then falls back to `pi` (not in PATH for
+    dev mode). The wrapper script forwards all arguments to the correct
+    node+tsx+cli.ts invocation.
+    """
+    # Reconstruct the parent invocation from args: node ... tsx ... cli.ts
+    # args layout (dev mode): [node, tsx, --tsconfig, tsconfig.json, cli.ts, --mode, rpc, ...]
+    try:
+        node_idx = next(i for i, a in enumerate(parent_args) if a.endswith("/node") or a == "node")
+    except StopIteration:
+        # Prod mode — no wrapper needed, `node dist/cli.js` works fine
+        return None
+
+    try:
+        node_bin = parent_args[node_idx]
+        tsx = parent_args[node_idx + 1]
+        tsconfig_flag = parent_args[node_idx + 2]
+        tsconfig_path = parent_args[node_idx + 3]
+        cli_path = parent_args[node_idx + 4]
+    except IndexError:
+        return None
+
+    if tsconfig_flag != "--tsconfig":
+        return None
+
+    wrapper_path = base_dir / "pi-subagent-wrapper.sh"
+    script = (
+        f"#!/bin/bash\n"
+        f"# Auto-generated by pi_manager — do not edit\n"
+        f'exec "{node_bin}" "{tsx}" "{tsconfig_flag}" "{tsconfig_path}" "{cli_path}" "$@"\n'
+    )
+
+    # Only rewrite if changed (avoid unnecessary disk I/O)
+    current = ""
+    try:
+        current = wrapper_path.read_text()
+    except FileNotFoundError:
+        pass
+
+    if current != script:
+        wrapper_path.write_text(script)
+        wrapper_path.chmod(0o755)
+
+    return str(wrapper_path)
 
 
 # Singleton

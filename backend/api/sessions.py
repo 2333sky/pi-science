@@ -2,8 +2,12 @@
 
 import asyncio
 import json
+import logging
+import re
 from pathlib import Path
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from sse_starlette.sse import EventSourceResponse
@@ -22,10 +26,26 @@ from services.reviewer_service import schedule_auto_review
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
+# Track fire-and-forget provenance tasks so they aren't garbage-collected
+_provenance_tasks: set[asyncio.Task] = set()
+
+_SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+
+def _validate_cwd(cwd: str) -> str:
+    """Validate cwd is an allowed workspace."""
+    from services.workspace_security import validate_workspace_cwd
+    try:
+        validate_workspace_cwd(cwd)
+        return cwd
+    except ValueError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+
 
 @router.post("", response_model=CreateSessionResponse)
 async def create_session(body: CreateSessionRequest):
     """Create a new agent session (spawns pi RPC process if needed)."""
+    _validate_cwd(body.cwd)
     # If a pi process already exists for this cwd, reuse it via new_session
     existing = pi_manager.get_by_cwd(body.cwd)
     if existing and existing.is_alive:
@@ -48,6 +68,7 @@ async def create_session(body: CreateSessionRequest):
 @router.get("", response_model=list[SessionInfo])
 async def list_sessions(cwd: str = Query(..., description="Working directory")):
     """List all sessions for a working directory."""
+    _validate_cwd(cwd)
     session_dir = get_sessions_dir(cwd)
     if not session_dir.exists():
         return []
@@ -59,6 +80,7 @@ async def list_sessions(cwd: str = Query(..., description="Working directory")):
             if header:
                 sessions.append(header)
         except Exception:
+            logger.warning("Failed to parse session header: %s", f, exc_info=True)
             continue
 
     return sessions
@@ -70,6 +92,10 @@ async def delete_session(
     cwd: str = Query(".", description="Working directory"),
 ):
     """Delete a session file from disk. Searches all known locations."""
+    if not _SESSION_ID_RE.match(session_id):
+        raise HTTPException(status_code=400, detail="Invalid session ID format")
+    _validate_cwd(cwd)
+
     import glob as glob_mod
     from config import BASE_DIR, WORKSPACES_DIR
 
@@ -230,8 +256,18 @@ async def stream_events(session_id: str, request: Request):
     async def event_generator():
         had_text = False  # Track if any non-empty text was emitted this turn
         try:
-            async for event in pi.read_events():
+            event_gen = pi.read_events()
+            while True:
                 if await request.is_disconnected():
+                    break
+
+                try:
+                    event = await asyncio.wait_for(event_gen.__anext__(), timeout=15.0)
+                except asyncio.TimeoutError:
+                    # Heartbeat keeps the SSE connection alive through proxies
+                    yield {"event": "ping", "data": ""}
+                    continue
+                except StopAsyncIteration:
                     break
 
                 _maybe_record_provenance(event, session_id, pi.cwd)
@@ -326,8 +362,8 @@ def _maybe_record_provenance(event: dict, session_id: str, cwd: str):
 
     try:
         store = get_store(cwd)
-        loop = asyncio.get_event_loop()
-        loop.create_task(store.record(
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(store.record(
             path=file_path,
             session_id=session_id,
             tool=tool_name,
@@ -335,8 +371,10 @@ def _maybe_record_provenance(event: dict, session_id: str, cwd: str):
             content=content if (tool_name == "write" and content) else None,
             diff=diff if tool_name == "edit" else None,
         ))
+        _provenance_tasks.add(task)
+        task.add_done_callback(_provenance_tasks.discard)
     except Exception:
-        pass  # Provenance is best-effort, never block the SSE stream
+        logger.debug("Provenance recording failed (best-effort)", exc_info=True)  # Provenance is best-effort, never block the SSE stream
 
 
 # ── Helpers ──
@@ -407,7 +445,7 @@ def _read_session_from_disk(session_id: str) -> list[dict]:
                     # Skip non-message entries
                     pass
     except Exception:
-        pass
+        logger.warning("Failed to read session from disk: %s", filepath, exc_info=True)
 
     return messages
 

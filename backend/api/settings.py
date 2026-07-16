@@ -43,12 +43,25 @@ PROVIDER_ENV_MAP: dict[str, str] = {
 }
 
 PROVIDERS = [
-    {"id": "anthropic", "name": "Anthropic (Claude)", "models": ["claude-sonnet-5-20250929", "claude-opus-4-5", "claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"]},
-    {"id": "openai", "name": "OpenAI", "models": ["gpt-5.1", "gpt-4o", "gpt-4.1-mini"]},
-    {"id": "google", "name": "Google (Gemini)", "models": ["gemini-2.5-pro", "gemini-2.5-flash"]},
-    {"id": "deepseek", "name": "DeepSeek", "models": ["deepseek-v4-pro", "deepseek-chat"]},
-    {"id": "groq", "name": "Groq", "models": ["llama-4-maverick", "mixtral-8x7b"]},
-    {"id": "openrouter", "name": "OpenRouter", "models": ["openai/gpt-5.1", "anthropic/claude-sonnet-5"]},
+    {"id": "anthropic", "name": "Anthropic", "models": ["claude-fable-5", "claude-opus-4-5", "claude-sonnet-4-20250514", "claude-haiku-4-5-20251001"]},
+    {"id": "openai", "name": "OpenAI", "models": ["gpt-5.1", "gpt-5.1-codex", "gpt-4o", "gpt-4.1", "gpt-4.1-mini"]},
+    {"id": "google", "name": "Gemini", "models": ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-flash-preview"]},
+    {"id": "deepseek", "name": "DeepSeek", "models": ["deepseek-v4-pro", "deepseek-v4-flash"]},
+    {"id": "groq", "name": "Groq", "models": ["meta-llama/llama-4-scout-17b-16e-instruct", "llama-3.3-70b-versatile"]},
+    {"id": "openrouter", "name": "OpenRouter", "models": ["anthropic/claude-sonnet-5", "openai/gpt-5.1"]},
+    {"id": "cerebras", "name": "Cerebras", "models": ["gpt-oss-120b", "gemma-4-31b", "zai-glm-4.7"]},
+    {"id": "xai", "name": "xAI", "models": ["grok-4.5", "grok-4.3", "grok-3"]},
+    {"id": "mistral", "name": "Mistral", "models": ["devstral-latest", "devstral-medium-latest", "codestral-latest"]},
+    {"id": "zai", "name": "Z.AI", "models": ["glm-5.2", "glm-5.1", "glm-4.7"]},
+    {"id": "fireworks", "name": "Fireworks", "models": ["accounts/fireworks/models/deepseek-v4-pro"]},
+    {"id": "together", "name": "Together", "models": ["Qwen/Qwen3.5-397B-A17B", "MiniMaxAI/MiniMax-M3"]},
+    {"id": "vercel-ai-gateway", "name": "Vercel AI Gateway", "models": []},
+    {"id": "nvidia", "name": "NVIDIA NIM", "models": ["meta/llama-3.3-70b-instruct", "minimaxai/minimax-m3"]},
+    {"id": "cloudflare-workers-ai", "name": "Cloudflare Workers AI", "models": []},
+    {"id": "kimi-coding", "name": "Kimi", "models": ["kimi-k2-thinking", "kimi-for-coding", "k2p7"]},
+    {"id": "moonshotai", "name": "Moonshot", "models": ["kimi-k2.5", "kimi-k2-thinking-turbo"]},
+    {"id": "minimax", "name": "MiniMax", "models": ["MiniMax-M3", "MiniMax-M2.7"]},
+    {"id": "xiaomi", "name": "Xiaomi", "models": ["mimo-v2.5-pro", "mimo-v2-pro", "mimo-v2-flash"]},
 ]
 
 
@@ -91,9 +104,12 @@ def _load_config() -> dict:
     return {}
 
 def _save_config(data: dict):
+    """Atomically save config to prevent corruption on concurrent writes."""
     cf = _config_file()
     cf.parent.mkdir(parents=True, exist_ok=True)
-    cf.write_text(json.dumps(data, indent=2))
+    tmp = cf.with_name(f".{cf.name}.{os.getpid()}.{os.urandom(4).hex}.tmp")
+    tmp.write_text(json.dumps(data, indent=2))
+    os.replace(tmp, cf)
 
 
 def _custom_provider_id(value: str) -> str:
@@ -546,3 +562,97 @@ async def toggle_mcp_server(server_id: str, enabled: bool = Query(True)):
         "enabled": enabled,
         "runtime_config": str(runtime_path) if runtime_path else None,
     }
+
+
+# ── Skill Management ──
+
+
+class SkillToggleRequest(BaseModel):
+    name: str
+    enabled: bool = True
+
+
+class SkillInfoResponse(BaseModel):
+    name: str
+    path: str
+    source: str
+    enabled: bool
+
+
+@router.get("/skills", response_model=dict)
+async def get_skills_state():
+    """Get skill enable/disable state. Returns all discovered skills with their toggle status."""
+    from api.skills import _discover_all_skills
+
+    config = _load_config()
+    configured = config.get("skills_configured", False)
+    enabled_paths = set(config.get("skill_paths", []))
+
+    all_skills: list[dict] = []
+    for name, path, source in _discover_all_skills():
+        all_skills.append({"name": name, "path": path, "source": source})
+
+    # Determine enabled state for each skill
+    result = []
+    for s in all_skills:
+        if configured:
+            enabled = s["path"] in enabled_paths
+        else:
+            enabled = True  # Default: all enabled
+        result.append({**s, "enabled": enabled})
+
+    return {"skills": result, "configured": configured}
+
+
+@router.put("/skills/toggle")
+async def toggle_skill(body: SkillToggleRequest):
+    """Enable or disable a skill by name. Disabled skills are not loaded into pi sessions."""
+    from api.skills import _discover_all_skills
+    config = _load_config()
+
+    # Discover all available skills and build name→path map
+    name_to_path: dict[str, str] = {}
+    all_names: list[str] = []
+    for name, path, source in _discover_all_skills():
+        name_to_path[name] = path
+        all_names.append(name)
+
+    if body.name not in name_to_path:
+        raise HTTPException(status_code=404, detail=f"Skill '{body.name}' not found")
+
+    skill_path = name_to_path[body.name]
+    configured = config.get("skills_configured", False)
+
+    if not configured:
+        # First toggle: start with all skills enabled, then apply the toggle
+        enabled_paths = set(name_to_path.values())
+        configured = True
+    else:
+        enabled_paths = set(config.get("skill_paths", []))
+
+    if body.enabled:
+        enabled_paths.add(skill_path)
+    else:
+        enabled_paths.discard(skill_path)
+
+    config["skill_paths"] = sorted(enabled_paths)
+    config["skills_configured"] = True
+    _save_config(config)
+
+    return {
+        "ok": True,
+        "name": body.name,
+        "enabled": body.enabled,
+        "enabled_count": len(enabled_paths),
+        "total_count": len(all_names),
+    }
+
+
+@router.delete("/skills")
+async def reset_skills():
+    """Reset skill configuration — all skills auto-discovered again."""
+    config = _load_config()
+    config.pop("skills_configured", None)
+    config.pop("skill_paths", None)
+    _save_config(config)
+    return {"ok": True, "message": "Skills reset to auto-discover mode"}

@@ -5,7 +5,7 @@ import { getSessionName, setSessionName } from "../../lib/pi-science-client";
 import { useRuntimeStore } from "../../lib/runtime-store";
 import { useUiStore } from "../../lib/store";
 import { cn } from "../../lib/cn";
-import type { ThreadBlock } from "../../types/thread";
+import type { ThreadBlock, ToolCallBlock } from "../../types/thread";
 import { MarkdownViewer } from "../../components/markdown-viewer/MarkdownViewer";
 import { extractArtifactRefs, refToArtifactBlock, fileInspectorFromBlock } from "../../lib/artifacts";
 import { setCurrentCwd } from "../../lib/files";
@@ -16,10 +16,15 @@ import { fetchDynamicCommands, resetDynamicCommands } from "../../lib/slash-comm
 export function LiveSessionPage() {
   const { sessionId, cwd: rawCwd } = useParams<{ sessionId: string; cwd: string }>();
   const workspaceCwd = rawCwd ? decodeURIComponent(rawCwd) : ".";
-  const {
-    status, thread, working, connect, disconnect,
-    sendPrompt, abort, activeSessionId,
-  } = useRuntimeStore();
+  // Use individual selectors to minimize re-renders during SSE streaming
+  const status = useRuntimeStore(s => s.status);
+  const thread = useRuntimeStore(s => s.thread);
+  const working = useRuntimeStore(s => s.working);
+  const activeSessionId = useRuntimeStore(s => s.activeSessionId);
+  const connect = useRuntimeStore(s => s.connect);
+  const disconnect = useRuntimeStore(s => s.disconnect);
+  const sendPrompt = useRuntimeStore(s => s.sendPrompt);
+  const abort = useRuntimeStore(s => s.abort);
   const [input, setInput] = useState("");
   const [files, setFiles] = useState<File[]>([]);
   const [dragOver, setDragOver] = useState(false);
@@ -284,7 +289,7 @@ export function LiveSessionPage() {
           {files.length > 0 && (
             <div className="flex flex-wrap gap-1.5 px-3 pt-2">
               {files.map((f, i) => (
-                <span key={i} className="flex items-center gap-1 rounded-input bg-surface-2 px-2 py-1 font-mono text-[11px] text-text ring-1 ring-border">
+                <span key={`${f.name}-${i}`} className="flex items-center gap-1 rounded-input bg-surface-2 px-2 py-1 font-mono text-[11px] text-text ring-1 ring-border">
                   {f.name}
                   <button onClick={() => setFiles((prev) => prev.filter((_, j) => j !== i))} className="text-muted hover:text-error">
                     <X size={11} />
@@ -338,20 +343,27 @@ function renderBlocks(blocks: ThreadBlock[]) {
   const result: React.ReactNode[] = [];
   let toolGroup: ThreadBlock[] = [];
 
+  // CSS content-visibility: auto lets the browser skip rendering off-screen
+  // blocks, dramatically improving long-conversation scroll performance.
+  const cvStyle = { "contentVisibility": "auto", "containIntrinsicSize": "auto 200px" } as React.CSSProperties;
+  const wrap = (el: React.ReactNode, key: string) => (
+    <div key={key} style={cvStyle}>{el}</div>
+  );
+
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i];
     if (block.kind === "tool") {
       toolGroup.push(block);
     } else {
       if (toolGroup.length > 0) {
-        result.push(<ToolGroup key={toolGroup[0].id} blocks={toolGroup} />);
+        result.push(wrap(<ToolGroup blocks={toolGroup} />, toolGroup[0].id));
         toolGroup = [];
       }
-      result.push(<BlockRenderer key={block.id} block={block} />);
+      result.push(wrap(<BlockRenderer block={block} />, block.id));
     }
   }
   if (toolGroup.length > 0) {
-    result.push(<ToolGroup key={toolGroup[0].id} blocks={toolGroup} />);
+    result.push(wrap(<ToolGroup blocks={toolGroup} />, toolGroup[0].id));
   }
   return result;
 }
@@ -375,9 +387,10 @@ function ToolGroup({ blocks }: { blocks: ThreadBlock[] }) {
   const [expanded, setExpanded] = useState(false);
   if (blocks.length <= 1) return <ToolCard block={blocks[0]} />;
 
-  const allDone = blocks.every((b: any) => b.status === "done" || b.status === "error");
-  const doneCount = blocks.filter((b: any) => b.status === "done").length;
-  const tools = [...new Set(blocks.map((b: any) => b.tool))].join(", ");
+  const toolBlocks = blocks as ToolCallBlock[];
+  const allDone = toolBlocks.every(b => b.status === "done" || b.status === "error");
+  const doneCount = toolBlocks.filter(b => b.status === "done").length;
+  const tools = [...new Set(toolBlocks.map(b => b.tool))].join(", ");
 
   // While tools are running, show individual cards inline (no jumping)
   if (!allDone) {
@@ -408,8 +421,10 @@ function ToolGroup({ blocks }: { blocks: ThreadBlock[] }) {
 
 function UserMessage({ text }: { text: string }) {
   return (
-    <div className="rounded-card bg-surface-2 px-4 py-3 text-[15px] leading-relaxed text-text ml-auto max-w-[85%]">
-      {text}
+    <div className="flex justify-end">
+      <div className="max-w-[85%] rounded-card bg-surface-2 px-4 py-3 text-[15px] leading-relaxed text-text">
+        {text}
+      </div>
     </div>
   );
 }
@@ -449,11 +464,11 @@ function AgentMessage({ parts, partial }: { parts: { id: string; text: string }[
   );
 }
 
-function ToolCard({ block }: { block: { kind: "tool" } & Record<string, unknown> }) {
+function ToolCard({ block }: { block: ToolCallBlock }) {
   const [expanded, setExpanded] = useState(false);
-  const tool = block.tool as string;
-  const status = block.status as string;
-  const output = (block.output || block.partialOutput) as string | undefined;
+  const tool = block.tool;
+  const status = block.status;
+  const output = block.output || block.partialOutput;
 
   const statusIcon = status === "running" ? (
     <Loader2 size={13} className="animate-spin text-accent" />
