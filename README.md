@@ -24,6 +24,8 @@ The core interface: a streaming chat where AI agents write, execute, and visuali
 - **AGENTS.md / KNOWLEDGE.md** — per-workspace agent instructions auto-seeded on session creation
 - **Slash commands** — type `/` in the composer to access built-in commands (`/new`, `/model`, `/compact`, `/copy`, `/export`, `/name`, `/session`) and dynamic ones from skills and extensions
 - **Skill commands** — skills installed in `.pi/skills/` register as `/skill:<name>` commands that invoke the skill through the agent
+- **Interactive prompts** — extension confirm/select/input/editor requests render as inline cards you can answer without leaving the chat
+- **Resilient streaming** — reconnecting SSE replays missed events (`Last-Event-ID` cursors), one runtime per workspace with a busy guard, and page reloads merge durable history with live output
 
 ### Slash Commands · 斜杠命令
 
@@ -41,23 +43,6 @@ Type `/` in the composer to bring up the command menu. Built-in commands execute
 | `/export <html\|jsonl>` | Export session to file · 导出会话 |
 | `/session` | Show session info and stats · 会话统计 |
 | `/skill:<name>` | Invoke a workspace skill via the agent · 调用技能 |
-
-### Project Knowledge Reviewer · 项目知识审稿人
-
-Each workspace has a durable `PROJECT.md` and a Reviewer-managed inbox. Conversations and project files are analyzed for useful knowledge, but nothing enters the formal project record until the user accepts it.
-
-每个工作区都有持续演化的 `PROJECT.md` 和 Reviewer 待整理区。系统会从对话和项目文件中识别有效知识，但只有用户确认后才能写入正式项目记录。
-
-- **Proposal-only Reviewer** — extracts findings, conclusions, decisions, hypotheses, open questions, tasks, project changes, and artifacts
-- **Evidence links** — proposals retain their source session, message IDs, related files, confidence, and conflicts
-- **Human approval** — accept, edit, reject, or batch-review proposals before they update `PROJECT.md`
-- **Automatic or manual review** — run silently after settled conversations, or trigger “Review” from the composer
-- **Hybrid file organization** — shallow physical folders plus logical views by type, topic, and time
-- **Safe file plans** — preview moves/renames, detect collisions and references, execute transactionally, and undo from history
-- **Project versions** — every reviewed document update creates a restorable project-document version
-- **Per-project policy** — lock paths, set naming conventions, and learn from accepted/rejected proposal categories
-
-Workspace-local data is stored under `.pi-science/knowledge/`, `.pi-science/inbox/`, `.pi-science/history/`, `.pi-science/index.json`, and `.pi-science/policy.yaml`.
 
 ### Project Knowledge Reviewer · 项目知识审稿人
 
@@ -142,6 +127,7 @@ Every file the agent creates or edits is automatically recorded with full lineag
 | **pi-mcp-adapter** | Bridge to MCP servers — literature search (PubMed, arXiv), biomed, materials databases, weather |
 | **pi-subagents** | Multi-agent orchestration: scout, researcher, planner, worker, reviewer, oracle |
 | **pi-web-access** | Web search, URL fetching, YouTube/video understanding |
+| **context-mode** | Sandboxed code execution (12 languages) + FTS5 knowledge index for long scientific sessions |
 
 ### Workspaces · 工作区
 
@@ -152,7 +138,7 @@ Every file the agent creates or edits is automatically recorded with full lineag
 ### Theme & Internationalization · 主题与国际化
 
 - **Warm paper aesthetic** — cream whites, soft shadows, serif headings; dark mode via `[data-theme="dark"]`
-- **English & Simplified Chinese** — switch in Settings for Project Knowledge and scientific inspector/viewer labels; the remaining workbench shell currently uses English
+- **English & Simplified Chinese** — auto-detected on first launch, switchable in Settings → General; covers the workbench shell, Project Knowledge, and the scientific inspectors (an i18n coverage test keeps both locales in sync)
 - **Resizable panels** — drag to resize sidebar, inspector, and composer
 
 ---
