@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { lazy, Suspense, useState, useEffect, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useRef, useCallback } from "react";
 import { useUiStore } from "../../lib/ui";
 import { RightPane } from "../../components/inspector/RightPane";
 import { PreviewPaneControls } from "../../components/inspector/PreviewPaneControls";
@@ -7,6 +7,8 @@ import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { WorkspaceRail } from "../../components/sidebar/WorkspaceRail";
 import { useWorkspaceCwd } from "../../lib/workspace";
 import { cn } from "../../lib/ui";
+import { ChevronsLeft } from "lucide-react";
+import { IconButton } from "../../components/ui/Icon";
 import { NARROW_MEDIA_QUERY, isNarrowViewport } from "../../lib/ui/viewport";
 
 // Load workspace-only tabs and menus without adding them to the initial page graph.
@@ -80,7 +82,9 @@ export function ProjectsLayout() {
   const sidebarDragWidthRef = useRef<number | null>(null);
   const panelRef = useRef<HTMLElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
-  const drawerWasOpen = useRef(false);
+  const headerLinkRef = useRef<HTMLAnchorElement | null>(null);
+  const focusBeforeExplicitExpand = useRef<HTMLButtonElement | null>(null);
+  const focusBeforeExplicitClose = useRef<{ element: Element | null } | null>(null);
   const [narrowViewport, setNarrowViewport] = useState(isNarrowViewport);
   const location = useLocation();
   const activeCwd = useWorkspaceCwd();
@@ -156,11 +160,34 @@ export function ProjectsLayout() {
     if (isNarrowViewport()) setContextPanelCollapsed(true);
   }, [location.pathname, setContextPanelCollapsed]);
 
+  const expandContextPanel = useCallback((trigger: HTMLButtonElement) => {
+    focusBeforeExplicitExpand.current = document.activeElement === trigger ? trigger : null;
+    setContextPanelCollapsed(false);
+  }, [setContextPanelCollapsed]);
+
+  const closeContextPanel = useCallback(() => {
+    focusBeforeExplicitClose.current = { element: document.activeElement };
+    setContextPanelCollapsed(true);
+  }, [setContextPanelCollapsed]);
+
   useEffect(() => {
     if (drawerOpen) panelRef.current?.focus();
-    else if (drawerWasOpen.current) toggleRef.current?.focus();
-    drawerWasOpen.current = drawerOpen;
-  }, [drawerOpen]);
+    if (!contextPanelCollapsed) {
+      const trigger = focusBeforeExplicitExpand.current;
+      focusBeforeExplicitExpand.current = null;
+      if (!drawerOpen && trigger && (document.activeElement === trigger || document.activeElement === document.body)) {
+        headerLinkRef.current?.focus();
+      }
+      return;
+    }
+    const pending = focusBeforeExplicitClose.current;
+    focusBeforeExplicitClose.current = null;
+    // Restore only after an explicit close, and preserve focus if another
+    // control has already claimed it before this effect runs.
+    if (pending && (document.activeElement === pending.element || document.activeElement === document.body)) {
+      toggleRef.current?.focus();
+    }
+  }, [drawerOpen, contextPanelCollapsed]);
 
   useEffect(() => {
     if (!drawerOpen) return;
@@ -170,11 +197,11 @@ export function ProjectsLayout() {
     // handler skips an Escape the dialog already consumed instead of closing
     // the drawer out from under it.
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); setContextPanelCollapsed(true); }
+      if (event.key === "Escape" && !event.defaultPrevented) { event.preventDefault(); closeContextPanel(); }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [drawerOpen, setContextPanelCollapsed]);
+  }, [drawerOpen, closeContextPanel]);
 
   return (
     <div className="relative flex h-dvh w-screen overflow-hidden bg-bg text-text">
@@ -183,15 +210,16 @@ export function ProjectsLayout() {
       </a>
       {/* The project workbench is full-width; workspace routes retain navigation. */}
       {!isProjectsHome && <>
-        <WorkspaceRail cwd={activeCwd} toggleRef={toggleRef} />
-        <div data-context-panel-shade aria-hidden="true" hidden={!drawerOpen} onPointerDown={() => setContextPanelCollapsed(true)} onMouseDown={(event) => event.preventDefault()} className={cn(!drawerOpen && "!hidden", "absolute inset-y-0 left-[var(--rail-width-mobile)] right-0 z-50 bg-black/45 md:hidden")} />
+        <WorkspaceRail cwd={activeCwd} toggleRef={toggleRef} onExpand={expandContextPanel} />
+        <div data-context-panel-shade aria-hidden="true" hidden={!drawerOpen} onPointerDown={closeContextPanel} onMouseDown={(event) => event.preventDefault()} className={cn(!drawerOpen && "!hidden", "absolute inset-y-0 left-[var(--rail-width-mobile)] right-0 z-50 bg-black/45 md:hidden")} />
         <aside ref={panelRef} tabIndex={-1} id="workspace-context-panel" aria-label={t("sidebar.workspaceContent")} hidden={contextPanelCollapsed || !isWorkspace} className={cn((contextPanelCollapsed || !isWorkspace) && "!hidden", "app-sidebar sidebar-enter absolute inset-y-0 left-[var(--rail-width-mobile)] z-[60] flex h-full shrink-0 flex-col overflow-hidden border-r border-faint md:relative md:left-auto md:z-auto")} style={{ width: sidebarDragWidth ?? sidebarWidth, maxWidth: "calc(100vw - var(--rail-width-mobile))" }}>
           <div className="flex h-full min-h-0 flex-col px-panel py-card">
-            <header className="mb-2 shrink-0 px-2 py-1">
-              <Link to="/" title={activeCwd ? workspacePathLeaf(activeCwd) : t("nav.projects")} className="flex min-w-0 flex-col text-text">
+            <header className="mb-2 flex shrink-0 items-start gap-2 px-2 py-1">
+              <Link ref={headerLinkRef} to="/" title={activeCwd ? workspacePathLeaf(activeCwd) : t("nav.projects")} className="flex min-w-0 flex-1 flex-col text-text">
                 <span className="text-[18px] font-semibold leading-6 tracking-[-0.03em]">pi-science</span>
                 <span className="truncate text-xs font-normal leading-4 text-muted">{activeCwd ? workspacePathLeaf(activeCwd) : t("nav.projects")}</span>
               </Link>
+              {isWorkspace && <IconButton icon={ChevronsLeft} label={t("shell.collapseContextPanel")} title={t("shell.collapseContextPanel")} aria-controls="workspace-context-panel" aria-expanded={!contextPanelCollapsed} onClick={closeContextPanel} />}
             </header>
             {isWorkspace && <Suspense fallback={<div role="status" className="min-h-0 flex-1 p-2 text-ui-label text-muted">{t("inspector.loading")}</div>}><SidebarMainArea key={activeCwd!} cwd={activeCwd!} /></Suspense>}
           </div>

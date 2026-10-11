@@ -4,10 +4,54 @@ import { VISUAL_CWD, VISUAL_SESSION } from "./fixtures/data.mjs";
 const root = `/workspace/${encodeURIComponent(VISUAL_CWD)}`;
 const RAIL = 'nav[aria-label="Primary navigation"]';
 const PANEL = "#workspace-context-panel";
-const TOGGLE = "Workspace context panel";
+const TOGGLE = /^(Expand|Collapse) sidebar$/;
 // The Rail's Knowledge link folds the pending count into its accessible name,
 // so it is matched by prefix rather than exactly.
 const KNOWLEDGE = /^Project Knowledge/;
+
+test("collapsed workspace keeps a direct Projects link and names the sidebar actions", async ({ page }, testInfo) => {
+  test.skip(!["desktop-light", "mobile"].includes(testInfo.project.name), "Desktop and mobile navigation coverage");
+  await page.goto(`${root}/session/${VISUAL_SESSION}`);
+  if (testInfo.project.name === "desktop-light") {
+    await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  }
+  const expand = page.getByRole("button", { name: "Expand sidebar", exact: true });
+  await expect(expand).toBeVisible();
+  const rail = page.locator(RAIL);
+  const projects = rail.getByRole("link", { name: "Projects", exact: true });
+  const settings = rail.getByRole("button", { name: "Settings", exact: true });
+  const projectsBox = (await projects.boundingBox())!;
+  const settingsBox = (await settings.boundingBox())!;
+  expect(projectsBox.y + projectsBox.height).toBeLessThanOrEqual(settingsBox.y);
+  expect(await projects.evaluate(element => element.nextElementSibling?.getAttribute("aria-label"))).toBe("Settings");
+  for (const svg of await rail.locator("svg").all()) {
+    await expect(svg).toHaveAttribute("width", "20");
+    await expect(svg).toHaveAttribute("height", "20");
+    await expect(svg).toHaveAttribute("stroke-width", "1.75");
+  }
+  await expand.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await expect(expand).toHaveCount(0);
+  if (testInfo.project.name === "desktop-light") {
+    await expect(page.locator(`${PANEL} header a`)).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeFocused();
+    const brand = rail.locator(":scope > div").first();
+    const before = await brand.evaluate(element => getComputedStyle(element).backgroundColor);
+    await brand.hover();
+    expect(await brand.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(before);
+  } else {
+    await expect(page.locator(PANEL)).toBeFocused();
+  }
+  expect((await projects.boundingBox())!.y).toBeCloseTo(projectsBox.y, 1);
+  expect((await settings.boundingBox())!.y).toBeCloseTo(settingsBox.y, 1);
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await expect(expand).toBeFocused();
+  await page.locator(RAIL).getByRole("link", { name: "Projects", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.locator(RAIL)).toHaveCount(0);
+});
 
 test("sidebar tabs preserve session lifecycle and collapsed New stays blank", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "Desktop interaction coverage");
