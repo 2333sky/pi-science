@@ -8,6 +8,7 @@ import { notifyInspectorLayoutChange } from "@/lib/ui/inspector-layout";
 import { IconButton } from "../ui/Icon";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { InspectorShell } from "./InspectorShell";
+import { bindPreviewFrameEscape } from "./iframe-focus";
 import { PreviewPaneControls } from "./PreviewPaneControls";
 
 function tabTitle(data: Inspector, sessionKernelTitle: string): string {
@@ -82,7 +83,9 @@ export function InspectorTabs({
       }
     };
     window.addEventListener("keydown", onKeyDown);
+    const unbindFrames = expandedPanelRef.current ? bindPreviewFrameEscape(expandedPanelRef.current, () => setExpandedTabId(null)) : undefined;
     return () => {
+      unbindFrames?.();
       window.removeEventListener("keydown", onKeyDown);
       lastFocusedRef.current?.focus();
       lastFocusedRef.current = null;
@@ -254,6 +257,7 @@ export function InspectorTabs({
                     onClose={() => closeTab(tab.id)}
                     cwd={cwd}
                     sessionId={sessionId}
+                    focused={expanded}
                     compactHeader
                     controls={["file", "pdf", "artifact", "notebook-file"].includes(tab.data.variant) ? (
                       <IconButton

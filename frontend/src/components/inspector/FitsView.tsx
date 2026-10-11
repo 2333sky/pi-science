@@ -1,4 +1,5 @@
 import { Maximize, Scan, Minus, Plus } from "lucide-react";
+import { clampImageScale, imageScaleLimits } from "./image-scale";
 import { IconButton } from "../ui/Icon";
 import { ViewerToolbar, ViewerStatusBar } from "./PreviewFrame";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -6,8 +7,6 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { parseFits, pixelToWorld, type FitsImage, type FitsResult } from "@/lib/viewers/fits";
 import { cn } from "@/lib/ui";
-
-const clampImageScale = (value: number) => Math.max(0.01, Math.min(64, value));
 
 /**
  * Native FITS viewer for astronomy (P1-3): renders a 2-D image HDU to a canvas
@@ -97,6 +96,7 @@ function ImageView({ filename, img }: { filename: string; img: FitsImage }) {
   }, []);
   const fitScale = Math.min(bounds.width / img.width, bounds.height / img.height);
   const imageScale = scale ?? fitScale;
+  const limits = imageScaleLimits(fitScale, 64, imageScale);
   const [cmap, setCmap] = useState<Cmap>("magma");
   const [stretch, setStretch] = useState<Stretch>("linear");
   const [hover, setHover] = useState<{ x: number; y: number; v: number } | null>(null);
@@ -173,8 +173,8 @@ function ImageView({ filename, img }: { filename: string; img: FitsImage }) {
         />
         <IconButton icon={Maximize} label={t("filePreview.fitImage")} size="compact" aria-pressed={scale === null} onClick={() => { setScale(null); viewportRef.current?.scrollTo?.({ left: 0, top: 0 }); }} />
         <IconButton icon={Scan} label={t("filePreview.actualImage")} size="compact" aria-pressed={scale === 1} onClick={() => setScale(1)} />
-        <IconButton icon={Minus} label={t("filePreview.zoomOut")} size="compact" onClick={() => setScale(clampImageScale(imageScale / 1.2))} />
-        <IconButton icon={Plus} label={t("filePreview.zoomIn")} size="compact" onClick={() => setScale(clampImageScale(imageScale * 1.2))} />
+        <IconButton icon={Minus} label={t("filePreview.zoomOut")} size="compact" disabled={imageScale <= limits.min} onClick={() => setScale(clampImageScale(imageScale / 1.2, limits))} />
+        <IconButton icon={Plus} label={t("filePreview.zoomIn")} size="compact" disabled={imageScale >= limits.max} onClick={() => setScale(clampImageScale(imageScale * 1.2, limits))} />
       </Toolbar>
 
       <div ref={viewportRef} className="min-h-0 flex-1 overflow-auto">

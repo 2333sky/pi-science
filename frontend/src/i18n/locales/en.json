@@ -1536,5 +1536,7 @@
   "filePreview.actualImage": "Original size",
   "filePreview.imageToolbar": "Image view",
   "filePreview.viewerToolbar": "Viewer tools",
-  "filePreview.fontSize": "Text size"
+  "filePreview.fontSize": "Text size",
+  "filePreview.pdfFocusHint": "The browser PDF viewer may handle Esc itself. Use Exit focus in the toolbar to return.",
+  "filePreview.frameFocusHint": "Esc exits accessible HTML previews. If the embedded page handles Esc, use Exit focus in the toolbar."
 }

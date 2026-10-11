@@ -25,3 +25,11 @@
 `frontend/tests/visual/inspector.visual.spec.ts` 覆盖 Markdown、专注查看、移动预览，以及代码、表格、图片、Mol*、Mesh、FITS、Genome 的明暗主题和窄屏截图。科学预览还验证进出专注模式后绘图节点保持原实例。
 
 常规验证入口：前端 `typecheck`、`build`、`test`、`lint`，以及 `playwright test --config playwright.visual.config.ts inspector.visual.spec.ts`。Office 和 Notebook 继续由已有组件测试覆盖；浏览器新增截图主要覆盖上述代表性普通文件和科学格式。
+
+## Review 修复：缩放边界与 iframe 键盘焦点
+
+图片采用独立于文档字号的倍率范围；范围包含 Fit 倍率及其上下各 16 倍余量，并保留 resize 后已有手动倍率，避免从 Fit 切换到手动缩放时跳变或方向反转。普通图片仍默认适应窗口且不放大超过原尺寸；FITS 允许适应窗口时放大科学像素。
+
+专注模式为可访问的同源 iframe 绑定 Esc 监听，覆盖延迟加载与导航，并在退出时解绑。不注入页面脚本，也不调整 iframe sandbox。嵌入页面已消费的 Esc 或内部对话框由页面自身处理。浏览器原生 PDF 和不可访问的跨域页面不能保证向父页面转发键盘事件，工具栏的“退出专注”始终保留，并在专注预览中显示限制说明。
+
+回归测试覆盖 10000/1000000 像素图片按钮与 Ctrl/Command 滚轮、2×2 FITS 从 Fit 状态直接放大/缩小、iframe 延迟加载及监听清理，并在真实浏览器中验证 HTML 内输入框获焦后的 Esc 退出与原生 PDF 内获焦后的外部退出操作。

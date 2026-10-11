@@ -9,6 +9,7 @@ export function PdfInspector({
   onClose,
   controls,
   compactHeader = false,
+  focused = false,
   cwd,
 }: {
   data: PdfInspectorT;
@@ -16,6 +17,7 @@ export function PdfInspector({
   /** Pane-level header buttons (e.g. maximize), rendered before Close. */
   controls?: React.ReactNode;
   compactHeader?: boolean;
+  focused?: boolean;
   cwd: string;
 }) {
   const { t } = useTranslation();
@@ -33,6 +35,7 @@ export function PdfInspector({
           <X size={14} strokeWidth={1.5} />
         </button>}
       </header>
+      {focused && <p role="note" className="shrink-0 border-b border-border bg-surface-2 px-3 py-1.5 text-ui-caption text-muted">{t("filePreview.pdfFocusHint")}</p>}
 
       {url ? (
         <iframe title={title} src={url} className="min-h-0 flex-1 bg-[var(--bg)]" />

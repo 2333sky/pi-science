@@ -61,6 +61,7 @@ export function FilePreviewInspector({
   showClose = true,
   showOpenExternally = true,
   compactHeader = false,
+  focused = false,
 }: {
   data: FilePreviewInspectorT;
   onClose: () => void;
@@ -76,6 +77,7 @@ export function FilePreviewInspector({
   /** Multi-file tabs keep the content header focused on preview actions. */
   showOpenExternally?: boolean;
   compactHeader?: boolean;
+  focused?: boolean;
 }) {
   const { t } = useTranslation();
   const kind = previewKindForName(data.filename);
@@ -370,6 +372,7 @@ export function FilePreviewInspector({
           />
         )}
       </header>
+      {focused && (kind === "pdf" || (kind === "html" && tab === "preview")) && <p role="note" className="shrink-0 border-b border-border bg-surface-2 px-3 py-1.5 text-ui-caption text-muted">{t(kind === "html" ? "filePreview.frameFocusHint" : "filePreview.pdfFocusHint")}</p>}
 
       <div data-preview-viewport ref={scrollRef} onScroll={onScroll} className="min-h-0 flex-1 overflow-auto bg-surface">
         <div className="h-full min-h-full">

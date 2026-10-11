@@ -15,6 +15,7 @@ export function InspectorShell({
   cwd: cwdOverride,
   sessionId,
   compactHeader = false,
+  focused = false,
 }: {
   inspector: Inspector;
   onClose: () => void;
@@ -23,6 +24,7 @@ export function InspectorShell({
   cwd?: string;
   sessionId?: string;
   compactHeader?: boolean;
+  focused?: boolean;
 }) {
   const runtimeCwd = useRuntimeStore((state) => state.cwd);
   const cwd = cwdOverride || runtimeCwd;
@@ -39,6 +41,7 @@ export function InspectorShell({
           showTitle={!compactHeader}
           showClose={!compactHeader}
           showOpenExternally={!compactHeader}
+          focused={focused}
           compactHeader={compactHeader}
         />
       )}
@@ -49,7 +52,7 @@ export function InspectorShell({
         <ArtifactInspector compactHeader={compactHeader} data={inspector} onClose={onClose} controls={controls} />
       )}
       {inspector.variant === "pdf" && (
-        <PdfInspector compactHeader={compactHeader} data={inspector} onClose={onClose} controls={controls} cwd={cwd} />
+        <PdfInspector focused={focused} compactHeader={compactHeader} data={inspector} onClose={onClose} controls={controls} cwd={cwd} />
       )}
       {inspector.variant === "notebook" && (
         <NotebookPanel onClose={onClose} cwd={cwd} notebookId={inspector.notebookId} sessionId={sessionId} />

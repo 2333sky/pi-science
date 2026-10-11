@@ -125,3 +125,69 @@ test("mobile preview has one closable overlay without an extra focus layer", asy
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
 });
+
+function pdfFocusFixture() {
+  const stream = "BT /F1 20 Tf 30 160 Td (PDF focus test) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+  ];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return pdf;
+}
+
+test("iframe focus supports HTML Esc and an accessible native PDF exit", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "browsing-context keyboard regression");
+  const files = {
+    "focus.html": { mime: "text/html", data: '<!doctype html><html><body><input aria-label="Embedded input" autofocus><button onclick="document.body.dataset.clicked=1">Embedded action</button></body></html>' },
+    "focus.pdf": { mime: "application/pdf", data: pdfFocusFixture() },
+  };
+  await page.route("**/api/files**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/api/files" && !url.searchParams.get("subdir")) {
+      const response = await route.fetch();
+      await route.fulfill({ response, json: [...await response.json(), ...Object.keys(files).map((name) => ({ path: name, name, isDir: false, size: 1024, modified: 1755268800000 }))] });
+      return;
+    }
+    const name = url.pathname.replace(/^\/api\/files\/(serve\/)?/, "") as keyof typeof files;
+    const file = files[name];
+    if (!file) { await route.continue(); return; }
+    if (url.pathname.includes("/serve/")) await route.fulfill({ contentType: file.mime, body: file.data });
+    else await route.fulfill({ json: { encoding: "utf8", data: file.data } });
+  });
+  await page.goto(workspaceRoute(VISUAL_CWD));
+  await waitForConversationSettled(page);
+  const sidebar = page.locator("#workspace-context-panel");
+  await sidebar.getByRole("tab", { name: "Files", exact: true }).click();
+  await sidebar.getByRole("button", { name: "focus.html", exact: true }).click();
+  await page.getByRole("button", { name: "Focus file", exact: true }).click();
+  const htmlDialog = page.getByRole("dialog", { name: "focus.html", exact: true });
+  const embeddedInput = htmlDialog.frameLocator("iframe").getByRole("textbox", { name: "Embedded input" });
+  await embeddedInput.click();
+  await expect(embeddedInput).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(htmlDialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Focus file", exact: true })).toBeFocused();
+
+  await sidebar.getByRole("button", { name: "focus.pdf", exact: true }).click();
+  await page.getByRole("button", { name: "Focus file", exact: true }).click();
+  const pdfDialog = page.getByRole("dialog", { name: "focus.pdf", exact: true });
+  await expect(pdfDialog.getByRole("note")).toContainText("browser PDF viewer may handle Esc itself");
+  // Browser-owned PDF plugin focus is not always exposed as activeElement
+  // after a pointer click. Explicitly focus its containing browsing context.
+  await pdfDialog.locator("iframe").focus();
+  await expect.poll(() => pdfDialog.locator("iframe").evaluate((frame) => frame.ownerDocument.activeElement === frame)).toBe(true);
+  // Chromium owns PDF keyboard handling; exercise the guaranteed parent exit.
+  const exit = pdfDialog.getByRole("button", { name: "Exit focus", exact: true });
+  await expect(exit).toBeVisible();
+  await exit.click();
+  await expect(pdfDialog).not.toBeVisible();
+  await expect(page.getByRole("button", { name: "Focus file", exact: true })).toBeFocused();
+});

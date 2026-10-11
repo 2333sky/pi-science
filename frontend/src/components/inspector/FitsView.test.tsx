@@ -39,3 +39,21 @@ it("fits a scientific image while preserving bottom-left pixel coordinates under
   fireEvent.click(screen.getByRole("button", { name: "Fit to window" }));
   expect(canvas).toHaveStyle({ width: "200px", height: "200px" });
 });
+
+it("zooms a tiny FITS image in either direction from a fit scale above the nominal maximum", () => {
+  const { container } = render(<FitsView filename="tiny.fits" bytes={imageBytes()} />);
+  const canvas = container.querySelector("canvas")!;
+  const viewport = canvas.parentElement!.parentElement!;
+  Object.defineProperties(viewport, { clientWidth: { value: 432 }, clientHeight: { value: 432 } });
+  act(() => resize());
+  expect(canvas).toHaveStyle({ width: "400px", height: "400px" });
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(parseFloat(canvas.style.width)).toBeCloseTo(480);
+  fireEvent.click(screen.getByRole("button", { name: "Fit to window" }));
+  fireEvent.click(screen.getByRole("button", { name: "Zoom out" }));
+  expect(parseFloat(canvas.style.width)).toBeCloseTo(400 / 1.2);
+  fireEvent.click(screen.getByRole("button", { name: "Original size" }));
+  expect(canvas).toHaveStyle({ width: "2px" });
+  fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+  expect(parseFloat(canvas.style.width)).toBeCloseTo(2.4);
+});
