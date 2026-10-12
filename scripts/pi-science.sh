@@ -43,8 +43,12 @@ Start options:
 EOF
 }
 
-control_plane_is_ready() { curl --fail --silent "http://127.0.0.1:${CONTROL_PLANE_PORT}/internal/ready" >/dev/null 2>&1; }
-frontend_is_ready() { curl --fail --silent "$FRONTEND_URL" >/dev/null 2>&1; }
+http_is_ready() {
+  if [ -z "${PI_SCIENCE_NODE_COMMAND:-}" ]; then pi_science_prepare_node 0 || return 1; fi
+  "$PI_SCIENCE_NODE_COMMAND" "$SCRIPT_DIR/check-http-health.mjs" "$1" "${2:-}" >/dev/null 2>&1
+}
+control_plane_is_ready() { http_is_ready "http://127.0.0.1:${CONTROL_PLANE_PORT}/internal/ready" "${1:-}"; }
+frontend_is_ready() { http_is_ready "$FRONTEND_URL" "${1:-}"; }
 port_listener_pids() { command -v lsof >/dev/null 2>&1 || return 0; lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | sort -u || true; }
 open_browser() { if command -v open >/dev/null 2>&1; then open "$1" >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 || true; fi; }
 process_start_identity() {
@@ -327,7 +331,7 @@ cmd_start() {
       run_state_is_owned "$pid" "$token" && remove_run_state || true
       exit 1
     fi
-    if control_plane_is_ready && frontend_is_ready; then
+    if control_plane_is_ready "$deadline" && frontend_is_ready "$deadline"; then
       echo "Pi-Science is running in the background (pid $pid)"
       echo "  Frontend:           $FRONTEND_URL"
       echo "  Node control plane: http://127.0.0.1:$CONTROL_PLANE_PORT"
@@ -341,7 +345,6 @@ cmd_start() {
     sleep 0.25
   done
 
-  if control_plane_is_ready && frontend_is_ready; then run_state_is_owned "$pid" "$token" || { echo "Error: detached supervisor state ownership was lost before readiness." >&2; exit 1; }; echo "Pi-Science is running in the background (pid $pid)"; bootstrap_commit; return 0; fi
   echo "Error: Pi-Science did not become ready within ${READY_TIMEOUT_SECONDS}s. See $LOG_FILE" >&2
   cleanup_wait=0
   while [ "$cleanup_wait" -lt "$SUPERVISOR_CLEANUP_GRACE_TENTHS" ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; cleanup_wait=$((cleanup_wait + 1)); done

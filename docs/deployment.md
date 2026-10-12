@@ -39,6 +39,8 @@ nearest existing ancestor without creating them. Optional scientific environment
 and provider setup are reported separately. Run it before startup: occupied ports
 are reported as conflicts even if another Pi-Science instance owns them.
 
+POSIX readiness and status probes use the required Node.js runtime, so starting the application does not require `curl`. Each HTTP request has a 2-second wall-clock limit covering connection, headers and body, capped by the remaining shared startup deadline. After the deadline, startup rolls back its owned services without another probe.
+
 ## Failure recovery
 
 - Missing build/dependency: rerun the platform installer. Production builds must
@@ -73,8 +75,8 @@ requires a separate design for authentication and authorization.
 
 ## Acceptance and remaining work
 
-`node --test scripts/doctor.test.mjs` covers diagnostic failure cases.
-`bash scripts/test-launcher.sh` covers source-mode lifecycle and process fencing.
+`node --test scripts/doctor.test.mjs scripts/check-http-health.test.mjs` covers diagnostic failures and HTTP request deadlines, including stalled headers and continuously streaming bodies.
+`bash scripts/test-launcher.sh` covers source-mode lifecycle and process fencing with an unusable `curl`, including hung HTTP startup and cleanup in foreground and detached modes.
 `powershell -File scripts/test-process-identity.ps1` covers missing/stale identity,
 checkout/entry/token mismatch and valid ownership. Its CIM mocks are portable.
 `node scripts/smoke-production.mjs` uses real compiled artifacts and the platform

@@ -37,7 +37,7 @@ jobs:
         run: pnpm --filter frontend lint
 
       - name: Test environment diagnostics
-        run: node --test scripts/doctor.test.mjs
+        run: node --test scripts/doctor.test.mjs scripts/check-http-health.test.mjs
 
       - name: Test Windows process ownership
         if: runner.os == 'Windows'

@@ -20,6 +20,8 @@ Windows 的 `logs` 默认按文件展示控制面和前端的 stdout/stderr，�
 
 `doctor` 的必需检查失败时退出码为 1，参数无效时为 2。它不安装软件、不初始化持久数据库、不联系 LLM，也不测试网络下载是否可用。对于尚不存在的数据目录，它检查最近的现有父目录，不创建目录。科学计算环境和提供商配置作为按需设置单独说明。请在启动前运行诊断：即使端口由另一个 Pi-Science 实例占用，也会报告端口冲突。
 
+POSIX 的就绪检测和状态检查使用已必需的 Node.js，启动应用不再依赖 `curl`。每次 HTTP 请求最多耗时 2 秒，覆盖连接、响应头和响应体，并受共享启动截止时间的剩余时长约束。超过截止时间后直接清理已启动的自有服务，不再额外探测。
+
 ## 故障恢复
 
 - 缺少构建或依赖：重新运行对应平台安装器。修改源码后需要刷新生产构建；编辑源码时可使用 `start --dev`。
@@ -34,7 +36,7 @@ Windows 的 `logs` 默认按文件展示控制面和前端的 stdout/stderr，�
 
 ## 验收与后续工作
 
-`node --test scripts/doctor.test.mjs` 覆盖诊断失败场景。`bash scripts/test-launcher.sh` 覆盖源码模式的启动、停止和进程身份校验。`powershell -File scripts/test-process-identity.ps1` 覆盖身份缺失或过期、仓库/入口/令牌不匹配以及有效归属；其中的 CIM 模拟可跨平台运行。
+`node --test scripts/doctor.test.mjs scripts/check-http-health.test.mjs` 覆盖诊断失败和 HTTP 请求截止时间，包括响应头无响应和持续传输响应体。`bash scripts/test-launcher.sh` 在 `curl` 不可用时覆盖源码模式的启动、停止和进程身份校验，并验证前台和后台启动的 HTTP 挂起超时及清理。`powershell -File scripts/test-process-identity.ps1` 覆盖身份缺失或过期、仓库/入口/令牌不匹配以及有效归属；其中的 CIM 模拟可跨平台运行。
 
 `node scripts/smoke-production.mjs` 使用实际构建产物和对应平台启动器，检查 SQLite 就绪状态、HTML、JS 资源、SPA 路由回退、认证 API、状态记录和查询、停止清理，以及对外部监听进程的保护。CI 生产安装任务在 Linux、macOS 和 Windows 上运行实际安装器，不预先执行 pnpm 安装步骤。上述验收不需要 API Key 或 Python/R 环境。
 

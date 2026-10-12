@@ -136,10 +136,9 @@ wait_for_health() {
   local pid="$1" url="$2" label="$3"
   while [ "$(date +%s)" -lt "$STARTUP_DEADLINE" ]; do
     kill -0 "$pid" 2>/dev/null || { echo "Error: $label exited during startup." >&2; return 1; }
-    curl --fail --silent "$url" >/dev/null 2>&1 && return 0
+    "$NODE_COMMAND" "$SCRIPT_DIR/check-http-health.mjs" "$url" "$STARTUP_DEADLINE" >/dev/null 2>&1 && return 0
     sleep 0.25
   done
-  curl --fail --silent "$url" >/dev/null 2>&1 && return 0
   echo "Error: $label did not become ready within the ${STARTUP_TIMEOUT_SECONDS}s startup deadline." >&2
   return 1
 }
