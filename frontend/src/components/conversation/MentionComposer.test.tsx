@@ -162,7 +162,7 @@ describe("MentionComposer", () => {
 
     fireEvent.click(screen.getByRole("option", { name: /WT\.pdb/ }));
     await waitFor(() => expect(input()).toHaveValue("@structures/WT.pdb "));
-    expect(mirror?.querySelector("span")?.textContent).toBe("@structures/WT.pdb");
+    await waitFor(() => expect(mirror?.querySelector("span")?.textContent).toBe("@structures/WT.pdb"));
 
     await typeAt("@");
     fireEvent.click(await screen.findByRole("option", { name: /Reference entire folder/ }));

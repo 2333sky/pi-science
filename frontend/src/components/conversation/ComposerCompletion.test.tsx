@@ -617,6 +617,7 @@ describe("composer completion keyboard paths", () => {
     renderComposer();
     await type("/skill:rev");
     expect(input()).toHaveValue("/skill:rev");
+    await screen.findByRole("alert");
     const failedMenu = await screen.findByRole("listbox", { name: "Completions" });
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(failedMenu.querySelector("[role='option']")).toBeNull();
