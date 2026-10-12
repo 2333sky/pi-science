@@ -85,7 +85,14 @@ function Stop-PiScience {
         }
         # Do not remove a newer launch's state if the pathname was replaced.
         $current = Read-RunState
-        if ($null -ne $current -and $current.launch_token -eq $state.launch_token) { Remove-RunState }
+        if ($null -ne $current -and $current.launch_token -eq $state.launch_token) {
+            $currentIdentities = @("frontend", "control") | ForEach-Object { Get-PiProcessIdentity -State $current -Role $_ -Checkout $ProjectDir }
+            if (@($currentIdentities | Where-Object { $_.status -ne "already_exited" }).Count -gt 0) {
+                Write-Host "Process state changed during stop; identity was preserved. Retry pi-science stop."
+                return 1
+            }
+            Remove-RunState
+        }
     }
     if (-not $stopped -and ((Test-PortListening $ControlPlanePort) -or (Test-PortListening $FrontendPort))) {
         Write-Host "Ports are occupied by unverified processes; no process was stopped."

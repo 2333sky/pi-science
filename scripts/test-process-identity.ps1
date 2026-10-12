@@ -12,9 +12,10 @@ $script:killFails = $false
 $script:waitFails = $false
 $script:lookupFails = $false
 $script:absent = $false
+$script:replaceStateOnKill = $false
 $script:childEnabled = $false
 $script:childKillFails = $false
-$script:child = [pscustomobject]@{ StartTime = $created.AddSeconds(1); HasExited = $false }
+$script:child = [pscustomobject]@{ StartTime = $created.AddSeconds(1); Path = "node.exe"; HasExited = $false }
 $script:child | Add-Member -MemberType ScriptMethod -Name Kill -Value { if ($script:childKillFails) { throw "simulated descendant failure" }; $this.HasExited = $true }
 $script:child | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Timeout); return $this.HasExited }
 $script:process = [pscustomobject]@{ StartTime = $created; Path = "node.exe"; HasExited = $false }
@@ -22,6 +23,14 @@ $script:process | Add-Member -MemberType ScriptMethod -Name Kill -Value {
     if ($script:killFails) { throw "simulated kill failure" }
     $script:stops++
     if (-not $script:waitFails) { $this.HasExited = $true }
+    if ($script:replaceStateOnKill) {
+        $script:childEnabled = $true
+        $updated = $original | ConvertFrom-Json
+        $updated.frontend_pid = 456
+        $updated | Add-Member -MemberType NoteProperty -Name frontend_started -Value $created.AddSeconds(1).ToUniversalTime().Ticks.ToString()
+        $updated | Add-Member -MemberType NoteProperty -Name frontend_executable -Value "node.exe"
+        [System.IO.File]::WriteAllText($StateFile, ($updated | ConvertTo-Json -Compress))
+    }
 }
 $script:process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Timeout); return $this.HasExited }
 $script:command = 'node.exe "' + (Join-Path $checkout 'scripts/run-service.mjs') + '" --launch-token ' + $token + ' "' + $entry + '"'
@@ -38,6 +47,10 @@ function Get-Process {
 function Get-CimInstance {
     param($ClassName, $Filter, $ErrorAction)
     if ($script:cimFails) { throw "simulated CIM failure" }
+    if ($Filter -like "*456") {
+        $frontendCommand = 'node.exe "' + (Join-Path $checkout 'scripts/run-service.mjs') + '" --launch-token ' + $token + ' "' + (Join-Path $checkout 'frontend/node_modules/vite/bin/vite.js') + '"'
+        return [pscustomobject]@{ ProcessId = 456; ParentProcessId = 123; CreationDate = $created.AddSeconds(1); CommandLine = $frontendCommand }
+    }
     if (-not $Filter -and $script:childEnabled) { [pscustomobject]@{ ProcessId = 456; ParentProcessId = 123; CreationDate = $created.AddSeconds(1) } }
     [pscustomobject]@{ ProcessId = 123; ParentProcessId = 0; CreationDate = $created; CommandLine = $script:command }
 }
@@ -88,6 +101,19 @@ try {
     $script:childKillFails = $false
     Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Descendant stop retry failed"
     Assert-True ($script:child.HasExited -and -not (Test-Path -LiteralPath $StateFile)) "Descendant retry left processes or state"
+    # start.ps1 can publish a frontend PID under the same launch marker while
+    # stop is in flight. The refreshed record must also be confirmed exited.
+    $script:process.HasExited = $false
+    $script:child.HasExited = $false
+    $script:childEnabled = $false
+    $script:replaceStateOnKill = $true
+    [System.IO.File]::WriteAllText($StateFile, $original)
+    Assert-True ((Stop-PiScience 8787 5173) -eq 1) "Changed launch state was treated as stopped"
+    Assert-True ((Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json).frontend_pid -eq 456) "Newly published identity was deleted"
+    Assert-True (-not $script:child.HasExited) "An unrecorded frontend was stopped"
+    $script:replaceStateOnKill = $false
+    Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Changed launch state could not be retried"
+    Assert-True ($script:child.HasExited -and -not (Test-Path -LiteralPath $StateFile)) "Changed-state retry left process or state"
     $script:childEnabled = $false
     $script:process.HasExited = $false
     $script:absent = $true
