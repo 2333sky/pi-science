@@ -9,6 +9,7 @@ import i18n from "../../i18n";
 import { MentionComposer } from "./MentionComposer";
 
 let fileFixture: Map<string, Array<{ name: string; path: string; isDir: boolean; size: number }>> | null = null;
+let observedEntities: ComposerEntity[] = [];
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input);
   if (url.startsWith("/api/files?") && fileFixture) {
@@ -41,7 +42,7 @@ function Harness() {
       value={value}
       mentions={mentions}
       entities={entities}
-      onChange={(next, nextMentions, nextEntities) => { setValue(next); setMentions(nextMentions); setEntities(nextEntities); }}
+      onChange={(next, nextMentions, nextEntities) => { observedEntities = nextEntities; setValue(next); setMentions(nextMentions); setEntities(nextEntities); }}
       onKeyDown={() => undefined}
       onCompositionStart={() => { composingRef.current = true; setComposing(true); }}
       onCompositionEnd={() => { setTimeout(() => { composingRef.current = false; setComposing(false); }, 0); }}
@@ -104,6 +105,7 @@ describe("MentionComposer", () => {
   beforeEach(() => {
     queryClient.clear();
     fileFixture = null;
+    observedEntities = [];
     vi.stubGlobal("fetch", fetchMock);
     fetchMock.mockClear();
   });
@@ -160,8 +162,18 @@ describe("MentionComposer", () => {
     expect(mirror?.querySelector("span")).toBeNull();
     await screen.findByRole("button", { name: "structures" });
 
-    fireEvent.click(screen.getByRole("option", { name: /WT\.pdb/ }));
+    const fileOption = screen.getByRole("option", { name: /WT\.pdb/ });
+    expect(fileOption).toHaveTextContent("Reference");
+    fireEvent.click(fileOption);
     await waitFor(() => expect(input()).toHaveValue("@structures/WT.pdb "));
+    await waitFor(() => expect(observedEntities).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "reference",
+        start: 0,
+        end: "@structures/WT.pdb".length,
+        reference: expect.objectContaining({ path: "structures/WT.pdb", isDir: false }),
+      }),
+    ])));
     await waitFor(() => expect(mirror?.querySelector("span")?.textContent).toBe("@structures/WT.pdb"));
 
     await typeAt("@");
