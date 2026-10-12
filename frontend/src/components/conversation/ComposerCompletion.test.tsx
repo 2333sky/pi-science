@@ -617,13 +617,18 @@ describe("composer completion keyboard paths", () => {
     renderComposer();
     await type("/skill:rev");
     expect(input()).toHaveValue("/skill:rev");
-    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    const failedMenu = await screen.findByRole("listbox", { name: "Completions" });
+    expect(screen.getByRole("alert")).toBeInTheDocument();
+    expect(failedMenu.querySelector("[role='option']")).toBeNull();
     await press("Tab");
     expect(input()).toHaveValue("/skill:rev");
     expect(onKeyDown).toHaveBeenCalledTimes(1);
 
     await type("/exp");
-    expect(screen.getByRole("listbox", { name: "Completions" })).toBeInTheDocument();
+    const builtins = screen.getByRole("listbox", { name: "Completions" });
+    expect(builtins).toBeInTheDocument();
+    expect(screen.getByText("/export")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toBeInTheDocument();
     await press("Tab");
     expect(input()).toHaveValue("/export ");
   });
