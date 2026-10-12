@@ -152,13 +152,13 @@ describe("MentionComposer", () => {
         { name: "WT.pdb", path: "structures/WT.pdb", isDir: false, size: 100 },
       ]],
     ]);
-    const { container } = renderComposer();
+    renderComposer();
     await typeAt("@");
     const openFolder = await screen.findByRole("option", { name: /structures.*Open folder/ });
     fireEvent.click(openFolder);
 
     expect(input()).toHaveValue("@");
-    const mirror = container.querySelector<HTMLElement>("[aria-hidden='true']");
+    const mirror = input().parentElement?.querySelector<HTMLElement>("[aria-hidden='true']");
     expect(mirror?.querySelector("span")).toBeNull();
     await screen.findByRole("button", { name: "structures" });
 
