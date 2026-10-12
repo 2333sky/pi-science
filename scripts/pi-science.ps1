@@ -72,23 +72,27 @@ function Stop-PiScience {
     $state = Read-RunState
     $stopped = $false
     if ($null -ne $state) {
+        $results = @()
         foreach ($role in @("frontend", "control")) {
-            if (Stop-OwnedPiProcess -State $state -Role $role -Checkout $ProjectDir) {
-                $stopped = $true
-            }
+            $result = Stop-OwnedPiProcess -State $state -Role $role -Checkout $ProjectDir
+            $results += $result
+            if ($result.status -eq "stopped") { $stopped = $true }
+            if ($result.status -in @("unverified", "failed")) { Write-Host ("Cannot stop ${role}: " + $result.reason) }
         }
-        Remove-RunState
+        if (@($results | Where-Object { $_.status -notin @("stopped", "already_exited") }).Count -gt 0) {
+            Write-Host "Stop incomplete; process identity state was preserved. Retry pi-science stop."
+            return 1
+        }
+        # Do not remove a newer launch's state if the pathname was replaced.
+        $current = Read-RunState
+        if ($null -ne $current -and $current.launch_token -eq $state.launch_token) { Remove-RunState }
     }
     if (-not $stopped -and ((Test-PortListening $ControlPlanePort) -or (Test-PortListening $FrontendPort))) {
-        Write-Output "Ports are occupied by unverified processes; no process was stopped."
-        return
+        Write-Host "Ports are occupied by unverified processes; no process was stopped."
+        return 1
     }
-
-    if ($stopped) {
-        Write-Output "Pi-Science stopped."
-    } else {
-        Write-Output "Pi-Science is not running."
-    }
+    if ($stopped) { Write-Host "Pi-Science stopped." } else { Write-Host "Pi-Science is not running." }
+    return 0
 }
 
 function Show-PiStatus {
@@ -132,6 +136,24 @@ function Show-PiStatus {
     Write-Output "Checkout: $ProjectDir"
 }
 
+function Show-PiLogs {
+    param([string[]]$Options = @())
+    if ($Options.Count -gt 1 -or ($Options.Count -eq 1 -and $Options[0] -notin @("--all", "--stderr"))) {
+        throw "Usage: pi-science logs [--all|--stderr]"
+    }
+    $files = if ($Options -contains "--stderr") { @("control-plane.log.err", "frontend.log.err") } else { @("control-plane.log", "control-plane.log.err", "frontend.log", "frontend.log.err") }
+    $found = $false
+    foreach ($file in $files) {
+        $path = Join-Path $RuntimeDir $file
+        if (Test-Path -LiteralPath $path -PathType Leaf) {
+            $found = $true
+            Write-Output "==> $file"
+            Get-Content -LiteralPath $path
+        }
+    }
+    if (-not $found) { Write-Output "No runtime logs found in $RuntimeDir." }
+}
+
 function Show-PiHelp {
     Write-Output @"
 pi-science - Scientific AI Workbench
@@ -141,12 +163,14 @@ Usage:
   pi-science start --dev   Start source code and Vite on port 5173
   pi-science install       Install dependencies and build
   pi-science doctor        Check prerequisites without downloads
-  pi-science logs          Print runtime logs
+  pi-science logs [--stderr]  Print stdout/stderr logs (or stderr only)
   pi-science stop          Stop services started from this checkout
   pi-science status        Report what is currently running
   pi-science help          Show this message
 "@
 }
+
+if ($env:PI_SCIENCE_SOURCE_ONLY -eq "1") { return }
 
 $command = "start"
 $remaining = @()
@@ -164,7 +188,7 @@ switch ($command.ToLowerInvariant()) {
         & $node (Join-Path $ScriptDir "doctor.mjs") @remaining
         exit $LASTEXITCODE
     }
-    "logs" { Get-Content -LiteralPath (Join-Path $RuntimeDir "control-plane.log"); exit 0 }
+    "logs" { Show-PiLogs -Options $remaining; exit 0 }
     "start" {
         if ($remaining -contains "--dev") {
             $remaining = @($remaining | Where-Object { $_ -ne "--dev" })
@@ -182,8 +206,7 @@ switch ($command.ToLowerInvariant()) {
     "stop" {
         $controlPort = Get-PositivePort -EnvironmentName "PI_SCIENCE_CONTROL_PLANE_PORT" -Default 8787
         $frontendPort = Get-PositivePort -EnvironmentName "PI_SCIENCE_FRONTEND_PORT" -Default 5173
-        Stop-PiScience -ControlPlanePort $controlPort -FrontendPort $frontendPort
-        exit 0
+        exit (Stop-PiScience -ControlPlanePort $controlPort -FrontendPort $frontendPort)
     }
     "status" {
         $controlPort = Get-PositivePort -EnvironmentName "PI_SCIENCE_CONTROL_PLANE_PORT" -Default 8787

@@ -35,6 +35,8 @@ if [ "$DEPLOYMENT_MODE" = dev ]; then
   [ -f "$CONTROL_PLANE_CLI" ] || { echo "Error: server dependencies are not installed. Run: bash scripts/install.sh" >&2; exit 1; }
   [ -x "$VITE_BIN" ] || { echo "Error: frontend dependencies are not installed. Run: bash scripts/install.sh" >&2; exit 1; }
 else
+  PI_SCIENCE_FRONTEND_DIST="$("$NODE_COMMAND" "$SCRIPT_DIR/resolve-frontend-dist.mjs" "${PI_SCIENCE_FRONTEND_DIST:-}")"
+  export PI_SCIENCE_FRONTEND_DIST
   [ -f "$CONTROL_PLANE_BUILD" ] && [ -f "${PI_SCIENCE_FRONTEND_DIST:-$PROJECT_DIR/frontend/dist}/index.html" ] || { echo "Error: production build missing. Run: bash scripts/install.sh" >&2; exit 1; }
 fi
 # The browser cookie is internal authentication, not a remote-user login.

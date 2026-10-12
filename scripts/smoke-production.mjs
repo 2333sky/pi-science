@@ -19,13 +19,13 @@ async function freePort() {
   return port;
 }
 const port = await freePort();
-const env = { ...process.env, PI_SCIENCE_MODE: "production", PI_SCIENCE_HOME: join(temporary, "data"), PI_SCIENCE_WORKSPACES: join(temporary, "workspaces"), PI_SCIENCE_BIN_DIR: join(temporary, "bin"), PNPM_STORE_DIR: join(temporary, "store"), PI_SCIENCE_CONTROL_PLANE_PORT: String(port), PI_SCIENCE_OPEN_BROWSER: "0" };
+const env = { ...process.env, PI_SCIENCE_MODE: "production", PI_SCIENCE_FRONTEND_DIST: "frontend/dist", PI_SCIENCE_HOME: join(temporary, "data"), PI_SCIENCE_WORKSPACES: join(temporary, "workspaces"), PI_SCIENCE_BIN_DIR: join(temporary, "bin"), PNPM_STORE_DIR: join(temporary, "store"), PI_SCIENCE_CONTROL_PLANE_PORT: String(port), PI_SCIENCE_OPEN_BROWSER: "0" };
 const executable = windows ? "powershell.exe" : "bash";
 const script = join(root, "scripts", windows ? "pi-science.ps1" : "pi-science.sh");
 const prefix = windows ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script] : [script];
-function command(args) {
-  const result = spawnSync(executable, [...prefix, ...args], { cwd: root, env, encoding: "utf8", timeout: 120000 });
-  assert.equal(result.status, 0, result.stdout + result.stderr);
+function command(args, expectedStatus = 0) {
+  const result = spawnSync(executable, [...prefix, ...args], { cwd: temporary, env, encoding: "utf8", timeout: 120000 });
+  assert.equal(result.status, expectedStatus, result.stdout + result.stderr);
   return result.stdout;
 }
 let launcher;
@@ -36,7 +36,7 @@ try {
   // Missing production artifacts must fail without falling back to source mode.
   const fixture = join(temporary, "checkout with spaces");
   await mkdir(join(fixture, "scripts"), { recursive: true });
-  for (const name of windows ? ["start.ps1", "process-identity.ps1", "check-node-version.mjs"] : ["start.sh", "node-runtime.sh", "check-node-version.mjs"]) await copyFile(join(root, "scripts", name), join(fixture, "scripts", name));
+  for (const name of windows ? ["start.ps1", "process-identity.ps1", "check-node-version.mjs", "resolve-frontend-dist.mjs"] : ["start.sh", "node-runtime.sh", "check-node-version.mjs", "resolve-frontend-dist.mjs"]) await copyFile(join(root, "scripts", name), join(fixture, "scripts", name));
   const missingArgs = windows ? ["-NoProfile", "-File", join(fixture, "scripts", "start.ps1")] : [join(fixture, "scripts", "start.sh")];
   const missing = spawnSync(executable, missingArgs, { env, encoding: "utf8", timeout: 10000 });
   assert.notEqual(missing.status, 0);
@@ -48,22 +48,23 @@ try {
     if (result) break;
     await delay(50);
   }
-  const conflict = spawnSync(executable, [...prefix, "doctor"], { cwd: root, env, encoding: "utf8", timeout: 10000 });
+  const conflict = spawnSync(executable, [...prefix, "doctor"], { cwd: temporary, env, encoding: "utf8", timeout: 10000 });
   assert.equal(conflict.status, 1, conflict.stdout + conflict.stderr);
   assert.match(conflict.stdout, /\[FAIL\] Control port/);
-  command(["stop"]);
+  command(["stop"], windows ? 1 : 0);
   assert.equal(listener.exitCode, null, "stop killed foreign listener without state");
   if (windows) {
     await mkdir(join(root, ".runtime", "pi-science"), { recursive: true });
     await writeFile(stateFile, JSON.stringify({ checkout: root.replace(/[\\/]$/, ""), mode: "production", control_pid: listener.pid, control_started: "0", launch_token: "a".repeat(32) }));
-    command(["stop"]);
+    command(["stop"], 1);
     assert.equal(listener.exitCode, null, "stale state killed foreign listener");
+    await rm(stateFile);
   }
   listener.kill();
   await new Promise((resolve) => listener.once("exit", resolve));
   listener = undefined;
   assert.match(command(["doctor"]), /Ready to start/);
-  launcher = spawn(executable, [...prefix, "start", ...(windows ? [] : ["--detach", "--no-open"])], { cwd: root, env, stdio: ["ignore", "pipe", "pipe"] });
+  launcher = spawn(executable, [...prefix, "start", ...(windows ? [] : ["--detach", "--no-open"])], { cwd: temporary, env, stdio: ["ignore", "pipe", "pipe"] });
   launcher.stdout.on("data", (data) => { output += data; });
   launcher.stderr.on("data", (data) => { output += data; });
   const url = `http://127.0.0.1:${port}`;
@@ -101,7 +102,7 @@ try {
     const state = JSON.parse(original);
     state.control_started = "0";
     await writeFile(stateFile, JSON.stringify(state));
-    command(["stop"]);
+    command(["stop"], 1);
     assert((await fetch(url + "/internal/ready")).ok, "PID reuse fence did not protect process");
     await writeFile(stateFile, original);
   }

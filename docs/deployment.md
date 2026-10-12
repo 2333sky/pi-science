@@ -21,6 +21,17 @@ Registry access is needed during installation. Startup does not download package
 `logs`, `install` and `doctor`. Logs are checkout-local under `.runtime/pi-science`.
 Application data and workspace directories retain their existing configuration.
 
+`PI_SCIENCE_FRONTEND_DIST` accepts an absolute path or a path relative to the checkout
+root, independent of the directory from which the launcher or doctor is invoked.
+The launcher resolves it to an absolute path before validation and child startup.
+
+On Windows, `logs` defaults to all control-plane/frontend stdout and stderr files,
+with a filename heading for each stream; `logs --stderr` selects only error streams
+and `logs --all` explicitly selects all streams. They are displayed by file, not
+interleaved by timestamp. Windows foreground startup writes service output to these
+files. POSIX foreground output stays in the terminal; `logs` reads the file written
+by `start --detach`, which may be from a previous detached run.
+
 `doctor` exits 1 for a required check failure and 2 for invalid arguments. It does
 not install software, initialize a persistent database, contact an LLM, or test
 network download availability. Missing data directories are checked through their
@@ -34,6 +45,11 @@ are reported as conflicts even if another Pi-Science instance owns them.
   be refreshed after source changes. Use `start --dev` while editing source.
 - Port occupied: inspect `status` and stop the known application or choose another
   `PI_SCIENCE_CONTROL_PLANE_PORT`. Stop never kills an unknown listener by port.
+- Windows stop reports `stopped`, `already_exited`, `unverified`, or `failed`
+  internally. An incomplete stop exits 1 and preserves the complete identity record
+  for retry, including after CIM failures, kill errors or exit timeouts. State is
+  removed only when both roles are confirmed exited or their identities are stale.
+  A descendant stop failure leaves the parent alive so a retry can still find it.
 - Lost or stale Windows state: inspect the process manually; do not guess ownership
   from the listening port. Legacy state without identity is intentionally refused.
 - After a crash or a forced Windows stop, the existing application instance lock

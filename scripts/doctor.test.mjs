@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, rm, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import net from "node:net";
+import { resolveFrontendDist } from "./resolve-frontend-dist.mjs";
 import { supportedNode, parsePort, writableDirectory, portAvailable, instanceLockAvailable } from "./doctor.mjs";
 
 test("runtime versions and invalid port configuration are rejected", () => {
@@ -44,4 +45,12 @@ test("instance diagnostics reject active/recent locks and accept reclaimable one
     await utimes(path, old, old);
     assert.match(await instanceLockAvailable(root), /reclaimed/);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("frontend build overrides are anchored to the checkout", () => {
+  const root = join(tmpdir(), "checkout with spaces");
+  assert.equal(resolveFrontendDist(root, "frontend/dist"), join(root, "frontend", "dist"));
+  assert.equal(resolveFrontendDist(root, ""), join(root, "frontend", "dist"));
+  const external = join(tmpdir(), "external frontend");
+  assert.equal(resolveFrontendDist(root, external), external);
 });

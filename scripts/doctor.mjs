@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import net from "node:net";
+import { resolveFrontendDist } from "./resolve-frontend-dist.mjs";
 
 export function supportedNode(version) {
   const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
@@ -78,7 +79,7 @@ export async function doctor(args = [], env = process.env) {
     const paths = dev
       ? ["apps/server/node_modules/tsx/dist/cli.mjs", "frontend/node_modules/vite/bin/vite.js"]
       : ["apps/server/dist/app/main.js", "apps/server/dist/runtime/agent/worker/main.js", "apps/server/dist/storage/sqlite/sqlite-worker.js", "frontend/dist/index.html"];
-    if (!dev && env.PI_SCIENCE_FRONTEND_DIST) paths[paths.length - 1] = join(resolve(env.PI_SCIENCE_FRONTEND_DIST), "index.html");
+    if (!dev && env.PI_SCIENCE_FRONTEND_DIST) paths[paths.length - 1] = join(resolveFrontendDist(root, env.PI_SCIENCE_FRONTEND_DIST), "index.html");
     for (const path of paths) {
       try { if (!(await stat(resolve(root, path))).isFile()) throw new Error("not a file"); }
       catch { throw new Error(`missing ${path}; run the platform installer`); }

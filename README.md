@@ -106,6 +106,8 @@ The pnpm store is shared between checkouts by default (`${XDG_CACHE_HOME:-~/.cac
 
 **Updates:** this change does not provide transactional `update`, `rollback`, `uninstall`, or standalone installation packages. Before manually updating source, stop the app and back up application state and workspace data (including SQLite and its WAL files). Re-run the installer after updating. A source downgrade cannot undo database migrations; recovery requires a compatible application version and a full data backup. See [deployment](docs/deployment.md) for verification and the remaining roadmap.
 
+Windows stop failures preserve identity state for retry and exit with code 1. Windows `logs` includes control-plane/frontend stdout and stderr by default; `logs --stderr` selects errors. On POSIX, foreground output stays in the terminal and `logs` reads the detached log. Relative `PI_SCIENCE_FRONTEND_DIST` values are resolved from the checkout root by both the launcher and doctor.
+
 Application state uses `PI_SCIENCE_HOME` or `~/.pi-science`, with a checkout-local fallback when necessary. Project metadata may be workspace-local or application-managed; see [data ownership](docs/architecture.md#persistence-and-data-ownership) before moving or backing up state. Existing v3 sessions can be converted automatically or with the [offline conversion command](docs/agent-core-session-conversion.md).
 
 </details>

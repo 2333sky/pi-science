@@ -106,6 +106,8 @@ pnpm store 默认由多个仓库目录共享：POSIX 使用 `${XDG_CACHE_HOME:-~
 
 **更新：** 当前未提供事务式 `update`、`rollback`、`uninstall` 或独立安装包。手动更新源码前，应停止应用并备份应用状态和工作区数据，包括 SQLite 数据库及其 WAL 文件。更新后重新运行安装器。源码降级不能撤销数据库迁移，恢复时需要兼容的应用版本和完整数据备份。验收方式与后续计划见[安装与部署](docs/deployment.zh-CN.md)。
 
+Windows 停止失败时保留身份记录以便重试，并返回退出码 1。Windows 的 `logs` 默认包含控制面和前端的 stdout/stderr，`logs --stderr` 仅显示错误输出。POSIX 前台输出保留在终端，`logs` 读取后台运行日志。启动器与 `doctor` 都将相对的 `PI_SCIENCE_FRONTEND_DIST` 解释为相对于仓库根目录的路径。
+
 应用状态使用 `PI_SCIENCE_HOME` 或 `~/.pi-science`，必要时回退到 checkout 内。项目元数据可位于工作区或应用托管目录，移动或备份前请参阅[数据归属](docs/architecture.zh-CN.md#持久化与数据归属)。旧 v3 会话支持自动转换或[离线转换](docs/agent-core-session-conversion.md)。
 
 </details>

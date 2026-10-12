@@ -198,7 +198,9 @@ if ($DeploymentMode -eq "dev") {
     if (-not (Test-Path -LiteralPath $ControlPlaneCli -PathType Leaf)) { throw "Server dependencies missing. Run scripts/install.ps1" }
     if (-not (Test-Path -LiteralPath $ViteScript -PathType Leaf)) { throw "Frontend dependencies missing. Run scripts/install.ps1" }
 } else {
-    $frontendDist = if ($env:PI_SCIENCE_FRONTEND_DIST) { $env:PI_SCIENCE_FRONTEND_DIST } else { Join-Path $ProjectDir "frontend\dist" }
+    $frontendDist = & $NodePath (Join-Path $ScriptDir "resolve-frontend-dist.mjs") $env:PI_SCIENCE_FRONTEND_DIST
+    if ($LASTEXITCODE -ne 0 -or -not $frontendDist) { throw "Unable to resolve frontend build directory." }
+    $env:PI_SCIENCE_FRONTEND_DIST = $frontendDist
     if (-not (Test-Path -LiteralPath $ControlPlaneBuild -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $frontendDist "index.html") -PathType Leaf)) { throw "Production build missing. Run scripts/install.ps1" }
 }
 $watch = if ($env:PI_SCIENCE_SERVER_WATCH) { $env:PI_SCIENCE_SERVER_WATCH } else { "0" }
@@ -334,15 +336,21 @@ try {
 } finally {
     if ($null -ne $OwnedState) {
         foreach ($role in @("frontend", "control")) {
-            try { $null = Stop-OwnedPiProcess -State $OwnedState -Role $role -Checkout $ProjectDir } catch { }
+            $result = Stop-OwnedPiProcess -State $OwnedState -Role $role -Checkout $ProjectDir
+            if ($result.status -in @("unverified", "failed")) { Write-Warning "Cleanup incomplete for $role; identity state retained. Retry pi-science stop." }
         }
+    } else {
+        # Handles cover the short interval before identity state is established.
+        Stop-PiProcess -Process $FrontendProcess
+        Stop-PiProcess -Process $ControlPlaneProcess
     }
-    Stop-PiProcess -Process $FrontendProcess
-    Stop-PiProcess -Process $ControlPlaneProcess
     if (Test-Path -LiteralPath $StateFile -PathType Leaf) {
         try {
             $currentState = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
-            if ($currentState.launch_token -eq $LaunchToken) { Remove-Item -LiteralPath $StateFile -Force }
+            if ($currentState.launch_token -eq $LaunchToken) {
+                $remainingIdentity = @("frontend", "control") | ForEach-Object { Get-PiProcessIdentity -State $currentState -Role $_ -Checkout $ProjectDir }
+                if (@($remainingIdentity | Where-Object { $_.status -ne "already_exited" }).Count -eq 0) { Remove-Item -LiteralPath $StateFile -Force }
+            }
         } catch { }
     }
     $LaunchLock.Dispose()
