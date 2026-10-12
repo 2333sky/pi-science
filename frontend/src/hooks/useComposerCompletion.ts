@@ -230,7 +230,7 @@ export function useComposerCompletion(params: {
       return true;
     }
     return false;
-  }, [caret, composingRef, cursorKey, detected, dismiss, effectiveDetected, items, runCommand, scope, statusVisible, value, view]);
+  }, [caret, composingRef, cursorKey, dismiss, effectiveDetected, items, runCommand, scope, statusVisible, value, view]);
 
   const menu = useMemo<ComposerCompletionMenu | null>(() => {
     if (!view.visible && !statusVisible && !emptyVisible) return null;
@@ -250,7 +250,7 @@ export function useComposerCompletion(params: {
       breadcrumbs: effectiveDetected?.query.providerId === "mention" ? directoryQuery.data?.breadcrumbs : undefined,
       navigate: (path) => { if (scope && effectiveDetected) setBrowseState({ scope, path, query: effectiveDetected.query.query }); },
     };
-  }, [commandsQuery, detected, directoryQuery, dismiss, effectiveDetected, emptyVisible, items, listboxId, retry, statusError, statusLoading, statusVisible, scope, select, setActive, t, view]);
+  }, [directoryQuery, dismiss, effectiveDetected, emptyVisible, items, listboxId, retry, statusError, statusLoading, statusVisible, scope, select, setActive, t, view]);
 
   return { menu, handleKeyDown };
 }
