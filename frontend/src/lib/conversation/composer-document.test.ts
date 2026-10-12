@@ -12,9 +12,9 @@ const edit = (document: ComposerDocument, selectionStart: number, selectionEnd =
 describe("composer structured document", () => {
   it("shifts entity ranges when text before them changes", () => {
     const document: ComposerDocument = { value: "Use @data/protein.csv", entities: [reference(4)] };
-    const next = applyComposerEdit(document, edit(document, 0), "Please use @data/protein.csv");
+    const next = applyComposerEdit(document, edit(document, 0), "Please Use @data/protein.csv");
     expect(next.entities[0]).toMatchObject({ start: 11, end: 28 });
-    expect(next.value).toBe("Please use @data/protein.csv");
+    expect(next.value).toBe("Please Use @data/protein.csv");
   });
 
   it("deletes the full entity on a partial edit and removes its reference identity", () => {

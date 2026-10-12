@@ -133,8 +133,9 @@ export function useComposerCompletion(params: {
   const override = overrideIsLive(menuOverride, scope, value) ? menuOverride : null;
   const statusLoading = (detected?.query.providerId === "slash" && commandsQuery.isFetching)
     || (effectiveDetected?.query.providerId === "mention" && directoryQuery.isFetching);
-  const statusError = (detected?.query.providerId === "slash" && commandsQuery.isError)
-    || (effectiveDetected?.query.providerId === "mention" && directoryQuery.isError);
+  // Slash builtins remain available when discovery fails, so an error-only menu would hide
+  // the useful fallback and make unknown dynamic commands look like a completion.
+  const statusError = effectiveDetected?.query.providerId === "mention" && directoryQuery.isError;
   const statusVisible = !composing && override?.mode !== "closed" && (statusLoading || statusError);
   const emptyVisible = !composing && override?.mode !== "closed"
     && effectiveDetected?.query.providerId === "mention"
@@ -161,6 +162,7 @@ export function useComposerCompletion(params: {
   }, [scope, value]);
 
   const runCommand = useCallback((command: ReturnType<typeof planAccept>, closeAfterAccept = false) => {
+    if (command.kind === "open-menu") return true;
     if (command.kind === "navigate-directory") {
       if (scope && effectiveDetected) setBrowseState({ scope, path: command.path, query: effectiveDetected.query.query });
       return true;

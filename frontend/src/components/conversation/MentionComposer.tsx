@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from "react";
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from "react";
 import type { SubagentMention } from "../../lib/conversation";
 import { applyComposerEdit, entityIntersectsEdit, updateComposerDocument, validComposerEntities, type ComposerEditIntent, type ComposerEntity } from "../../lib/conversation/composer-document";
 import type { CompletionApply } from "../../lib/conversation/completion";
@@ -247,15 +247,15 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     onKeyDown(event);
   };
 
-  const handleBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
-    const native = event.nativeEvent as InputEvent;
+  const handleBeforeInput = useCallback((native: InputEvent) => {
     if (native.inputType === "historyUndo" || native.inputType === "historyRedo") {
-      event.preventDefault();
+      native.preventDefault();
       pendingIntentRef.current = null;
       restoreHistory(native.inputType === "historyUndo" ? "undo" : "redo");
       return;
     }
-    const element = event.currentTarget;
+    const element = inputRef.current;
+    if (!element) return;
     pendingIntentRef.current = {
       value,
       entities: activeEntities.map((entity) => ({ ...entity })),
@@ -263,7 +263,16 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
       selectionEnd: element.selectionEnd,
       inputType: native.inputType ?? "",
     };
-  };
+  }, [activeEntities, inputRef, restoreHistory, value]);
+
+  // React's delegated onBeforeInput does not consistently receive native historyUndo/Redo
+  // events. Listen on the textarea itself so the edit intent is captured before React onChange.
+  useEffect(() => {
+    const element = inputRef.current;
+    if (!element) return;
+    element.addEventListener("beforeinput", handleBeforeInput);
+    return () => element.removeEventListener("beforeinput", handleBeforeInput);
+  }, [handleBeforeInput, inputRef]);
 
   // Tab can carry focus out of the composer. The list belongs to the composer, so it goes with it
   // rather than staying on screen with no key left to close it.
@@ -316,7 +325,6 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
           aria-describedby={completion.menu ? `${completion.menu.id}-help` : undefined}
           aria-activedescendant={completion.menu && completion.menu.items.length > 0 ? `${completion.menu.id}-option-${completion.menu.activeIndex}` : undefined}
           aria-autocomplete="list"
-          onBeforeInput={handleBeforeInput}
           onChange={(event) => handleChange(event.target.value)}
           onSelect={(event) => handleSelect(event.currentTarget)}
           onKeyDown={handleKey}

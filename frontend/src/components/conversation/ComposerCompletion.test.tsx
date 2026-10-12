@@ -105,7 +105,29 @@ async function settle(): Promise<void> {
 }
 
 async function type(value: string, position = value.length): Promise<void> {
-  fireEvent.change(input(), { target: { value } });
+  const element = input();
+  const previous = element.value;
+  let start = 0;
+  let oldEnd = previous.length;
+  let newEnd = value.length;
+  if (value.startsWith(previous)) {
+    start = oldEnd = previous.length;
+    newEnd = value.length;
+  } else if (previous.startsWith(value)) {
+    start = 0;
+    oldEnd = previous.length;
+    newEnd = value.length;
+  } else {
+    while (start < previous.length && start < value.length && previous[start] === value[start]) start += 1;
+    while (oldEnd > start && newEnd > start && previous[oldEnd - 1] === value[newEnd - 1]) {
+      oldEnd -= 1;
+      newEnd -= 1;
+    }
+  }
+  element.setSelectionRange(start, oldEnd);
+  const inputType = value.length < previous.length && newEnd === start ? "deleteContentBackward" : "insertText";
+  fireEvent(element, new InputEvent("beforeinput", { inputType, bubbles: true, cancelable: true }));
+  fireEvent.change(element, { target: { value } });
   input().setSelectionRange(position, position);
   fireEvent.select(input());
   await settle();
@@ -606,3 +628,4 @@ describe("composer completion keyboard paths", () => {
     expect(input()).toHaveValue("/export ");
   });
 });
+

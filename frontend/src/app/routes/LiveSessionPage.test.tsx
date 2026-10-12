@@ -1450,7 +1450,9 @@ const PROMPT_COMMAND = { name: "summarize", description: "Summarize text", sourc
 
 /** Answer every workspace command catalogue request with this catalogue. */
 function stubCommands(...commands: Array<Record<string, unknown>>) {
-  overrides.push((url) => (url.includes("/api/composer/commands?") ? Promise.resolve(jsonResponse({ commands })) : null));
+  overrides.push((url) => (url.includes("/api/composer/commands?") || /\/api\/sessions\/[^/]+\/commands\?/.test(url)
+    ? Promise.resolve(jsonResponse({ commands }))
+    : null));
 }
 
 async function typeDraft(value: string) {
@@ -1580,6 +1582,13 @@ describe("route-level completion lifecycle", () => {
 
   it("does not initialize any workspace when discovery returns after a workspace switch", async () => {
     const create = vi.fn(async (): Promise<string> => "s2");
+    const commandGate = deferred<void>();
+    overrides.push((url) => {
+      if (!url.includes("/api/composer/commands?")) return null;
+      const workspace = new URL(url, "http://localhost").searchParams.get("cwd");
+      if (workspace === CWD) return commandGate.promise.then(() => jsonResponse({ commands: [SKILL_COMMAND] }));
+      return null;
+    });
     // The real connect moves the store to the new workspace synchronously, before the
     // composer has had the chance to clear the previous workspace's draft.
     const connect = vi.fn(async (cwd: string) => { useRuntimeStore.setState({ cwd }); });
@@ -1588,9 +1597,13 @@ describe("route-level completion lifecycle", () => {
     await screen.findByTestId("model-control");
 
     await typeDraft("/skill:rev");
-    await waitFor(() => expect(screen.getByRole("listbox")).toBeInTheDocument());
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/api/composer/commands?") && String(url).includes(encodeURIComponent(CWD)))).toBe(true));
     // The user leaves while the old workspace catalogue may still be in flight.
     await act(async () => { navigate("/workspace/proj-b"); });
+    await act(async () => {
+      commandGate.resolve();
+      await commandGate.promise;
+    });
 
     expect(useRuntimeStore.getState().cwd).toBe("proj-b");
     expect(useRuntimeStore.getState().draft).toBe("");

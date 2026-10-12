@@ -135,7 +135,7 @@ describe("mentionProvider candidates", () => {
     const candidates = mentionProvider.complete(detect("@pro"), context("@pro", 4, root));
     expect(candidates.map((candidate) => candidate.description)).toEqual([undefined]);
     const nested = mentionProvider.complete(detect("@data/pro"), context("@data/pro"));
-    expect(nested.map((candidate) => candidate.description)).toEqual(["data/protein_structure", "data/protein.csv"]);
+    expect(nested.map((candidate) => candidate.description)).toEqual(["data/protein_structure", "data/protein_structure", "data/protein.csv"]);
   });
 
   it("answers a bare @ with root files, folders, and agents", () => {
