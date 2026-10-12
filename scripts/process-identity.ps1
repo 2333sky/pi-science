@@ -21,8 +21,13 @@ function Get-PiProcessIdentity {
         if (-not $State.($Role + "_started") -or -not $State.($Role + "_executable")) {
             return [pscustomobject]@{ status = "unverified"; reason = "missing process identity" }
         }
-        if ($process.StartTime.ToUniversalTime().Ticks.ToString() -ne $State.($Role + "_started") -or $process.Path -ine $State.($Role + "_executable")) {
+        if ($process.StartTime.ToUniversalTime().Ticks.ToString() -ne $State.($Role + "_started")) {
             return [pscustomobject]@{ status = "already_exited"; reason = "recorded process identity is stale" }
+        }
+        $executable = $process.Path
+        if (-not $executable) { return [pscustomobject]@{ status = "unverified"; reason = "process executable could not be read" } }
+        if ($executable -ine $State.($Role + "_executable")) {
+            return [pscustomobject]@{ status = "already_exited"; reason = "recorded executable identity is stale" }
         }
         $entry = if ($Role -eq "frontend") { "frontend\node_modules\vite\bin\vite.js" } elseif ($State.mode -eq "production") { "apps\server\dist\app\main.js" } elseif ($State.mode -eq "dev") { "apps\server\src\app\main.ts" } else {
             return [pscustomobject]@{ status = "unverified"; reason = "invalid deployment mode" }

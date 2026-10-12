@@ -11,6 +11,7 @@ $script:cimFails = $false
 $script:killFails = $false
 $script:waitFails = $false
 $script:lookupFails = $false
+$script:pathFails = $false
 $script:absent = $false
 $script:replaceStateOnKill = $false
 $script:childEnabled = $false
@@ -42,6 +43,7 @@ function Get-Process {
         $PSCmdlet.ThrowTerminatingError($errorRecord)
     }
     if ($Id -eq 456) { return $script:child }
+    $script:process.Path = if ($script:pathFails) { $null } else { "node.exe" }
     return $script:process
 }
 function Get-CimInstance {
@@ -80,7 +82,7 @@ $RuntimeDir = $temporary
 $StateFile = Join-Path $temporary "run.state"
 $original = $state | ConvertTo-Json -Compress
 try {
-    foreach ($failure in @("cimFails", "lookupFails", "killFails", "waitFails")) {
+    foreach ($failure in @("cimFails", "lookupFails", "pathFails", "killFails", "waitFails")) {
         $script:process.HasExited = $false
         [System.IO.File]::WriteAllText($StateFile, $original)
         Set-Variable -Scope Script -Name $failure -Value $true
