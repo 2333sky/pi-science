@@ -53,11 +53,32 @@ function Stop-OwnedPiProcess {
     try {
         # Capture descendants only while the root's identity is verified.
         $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+        $byId = @{}
+        foreach ($item in $all) {
+            $itemId = [int]$item.ProcessId
+            if ($byId.ContainsKey($itemId)) { throw "Process snapshot has duplicate identities; retry stop." }
+            $byId[$itemId] = $item
+        }
+        $rootSnapshot = $byId[$root]
+        if ($null -eq $rootSnapshot -or $rootSnapshot.CreationDate -isnot [datetime] -or [Math]::Abs($rootSnapshot.CreationDate.ToUniversalTime().Ticks - $identity.process.StartTime.ToUniversalTime().Ticks) -ge 10) {
+            throw "Root snapshot identity could not be verified; retry stop."
+        }
+        $parents = @{}
         $ids = @($root)
         do {
             $previousCount = $ids.Count
             foreach ($item in $all) {
-                if ($ids -contains [int]$item.ParentProcessId -and $ids -notcontains [int]$item.ProcessId) { $ids += [int]$item.ProcessId }
+                $parentId = [int]$item.ParentProcessId
+                $itemId = [int]$item.ProcessId
+                if ($ids -contains $parentId -and $ids -notcontains $itemId) {
+                    $parent = $byId[$parentId]
+                    # PPID alone can refer to a former owner of a recycled PID.
+                    # Validate each edge, including below intermediate parents.
+                    if ($item.CreationDate -is [datetime] -and $parent.CreationDate -is [datetime] -and $item.CreationDate.ToUniversalTime().Ticks -ge $parent.CreationDate.ToUniversalTime().Ticks) {
+                        $parents[$itemId] = $parentId
+                        $ids += $itemId
+                    }
+                }
             }
         } while ($ids.Count -gt $previousCount)
         $identity = Get-PiProcessIdentity -State $State -Role $Role -Checkout $Checkout
@@ -76,6 +97,16 @@ function Stop-OwnedPiProcess {
             if ([Math]::Abs($current.StartTime.ToUniversalTime().Ticks - $snapshot.CreationDate.ToUniversalTime().Ticks) -ge 10) {
                 if ($processId -eq $root) { return [pscustomobject]@{ status = "already_exited"; reason = "recorded root identity is stale" } }
                 continue
+            }
+            # Fence ancestor identities too: a non-atomic CIM enumeration or
+            # later PID reuse must not connect a foreign branch to our root.
+            $ancestorId = $processId
+            while ($parents.ContainsKey($ancestorId)) {
+                $ancestorId = $parents[$ancestorId]
+                $ancestor = Get-Process -Id $ancestorId -ErrorAction Stop
+                if ($ancestor.HasExited -or [Math]::Abs($ancestor.StartTime.ToUniversalTime().Ticks - $byId[$ancestorId].CreationDate.ToUniversalTime().Ticks) -ge 10) {
+                    throw "Ancestor identity changed; retry stop without signaling this branch."
+                }
             }
             $current.Kill()
             if (-not $current.WaitForExit(5000)) { throw "Process $processId did not exit; retry stop." }

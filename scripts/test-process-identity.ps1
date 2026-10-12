@@ -16,6 +16,10 @@ $script:absent = $false
 $script:replaceStateOnKill = $false
 $script:childEnabled = $false
 $script:childKillFails = $false
+$script:extraProcesses = @()
+$script:rootSnapshotOffset = 0
+$script:listeningPorts = @()
+$script:portsChecked = @()
 $script:child = [pscustomobject]@{ StartTime = $created.AddSeconds(1); Path = "node.exe"; HasExited = $false }
 $script:child | Add-Member -MemberType ScriptMethod -Name Kill -Value { if ($script:childKillFails) { throw "simulated descendant failure" }; $this.HasExited = $true }
 $script:child | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Timeout); return $this.HasExited }
@@ -42,6 +46,7 @@ function Get-Process {
         $errorRecord = [System.Management.Automation.ErrorRecord]::new([ArgumentException]::new("No process"), "NoProcessFoundForGivenId", [System.Management.Automation.ErrorCategory]::ObjectNotFound, $Id)
         $PSCmdlet.ThrowTerminatingError($errorRecord)
     }
+    foreach ($extra in $script:extraProcesses) { if ($extra.ProcessId -eq $Id) { return $extra.process } }
     if ($Id -eq 456) { return $script:child }
     $script:process.Path = if ($script:pathFails) { $null } else { "node.exe" }
     return $script:process
@@ -54,9 +59,19 @@ function Get-CimInstance {
         return [pscustomobject]@{ ProcessId = 456; ParentProcessId = 123; CreationDate = $created.AddSeconds(1); CommandLine = $frontendCommand }
     }
     if (-not $Filter -and $script:childEnabled) { [pscustomobject]@{ ProcessId = 456; ParentProcessId = 123; CreationDate = $created.AddSeconds(1) } }
-    [pscustomobject]@{ ProcessId = 123; ParentProcessId = 0; CreationDate = $created; CommandLine = $script:command }
+    if (-not $Filter) {
+        foreach ($extra in $script:extraProcesses) { [pscustomobject]@{ ProcessId = $extra.ProcessId; ParentProcessId = $extra.ParentProcessId; CreationDate = $extra.CreationDate } }
+    }
+    [pscustomobject]@{ ProcessId = 123; ParentProcessId = 0; CreationDate = $created.AddTicks($script:rootSnapshotOffset); CommandLine = $script:command }
 }
-function Test-PortListening { param($Port); return $false }
+function Test-PortListening { param($Port); $script:portsChecked += $Port; return $script:listeningPorts -contains $Port }
+function New-ExtraProcess {
+    param([int]$Id, [int]$Parent, $Born)
+    $process = [pscustomobject]@{ StartTime = if ($null -ne $Born) { $Born } else { $created }; HasExited = $false }
+    $process | Add-Member -MemberType ScriptMethod -Name Kill -Value { $this.HasExited = $true }
+    $process | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value { param($Timeout); return $this.HasExited }
+    return [pscustomobject]@{ ProcessId = $Id; ParentProcessId = $Parent; CreationDate = $Born; process = $process }
+}
 $state = [pscustomobject]@{ checkout = $checkout; mode = "production"; launch_token = $token; control_pid = 123; frontend_pid = 0; control_started = $created.ToUniversalTime().Ticks.ToString(); control_executable = "node.exe" }
 function Assert-True { param($Value, $Message); if (-not $Value) { throw $Message } }
 Assert-True (Test-OwnedPiProcess $state "control" $checkout) "Valid owned process rejected"
@@ -116,12 +131,82 @@ try {
     $script:replaceStateOnKill = $false
     Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Changed launch state could not be retried"
     Assert-True ($script:child.HasExited -and -not (Test-Path -LiteralPath $StateFile)) "Changed-state retry left process or state"
+    # A reused root PPID and an invalid intermediate edge must exclude entire
+    # foreign branches, while genuine child and grandchild cleanup still works.
+    $script:process.HasExited = $false
+    $script:child.HasExited = $false
+    $script:childEnabled = $true
+    $script:extraProcesses = @(
+        (New-ExtraProcess 789 123 $created.AddSeconds(-1)),
+        (New-ExtraProcess 790 789 $created.AddSeconds(2)),
+        (New-ExtraProcess 791 456 $created.AddMilliseconds(500)),
+        (New-ExtraProcess 792 791 $created.AddSeconds(3)),
+        (New-ExtraProcess 793 456 $created.AddSeconds(2)),
+        (New-ExtraProcess 794 123 $null)
+    )
+    [System.IO.File]::WriteAllText($StateFile, $original)
+    Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Valid tree did not stop"
+    foreach ($foreign in @($script:extraProcesses | Where-Object { $_.ProcessId -ne 793 })) {
+        Assert-True (-not $foreign.process.HasExited) "A foreign or unverifiable branch was killed"
+    }
+    Assert-True ($script:extraProcesses[4].process.HasExited -and $script:child.HasExited -and $script:process.HasExited) "Genuine descendant cleanup failed"
+    $script:extraProcesses = @()
+    $script:childEnabled = $false
+    $script:process.HasExited = $false
+    $script:rootSnapshotOffset = -10000000
+    [System.IO.File]::WriteAllText($StateFile, $original)
+    $before = $script:stops
+    Assert-True ((Stop-PiScience 8787 5173) -eq 1) "Stale root snapshot was accepted"
+    Assert-True ($script:stops -eq $before -and (Test-Path -LiteralPath $StateFile)) "Stale snapshot signaled root or lost state"
+    $script:rootSnapshotOffset = 0
+    Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Fresh root snapshot could not be retried"
+    # A parent recycled after enumeration must not authorize killing a leaf.
+    $script:process.HasExited = $false
+    $script:childEnabled = $true
+    $script:child.HasExited = $false
+    $script:child.StartTime = $created.AddSeconds(2)
+    $script:extraProcesses = @((New-ExtraProcess 795 456 $created.AddSeconds(3)))
+    [System.IO.File]::WriteAllText($StateFile, $original)
+    Assert-True ((Stop-PiScience 8787 5173) -eq 1) "Recycled ancestor was accepted"
+    Assert-True (-not $script:extraProcesses[0].process.HasExited -and -not $script:child.HasExited -and -not $script:process.HasExited) "Recycled ancestor's branch was killed"
+    Assert-True (Test-Path -LiteralPath $StateFile) "Recycled ancestor lost retry state"
+    $script:child.StartTime = $created.AddSeconds(1)
+    Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Stable ancestor retry failed"
+    $script:extraProcesses = @()
     $script:childEnabled = $false
     $script:process.HasExited = $false
     $script:absent = $true
     [System.IO.File]::WriteAllText($StateFile, $original)
     Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Exited process was not handled"
     Assert-True (-not (Test-Path -LiteralPath $StateFile)) "Exited process left stale state"
+    # Port diagnostics follow the deployment mode, never ownership by port.
+    $previousMode = $env:PI_SCIENCE_MODE
+    try {
+        $env:PI_SCIENCE_MODE = "production"
+        $script:listeningPorts = @(5173)
+        $script:portsChecked = @()
+        Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Production stop treated a foreign Vite port as relevant"
+        Assert-True ($script:portsChecked -notcontains 5173) "Production stop probed a development port"
+        $env:PI_SCIENCE_MODE = "dev"
+        Assert-True ((Stop-PiScience 8787 5173) -eq 1) "Development stop missed the relevant Vite conflict"
+        $env:PI_SCIENCE_MODE = "production"
+        $script:listeningPorts = @(8787)
+        Assert-True ((Stop-PiScience 8787 5173) -eq 1) "Unverified control listener was silently treated as ours"
+        $expired = $original | ConvertFrom-Json
+        $expired | Add-Member -MemberType NoteProperty -Name control_plane_port -Value 41001
+        $expired | Add-Member -MemberType NoteProperty -Name frontend_port -Value 41002
+        $script:listeningPorts = @(5173, 41002)
+        $script:portsChecked = @()
+        $env:PI_SCIENCE_MODE = "dev"
+        [System.IO.File]::WriteAllText($StateFile, ($expired | ConvertTo-Json -Compress))
+        Assert-True ((Stop-PiScience 8787 5173) -eq 0) "Stored production mode did not override caller mode"
+        Assert-True ($script:portsChecked.Count -eq 1 -and $script:portsChecked[0] -eq 41001) "Stored production port was not used"
+        $expired.mode = "dev"
+        $env:PI_SCIENCE_MODE = "production"
+        [System.IO.File]::WriteAllText($StateFile, ($expired | ConvertTo-Json -Compress))
+        Assert-True ((Stop-PiScience 8787 5173) -eq 1) "Stored development port was ignored"
+        Assert-True ($script:portsChecked -contains 41002) "Stored development mode was not used"
+    } finally { $env:PI_SCIENCE_MODE = $previousMode; $script:listeningPorts = @(); $script:portsChecked = @() }
     $script:absent = $false
     [System.IO.File]::WriteAllText((Join-Path $temporary "control-plane.log"), "stdout-marker")
     [System.IO.File]::WriteAllText((Join-Path $temporary "control-plane.log.err"), "stderr-marker")

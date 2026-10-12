@@ -50,6 +50,13 @@ are reported as conflicts even if another Pi-Science instance owns them.
   for retry, including after CIM failures, kill errors or exit timeouts. State is
   removed only when both roles are confirmed exited or their identities are stale.
   A descendant stop failure leaves the parent alive so a retry can still find it.
+  Each descendant must be born no earlier than its snapshot parent; a recycled
+  parent PID cannot include an older foreign process or that process's subtree.
+  The snapshot root is anchored to the verified process, and ancestor creation
+  times are rechecked before signaling a descendant. Changed ancestry fails closed.
+  Port diagnostics use the recorded deployment mode/ports when available, otherwise
+  the selected mode: production checks only the control-plane port. A missing
+  record plus an occupied relevant port reports an unverified listener, not ownership.
 - Lost or stale Windows state: inspect the process manually; do not guess ownership
   from the listening port. Legacy state without identity is intentionally refused.
 - After a crash or a forced Windows stop, the existing application instance lock

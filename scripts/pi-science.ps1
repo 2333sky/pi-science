@@ -94,9 +94,21 @@ function Stop-PiScience {
             Remove-RunState
         }
     }
-    if (-not $stopped -and ((Test-PortListening $ControlPlanePort) -or (Test-PortListening $FrontendPort))) {
-        Write-Host "Ports are occupied by unverified processes; no process was stopped."
-        return 1
+    if (-not $stopped) {
+        $mode = if ($env:PI_SCIENCE_MODE -eq "dev") { "dev" } else { "production" }
+        if ($null -ne $state -and $state.checkout -ieq $ProjectDir -and $state.mode -in @("production", "dev") -and $state.launch_token -match '^[a-f0-9]{32}$') {
+            $mode = $state.mode
+            $recordedPort = 0
+            if ([int]::TryParse([string]$state.control_plane_port, [ref]$recordedPort) -and $recordedPort -ge 1 -and $recordedPort -le 65535) { $ControlPlanePort = $recordedPort }
+            if ([int]::TryParse([string]$state.frontend_port, [ref]$recordedPort) -and $recordedPort -ge 1 -and $recordedPort -le 65535) { $FrontendPort = $recordedPort }
+        }
+        $ports = @($ControlPlanePort)
+        if ($mode -eq "dev") { $ports += $FrontendPort }
+        $occupied = @($ports | Sort-Object -Unique | Where-Object { Test-PortListening $_ })
+        if ($occupied.Count -gt 0) {
+            Write-Host ("No verified Pi-Science instance is running. Relevant ports occupied by unverified listeners: " + ($occupied -join ", ") + "; no process was stopped.")
+            return 1
+        }
     }
     if ($stopped) { Write-Host "Pi-Science stopped." } else { Write-Host "Pi-Science is not running." }
     return 0
@@ -212,7 +224,9 @@ switch ($command.ToLowerInvariant()) {
     }
     "stop" {
         $controlPort = Get-PositivePort -EnvironmentName "PI_SCIENCE_CONTROL_PLANE_PORT" -Default 8787
-        $frontendPort = Get-PositivePort -EnvironmentName "PI_SCIENCE_FRONTEND_PORT" -Default 5173
+        $stopState = Read-RunState
+        $devMode = $env:PI_SCIENCE_MODE -eq "dev" -or ($null -ne $stopState -and $stopState.checkout -ieq $ProjectDir -and $stopState.mode -eq "dev")
+        $frontendPort = if ($devMode) { Get-PositivePort -EnvironmentName "PI_SCIENCE_FRONTEND_PORT" -Default 5173 } else { 5173 }
         exit (Stop-PiScience -ControlPlanePort $controlPort -FrontendPort $frontendPort)
     }
     "status" {
