@@ -15,27 +15,32 @@ export interface SlashCommand {
   immediate?: boolean;
   group: "session" | "utility" | "skill";
   source?: string;
+  requiresSession?: boolean;
 }
 
 const BUILTIN_COMMANDS: SlashCommand[] = [
-  { name: "compact", description: "Compact the current session", group: "session", immediate: true },
+  { name: "compact", description: "Compact the current session", group: "session", immediate: true, requiresSession: true },
   {
     name: "export",
     description: "Export the session",
     argumentHint: "<html|jsonl>",
     arguments: [{ name: "format", required: false, values: ["html", "jsonl"], placeholder: "html|jsonl" }],
     group: "utility",
+    requiresSession: true,
   },
 ];
 
-/** Each runtime owns its command catalogue. Late responses update only their own query. */
-export const slashCommandsQuery = (cwd: string, sessionId: string | null) => ({
-  queryKey: ["slash-commands", cwd, sessionId],
-  enabled: Boolean(sessionId),
-  staleTime: 0,
+/** A blank composer uses the read-only workspace catalog; an existing session keeps its runtime policy. */
+export const slashCommandsQuery = (cwd: string, sessionId: string | null = null) => ({
+  queryKey: ["composer-commands", cwd, sessionId],
+  enabled: Boolean(cwd),
+  staleTime: 15_000,
   queryFn: async ({ signal }: { signal: AbortSignal }): Promise<SlashCommand[]> => {
-    const data = await apiRequest<{ commands?: SlashCommand[] }>(
-      `/api/sessions/${encodeURIComponent(sessionId!)}/commands?${new URLSearchParams({ cwd })}`,
+    const endpoint = sessionId
+      ? `/api/sessions/${encodeURIComponent(sessionId)}/commands?${new URLSearchParams({ cwd })}`
+      : `/api/composer/commands?${new URLSearchParams({ cwd })}`;
+    const data = await apiRequest<{ commands?: SlashCommand[]; revision?: string }>(
+      endpoint,
       { signal },
     );
     return (Array.isArray(data.commands) ? data.commands : [])
@@ -50,6 +55,7 @@ export const slashCommandsQuery = (cwd: string, sessionId: string | null) => ({
         arguments: command.arguments,
         source: command.source,
         group: command.source === "prompt" ? "utility" as const : "skill" as const,
+        requiresSession: command.requiresSession ?? false,
       }));
   },
 });
@@ -88,3 +94,4 @@ export function matchCommands(prefix: string, commands: readonly SlashCommand[] 
     .sort((a, b) => a.rank - b.rank)
     .map((entry) => entry.command);
 }
+

@@ -50,8 +50,8 @@ async function writeSkill<T>(url: string, init: RequestInit, fallback: string): 
   return apiRequest<T>(url, { ...init, errorFallback: fallback });
 }
 
-function invalidateAfterWrite(): void {
-  void queryClient.invalidateQueries({ queryKey: ["slash-commands"] });
+function invalidateAfterWrite(cwd: string): void {
+  void queryClient.invalidateQueries({ queryKey: ["composer-commands", cwd] });
   void queryClient.invalidateQueries({ queryKey: settingsKey("skills") });
   void queryClient.invalidateQueries({ queryKey: settingsKey() });
 }
@@ -59,19 +59,19 @@ function invalidateAfterWrite(): void {
 export const skillsMutations = {
   async create(cwd: string, input: ProjectSkillInput): Promise<SkillMutationResponse> {
     const result = await writeSkill<SkillMutationResponse>(`/api/settings/skills${skillCwd(cwd)}`, json("POST", input), "Unable to create skill");
-    invalidateAfterWrite();
+    invalidateAfterWrite(cwd);
     return result;
   },
 
   async update(cwd: string, skillId: string, input: ProjectSkillInput): Promise<SkillMutationResponse> {
     const result = await writeSkill<SkillMutationResponse>(`/api/settings/skills/${encodeURIComponent(skillId)}${skillCwd(cwd)}`, json("PUT", input), "Unable to update skill");
-    invalidateAfterWrite();
+    invalidateAfterWrite(cwd);
     return result;
   },
 
   async remove(cwd: string, skillId: string): Promise<SkillMutationResponse> {
     const result = await writeSkill<SkillMutationResponse>(`/api/settings/skills/${encodeURIComponent(skillId)}${skillCwd(cwd)}`, { method: "DELETE" }, "Unable to delete skill");
-    invalidateAfterWrite();
+    invalidateAfterWrite(cwd);
     return result;
   },
 
@@ -81,7 +81,7 @@ export const skillsMutations = {
 
   async importUpload(cwd: string, filename: string, contentBase64: string, rootPath: string): Promise<SkillMutationResponse> {
     const result = await writeSkill<SkillMutationResponse>(`/api/settings/skills/upload/import${skillCwd(cwd)}`, json("POST", { filename, content_base64: contentBase64, root_path: rootPath }), "Unable to import skill upload");
-    invalidateAfterWrite();
+    invalidateAfterWrite(cwd);
     return result;
   },
 
@@ -91,7 +91,8 @@ export const skillsMutations = {
 
   async importGithub(cwd: string, repo: string, selected: string[]): Promise<SkillMutationResponse> {
     const result = await writeSkill<SkillMutationResponse>(`/api/settings/skills/import-github/import${skillCwd(cwd)}`, json("POST", { repo, selected }), "Unable to import GitHub skills");
-    invalidateAfterWrite();
+    invalidateAfterWrite(cwd);
     return result;
   },
 };
+

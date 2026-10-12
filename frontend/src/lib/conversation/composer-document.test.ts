@@ -1,22 +1,26 @@
 import { describe, expect, it } from "vitest";
-import { inlineWorkspaceReferences, updateComposerDocument, validComposerEntities, type ComposerDocument } from "./composer-document";
+import { applyComposerEdit, inlineWorkspaceReferences, updateComposerDocument, validComposerEntities, type ComposerDocument } from "./composer-document";
 
 const ref = { cwd: "/workspace", path: "data/protein.csv", name: "protein.csv", isDir: false };
 const reference = (start: number, id = "ref-1") => ({
   id, kind: "reference" as const, start, end: start + "@data/protein.csv".length, reference: ref,
 });
+const edit = (document: ComposerDocument, selectionStart: number, selectionEnd = selectionStart, inputType = "insertText") => ({
+  value: document.value, entities: document.entities, selectionStart, selectionEnd, inputType,
+});
 
 describe("composer structured document", () => {
   it("shifts entity ranges when text before them changes", () => {
     const document: ComposerDocument = { value: "Use @data/protein.csv", entities: [reference(4)] };
-    const next = updateComposerDocument(document, "Please use @data/protein.csv");
+    const next = applyComposerEdit(document, edit(document, 0), "Please use @data/protein.csv");
     expect(next.entities[0]).toMatchObject({ start: 11, end: 28 });
     expect(next.value).toBe("Please use @data/protein.csv");
   });
 
   it("deletes the full entity on a partial edit and removes its reference identity", () => {
     const document: ComposerDocument = { value: "Use @data/protein.csv now", entities: [reference(4)] };
-    const next = updateComposerDocument(document, "Use @data/protein.cs now");
+    const start = document.value.indexOf("csv") + 2;
+    const next = applyComposerEdit(document, edit(document, start, start + 1, "deleteContentBackward"), "Use @data/protein.cs now");
     expect(next.value).toBe("Use  now");
     expect(inlineWorkspaceReferences(next.entities)).toEqual([]);
   });
@@ -40,4 +44,21 @@ describe("composer structured document", () => {
   it("keeps a pasted @ path as plain text when no structured entity was selected", () => {
     expect(updateComposerDocument({ value: "", entities: [] }, "@data/protein.csv").entities).toEqual([]);
   });
+
+  it("uses the actual selection to remove the edited duplicate occurrence only", () => {
+    const token = "@data/protein.csv";
+    const document: ComposerDocument = {
+      value: `${token} then ${token}`,
+      entities: [reference(0), reference(token.length + 6, "ref-2")],
+    };
+    const next = applyComposerEdit(document, edit(document, 0, token.length, "deleteByCut"), document.value.slice(token.length));
+    expect(next.value).toBe(` then ${token}`);
+    expect(next.entities).toEqual([{ ...reference(0, "ref-2"), start: 6, end: 6 + token.length }]);
+  });
+
+  it("drops bindings when an edit arrives without an unambiguous input transaction", () => {
+    const document: ComposerDocument = { value: "@data/protein.csv", entities: [reference(0)] };
+    expect(updateComposerDocument(document, "x @data/protein.csv").entities).toEqual([]);
+  });
 });
+

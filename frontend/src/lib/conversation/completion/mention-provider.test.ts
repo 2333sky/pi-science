@@ -50,9 +50,9 @@ describe("mentionProvider detection", () => {
     expect(mentionProvider.detect(context("@reviewer "))).toBeNull();
   });
 
-  it("asks for a directory only when the token names one", () => {
+  it("uses the root directory for a bare @ and follows explicitly typed paths", () => {
     expect(mentionProvider.detect(context("pro"))).toBeNull();
-    expect(detect("@").directory).toBeUndefined();
+    expect(detect("@").directory).toEqual({ subdir: "", prefix: "", base: "" });
     expect(detect("@data/pro").directory).toEqual({ subdir: "data", prefix: "pro", base: "data/" });
     expect(detect("@data/").directory).toEqual({ subdir: "data", prefix: "", base: "data/" });
   });
@@ -95,10 +95,20 @@ describe("mentionProvider candidates", () => {
     });
   });
 
-  it("lists the matching directory entries as workspace references", () => {
+  it("separates directory navigation from explicit directory references", () => {
     expect(complete("@data/pro")).toEqual([
       {
-        id: "mention:path:data/protein_structure",
+        id: "mention:navigate:data/protein_structure",
+        kind: "directory",
+        label: "protein_structure/",
+        description: "data/protein_structure",
+        group: "files",
+        insertText: "",
+        payload: { kind: "navigate-directory", path: "data/protein_structure" },
+        size: 0,
+      },
+      {
+        id: "mention:directory-reference:data/protein_structure",
         kind: "directory",
         label: "protein_structure/",
         description: "data/protein_structure",
@@ -128,8 +138,12 @@ describe("mentionProvider candidates", () => {
     expect(nested.map((candidate) => candidate.description)).toEqual(["data/protein_structure", "data/protein.csv"]);
   });
 
-  it("answers a bare @ with agents only", () => {
-    expect(complete("@").map((item) => item.id)).toEqual(["mention:agent:reviewer", "mention:agent:scout"]);
+  it("answers a bare @ with root files, folders, and agents", () => {
+    expect(complete("@").map((item) => item.id)).toEqual([
+      "mention:agent:reviewer", "mention:agent:scout",
+      "mention:navigate:data/protein_structure", "mention:directory-reference:data/protein_structure",
+      "mention:path:data/notes.md", "mention:path:data/protein.csv",
+    ]);
   });
 
   it("leaves the candidate list empty when nothing matches", () => {
@@ -137,3 +151,4 @@ describe("mentionProvider candidates", () => {
     expect(complete("@data/zzz")).toEqual([]);
   });
 });
+

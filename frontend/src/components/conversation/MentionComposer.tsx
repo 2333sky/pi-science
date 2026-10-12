@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from "react";
+import type { FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, RefObject } from "react";
 import type { SubagentMention } from "../../lib/conversation";
-import { entityIntersectsEdit, updateComposerDocument, validComposerEntities, type ComposerEntity } from "../../lib/conversation/composer-document";
+import { applyComposerEdit, entityIntersectsEdit, updateComposerDocument, validComposerEntities, type ComposerEditIntent, type ComposerEntity } from "../../lib/conversation/composer-document";
 import type { CompletionApply } from "../../lib/conversation/completion";
 import { useComposerCompletion } from "../../hooks/useComposerCompletion";
 import { CompletionMenu } from "./CompletionMenu";
@@ -29,6 +29,19 @@ interface Props {
 const COMPOSER_MIN_HEIGHT = 64;
 const COMPOSER_MAX_HEIGHT = 160;
 
+interface ComposerSnapshot {
+  value: string;
+  entities: ComposerEntity[];
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+function documentKey(value: string, entities: readonly ComposerEntity[]): string {
+  return JSON.stringify([value, entities.map((entity) => entity.kind === "mention"
+    ? [entity.kind, entity.id, entity.start, entity.end, entity.name]
+    : [entity.kind, entity.id, entity.start, entity.end, entity.reference.cwd, entity.reference.path, entity.reference.isDir])]);
+}
+
 function renderHighlighted(value: string, entities: ComposerEntity[]) {
   const result: ReactNode[] = [];
   let cursor = 0;
@@ -51,11 +64,65 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   const [caret, setCaret] = useState(value.length);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const selectionDirectionRef = useRef<"forward" | "backward" | "none">("none");
+  const pendingIntentRef = useRef<ComposerEditIntent | null>(null);
+  const undoHistoryRef = useRef<ComposerSnapshot[]>([]);
+  const redoHistoryRef = useRef<ComposerSnapshot[]>([]);
+  const expectedDocumentKeyRef = useRef<string | null>(null);
+  const observedDocumentKeyRef = useRef(documentKey(value, entities ?? mentions.map((mention) => ({ ...mention, kind: "mention" as const }))));
   const activeEntities: ComposerEntity[] = entities ?? mentions.map((mention) => ({ ...mention, kind: "mention" as const }));
+  const activeDocumentKey = documentKey(value, activeEntities);
+  useLayoutEffect(() => {
+    if (activeDocumentKey === observedDocumentKeyRef.current) return;
+    observedDocumentKeyRef.current = activeDocumentKey;
+    if (expectedDocumentKeyRef.current === activeDocumentKey) {
+      expectedDocumentKeyRef.current = null;
+      return;
+    }
+    undoHistoryRef.current = [];
+    redoHistoryRef.current = [];
+    pendingIntentRef.current = null;
+  }, [activeDocumentKey]);
   const emitChange = useCallback((nextValue: string, nextEntities: ComposerEntity[]) => {
     const valid = validComposerEntities(nextValue, nextEntities);
+    expectedDocumentKeyRef.current = documentKey(nextValue, valid);
     onChange(nextValue, valid.filter((entity) => entity.kind === "mention").map(({ id, name, start, end }) => ({ id, name, start, end })), valid);
   }, [onChange]);
+
+  const snapshot = useCallback((start?: number, end?: number): ComposerSnapshot => {
+    const element = inputRef.current;
+    return {
+      value,
+      entities: activeEntities.map((entity) => ({ ...entity })),
+      selectionStart: start ?? element?.selectionStart ?? caret,
+      selectionEnd: end ?? element?.selectionEnd ?? caret,
+    };
+  }, [activeEntities, caret, inputRef, value]);
+
+  const rememberEdit = useCallback((before: ComposerSnapshot) => {
+    const stack = undoHistoryRef.current;
+    if (stack.length === 0 || documentKey(stack[stack.length - 1]!.value, stack[stack.length - 1]!.entities) !== documentKey(before.value, before.entities)) {
+      stack.push(before);
+      if (stack.length > 100) stack.shift();
+    }
+    redoHistoryRef.current = [];
+  }, []);
+
+  const restoreHistory = useCallback((direction: "undo" | "redo") => {
+    const source = direction === "undo" ? undoHistoryRef.current : redoHistoryRef.current;
+    const destination = direction === "undo" ? redoHistoryRef.current : undoHistoryRef.current;
+    const target = source.pop();
+    if (!target) return false;
+    destination.push(snapshot());
+    emitChange(target.value, target.entities);
+    requestAnimationFrame(() => {
+      const element = inputRef.current;
+      if (!element) return;
+      element.focus();
+      element.setSelectionRange(target.selectionStart, target.selectionEnd);
+      setCaret(target.selectionEnd);
+    });
+    return true;
+  }, [emitChange, inputRef, snapshot]);
 
   useEffect(() => {
     const element = inputRef.current;
@@ -93,7 +160,14 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   }, [inputRef]);
 
   const handleChange = (nextValue: string) => {
-    const change = updateComposerDocument({ value, entities: activeEntities }, nextValue);
+    const intent = pendingIntentRef.current;
+    pendingIntentRef.current = null;
+    const change = intent
+      ? applyComposerEdit({ value, entities: activeEntities }, intent, nextValue)
+      : updateComposerDocument({ value, entities: activeEntities }, nextValue);
+    rememberEdit(intent
+      ? { value: intent.value, entities: intent.entities.map((entity) => ({ ...entity })), selectionStart: intent.selectionStart, selectionEnd: intent.selectionEnd }
+      : snapshot());
     emitChange(change.value, change.entities);
     if (change.value !== nextValue) placeCaret(change.caret);
     else setCaret(change.caret);
@@ -123,9 +197,10 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
         reference: { cwd, ...apply.payload.reference },
       });
     }
+    rememberEdit(snapshot());
     emitChange(apply.value, nextEntities);
     placeCaret(apply.caret);
-  }, [activeEntities, cwd, emitChange, placeCaret, value]);
+  }, [activeEntities, cwd, emitChange, placeCaret, rememberEdit, snapshot, value]);
 
   const completion = useComposerCompletion({ cwd, value, caret, composing, composingRef, onApply: applyCompletion });
 
@@ -162,6 +237,7 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
           const nextEntities = activeEntities.filter((entity) => entity !== target)
             .map((entity) => entity.start >= target.end
               ? { ...entity, start: entity.start - (target.end - target.start), end: entity.end - (target.end - target.start) } : entity);
+          rememberEdit(snapshot());
           emitChange(nextValue, nextEntities);
           placeCaret(target.start);
           return;
@@ -169,6 +245,24 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
       }
     }
     onKeyDown(event);
+  };
+
+  const handleBeforeInput = (event: FormEvent<HTMLTextAreaElement>) => {
+    const native = event.nativeEvent as InputEvent;
+    if (native.inputType === "historyUndo" || native.inputType === "historyRedo") {
+      event.preventDefault();
+      pendingIntentRef.current = null;
+      restoreHistory(native.inputType === "historyUndo" ? "undo" : "redo");
+      return;
+    }
+    const element = event.currentTarget;
+    pendingIntentRef.current = {
+      value,
+      entities: activeEntities.map((entity) => ({ ...entity })),
+      selectionStart: element.selectionStart,
+      selectionEnd: element.selectionEnd,
+      inputType: native.inputType ?? "",
+    };
   };
 
   // Tab can carry focus out of the composer. The list belongs to the composer, so it goes with it
@@ -195,6 +289,12 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
           onActiveChange={completion.menu.setActive}
           onDismiss={completion.menu.dismiss}
           inputRef={inputRef}
+          loading={completion.menu.loading}
+          error={completion.menu.error}
+          empty={completion.menu.empty}
+          retry={completion.menu.retry}
+          breadcrumbs={completion.menu.breadcrumbs}
+          navigate={completion.menu.navigate}
         />
       )}
       <div className="relative min-h-[64px] max-h-[160px] overflow-hidden rounded-t-composer">
@@ -214,8 +314,9 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
           aria-expanded={completion.menu !== null}
           aria-controls={completion.menu?.id}
           aria-describedby={completion.menu ? `${completion.menu.id}-help` : undefined}
-          aria-activedescendant={completion.menu ? `${completion.menu.id}-option-${completion.menu.activeIndex}` : undefined}
+          aria-activedescendant={completion.menu && completion.menu.items.length > 0 ? `${completion.menu.id}-option-${completion.menu.activeIndex}` : undefined}
           aria-autocomplete="list"
+          onBeforeInput={handleBeforeInput}
           onChange={(event) => handleChange(event.target.value)}
           onSelect={(event) => handleSelect(event.currentTarget)}
           onKeyDown={handleKey}
@@ -231,3 +332,4 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     </>
   );
 }
+

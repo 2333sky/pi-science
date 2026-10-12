@@ -101,23 +101,29 @@ export function useComposer(params: {
     }
   }, [t, toast, cwd]);
 
-  const runSlashCommand = async (value: string): Promise<boolean> => {
+  const runSlashCommand = async (value: string): Promise<"handled" | "requires-session" | false> => {
     const match = value.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
     if (!match) return false;
     const [, name, rawArgs = ""] = match;
     const args = rawArgs.trim();
     if (name === "compact") {
-      if (!activeSessionId) return true;
+      if (!activeSessionId) {
+        toast(t("conversation.commandRequiresSession"), "error");
+        return "requires-session";
+      }
       await apiRequest(`/api/sessions/${encodeURIComponent(activeSessionId)}/compact?${new URLSearchParams({ cwd })}`, { method: "POST" });
       setReviewNotice("Session compacted");
-      return true;
+      return "handled";
     }
     if (name === "export") {
-      if (!activeSessionId) return true;
+      if (!activeSessionId) {
+        toast(t("conversation.commandRequiresSession"), "error");
+        return "requires-session";
+      }
       const format = args === "jsonl" ? "jsonl" : "html";
       const params = new URLSearchParams({ cwd, format });
       window.open(`/api/sessions/${encodeURIComponent(activeSessionId)}/export?${params}`, "_blank", "noopener,noreferrer");
-      return true;
+      return "handled";
     }
     return false;
   };
@@ -136,9 +142,13 @@ export function useComposer(params: {
       workflowMessage = prepared.message;
     }
 
-    if (text.startsWith("/") && mentions.length === 0 && files.length === 0 && references.length === 0 && await runSlashCommand(text)) {
-      setInput("");
-      return;
+    if (text.startsWith("/") && mentions.length === 0 && files.length === 0 && references.length === 0) {
+      const slashResult = await runSlashCommand(text);
+      if (slashResult === "requires-session") return;
+      if (slashResult === "handled") {
+        setInput("");
+        return;
+      }
     }
 
     let message = workflowMessage ?? text;
@@ -219,3 +229,4 @@ export function useComposer(params: {
     handleSend, handleKeyDown, handleDrop, handleFilePick,
   };
 }
+
