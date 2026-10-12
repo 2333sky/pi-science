@@ -166,15 +166,15 @@ describe("MentionComposer", () => {
     expect(fileOption).toHaveTextContent("Reference");
     fireEvent.click(fileOption);
     await waitFor(() => expect(input()).toHaveValue("@structures/WT.pdb "));
-    await waitFor(() => expect(observedEntities).toEqual(expect.arrayContaining([
+    expect(observedEntities).toEqual(expect.arrayContaining([
       expect.objectContaining({
         kind: "reference",
         start: 0,
         end: "@structures/WT.pdb".length,
         reference: expect.objectContaining({ path: "structures/WT.pdb", isDir: false }),
       }),
-    ])));
-    await waitFor(() => expect(mirror?.querySelector("span")?.textContent).toBe("@structures/WT.pdb"));
+    ]));
+    expect(mirror?.querySelector("span")?.textContent).toBe("@structures/WT.pdb");
 
     await typeAt("@");
     fireEvent.click(await screen.findByRole("option", { name: /Reference entire folder/ }));
