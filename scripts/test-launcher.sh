@@ -12,6 +12,8 @@ INSTALL_SCRIPT="$PROJECT_DIR/scripts/install.sh"
 WRITER_SCRIPT="$PROJECT_DIR/scripts/write-launcher.sh"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi science launcher.XXXXXX")"
 START_PID=""
+export PI_SCIENCE_HOME="$TEMP_ROOT/data"
+export PI_SCIENCE_WORKSPACES="$TEMP_ROOT/workspaces"
 cleanup() { [ -z "$START_PID" ] || kill "$START_PID" 2>/dev/null || true; rm -rf "$TEMP_ROOT"; }
 trap cleanup EXIT
 
@@ -176,6 +178,19 @@ cat > "$FIXTURE/frontend/node_modules/.bin/vite" <<EOF
 exec "$(command -v node)" "$FIXTURE/frontend/fake-vite.mjs" "\$@"
 EOF
 chmod +x "$FIXTURE/frontend/node_modules/.bin/vite"
+
+# Token generation must fail closed before any service starts.
+TOKEN_BIN="$TEMP_ROOT/token-failure-bin"
+mkdir -p "$TOKEN_BIN"
+cat > "$TOKEN_BIN/node" <<EOF
+#!/usr/bin/env bash
+case "\$*" in *'randomBytes(32)'*) echo 'simulated crypto failure' >&2; exit 9 ;; esac
+exec "$(command -v node)" "\$@"
+EOF
+chmod +x "$TOKEN_BIN/node"
+if (unset PI_SCIENCE_INTERNAL_TOKEN; PATH="$TOKEN_BIN:$PATH" bash "$FIXTURE/scripts/start.sh") >"$TEMP_ROOT/token-failure.log" 2>&1; then fail "crypto failure returned success"; fi
+assert_contains "$TEMP_ROOT/token-failure.log" 'simulated crypto failure'
+[ ! -f "$FIXTURE/control.pid" ] || fail "crypto failure started the control plane"
 
 CONTROL_PORT="$(free_port)"
 RUNTIME_PORT="$(free_port)"

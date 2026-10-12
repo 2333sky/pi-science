@@ -134,7 +134,11 @@ wait_for_health() {
 export PI_NODE_PATH
 export PI_SCIENCE_HOME="${PI_SCIENCE_HOME:-$HOME/.pi-science}"
 export PI_SCIENCE_WORKSPACES="${PI_SCIENCE_WORKSPACES:-$HOME/pi-science-workspaces}"
-export PI_SCIENCE_INTERNAL_TOKEN="${PI_SCIENCE_INTERNAL_TOKEN:-$(openssl rand -hex 32 2>/dev/null || date +%s)}"
+if [ -z "${PI_SCIENCE_INTERNAL_TOKEN:-}" ]; then
+  PI_SCIENCE_INTERNAL_TOKEN="$("$NODE_COMMAND" -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))')"
+  [ -n "$PI_SCIENCE_INTERNAL_TOKEN" ] || { echo "Error: token generation failed." >&2; exit 1; }
+fi
+export PI_SCIENCE_INTERNAL_TOKEN
 export PI_SCIENCE_REQUIRE_INTERNAL_TOKEN="${PI_SCIENCE_REQUIRE_INTERNAL_TOKEN:-1}"
 mkdir -p "$PI_SCIENCE_HOME/sessions" "$PI_SCIENCE_WORKSPACES"
 

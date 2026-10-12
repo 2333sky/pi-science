@@ -5,8 +5,8 @@
 .DESCRIPTION
     Supports start, stop, status, and help. The run.state file is written by
     start.ps1 after both services are healthy, so stop can target the exact
-    processes started by this checkout. If state is unavailable, stop falls
-    back to the configured listening ports.
+    processes started by this checkout. Missing or stale identity never permits
+    terminating a process solely because it occupies a configured port.
 #>
 
 $ErrorActionPreference = "Stop"
@@ -58,50 +58,7 @@ function Test-PortListening {
     }
 }
 
-function Get-ListeningProcessIds {
-    param([int]$Port)
-
-    $ids = @()
-    $netTcp = Get-Command Get-NetTCPConnection -ErrorAction SilentlyContinue
-    if ($null -ne $netTcp) {
-        try {
-            $ids = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -ExpandProperty OwningProcess)
-        } catch {
-            $ids = @()
-        }
-    }
-
-    if ($ids.Count -eq 0) {
-        try {
-            foreach ($line in @(netstat.exe -ano -p tcp 2>$null)) {
-                if ($line -match ("^\s*TCP\s+\S+:" + $Port + "\s+\S+\s+LISTENING\s+(\d+)\s*$")) {
-                    $ids += [int]$matches[1]
-                }
-            }
-        } catch {
-            # netstat may be unavailable in a restricted environment.
-        }
-    }
-    return @($ids | Sort-Object -Unique)
-}
-
-function Stop-PiProcessId {
-    param([int]$ProcessId)
-
-    if ($ProcessId -le 0) {
-        return $false
-    }
-    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
-    if ($null -eq $process) {
-        return $false
-    }
-    try {
-        Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue
-        return $true
-    } catch {
-        return $false
-    }
-}
+. (Join-Path $ScriptDir "process-identity.ps1")
 
 function Remove-RunState {
     if (Test-Path -LiteralPath $StateFile -PathType Leaf) {
@@ -115,31 +72,16 @@ function Stop-PiScience {
     $state = Read-RunState
     $stopped = $false
     if ($null -ne $state) {
-        foreach ($property in @("frontend_pid", "control_pid")) {
-            $value = $state.$property
-            $processId = 0
-            if ([int]::TryParse([string]$value, [ref]$processId)) {
-                if (Stop-PiProcessId -ProcessId $processId) {
-                    $stopped = $true
-                }
+        foreach ($role in @("frontend", "control")) {
+            if (Stop-OwnedPiProcess -State $state -Role $role -Checkout $ProjectDir) {
+                $stopped = $true
             }
         }
         Remove-RunState
     }
-
-    # A state file can be absent after a crash, or the process can have been
-    # started by start.ps1 before it had a chance to persist state. In that
-    # case use the local service ports as the recovery signal.
-    if (-not $stopped) {
-        $fallbackIds = @()
-        foreach ($port in @($ControlPlanePort, $FrontendPort)) {
-            $fallbackIds += @(Get-ListeningProcessIds -Port $port)
-        }
-        foreach ($processId in @($fallbackIds | Sort-Object -Unique)) {
-            if (Stop-PiProcessId -ProcessId ([int]$processId)) {
-                $stopped = $true
-            }
-        }
+    if (-not $stopped -and ((Test-PortListening $ControlPlanePort) -or (Test-PortListening $FrontendPort))) {
+        Write-Output "Ports are occupied by unverified processes; no process was stopped."
+        return
     }
 
     if ($stopped) {
@@ -159,13 +101,13 @@ function Show-PiStatus {
     if ($null -ne $state) {
         foreach ($property in @("control_pid", "frontend_pid")) {
             $processId = 0
-            if ([int]::TryParse([string]$state.$property, [ref]$processId) -and $null -ne (Get-Process -Id $processId -ErrorAction SilentlyContinue)) {
+            if (Test-OwnedPiProcess -State $state -Role ($property -replace "_pid$", "") -Checkout $ProjectDir) {
                 $stateProcess = $true
             }
         }
     }
 
-    if (($null -ne $state -and $stateProcess) -or ($controlReady -and $frontendReady)) {
+    if ($stateProcess) {
         Write-Output "Pi-Science: RUNNING"
     } else {
         Write-Output "Pi-Science: stopped"

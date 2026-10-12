@@ -15,6 +15,8 @@ $ProjectDir = [System.IO.Path]::GetFullPath((Join-Path $ScriptDir ".."))
 $RuntimeDir = Join-Path $ProjectDir ".runtime\pi-science"
 $InstallStateFile = Join-Path $RuntimeDir "install.env"
 $StateFile = Join-Path $RuntimeDir "run.state"
+. (Join-Path $ScriptDir "process-identity.ps1")
+$LaunchToken = [guid]::NewGuid().ToString("N")
 
 function Read-InstallEnv {
     param([string]$Path)
@@ -132,7 +134,7 @@ function Stop-PiProcess {
     }
     try {
         if (-not $Process.HasExited) {
-            Stop-Process -Id $Process.Id -Force -ErrorAction SilentlyContinue
+            $Process.Kill()
         }
     } catch {
         # The process may have exited between HasExited and Stop-Process.
@@ -149,11 +151,19 @@ function Write-RunState {
 
     $state = [ordered]@{
         control_pid = $ControlPlane.Id
-        frontend_pid = $Frontend.Id
+        frontend_pid = if ($null -ne $Frontend) { $Frontend.Id } else { 0 }
+        control_started = $ControlPlane.StartTime.ToUniversalTime().Ticks.ToString()
+        frontend_started = if ($null -ne $Frontend) { $Frontend.StartTime.ToUniversalTime().Ticks.ToString() } else { "" }
+        control_executable = $ControlPlane.Path
+        frontend_executable = if ($null -ne $Frontend) { $Frontend.Path } else { "" }
+        checkout = $ProjectDir
+        launch_token = $LaunchToken
+        mode = "dev"
         control_plane_port = $ControlPlanePort
         frontend_port = $FrontendPort
         started_at = (Get-Date).ToUniversalTime().ToString("o")
     }
+    $script:OwnedState = [pscustomobject]$state
     $temporary = "$StateFile.$PID.tmp"
     [System.IO.File]::WriteAllText($temporary, ($state | ConvertTo-Json -Compress), [System.Text.UTF8Encoding]::new($false))
     Move-Item -LiteralPath $temporary -Destination $StateFile -Force
@@ -200,7 +210,8 @@ if (-not (Test-PortAvailable -Port $FrontendPort)) {
 $env:PI_NODE_PATH = $NodePath
 $env:PI_SCIENCE_HOME = if ($env:PI_SCIENCE_HOME) { $env:PI_SCIENCE_HOME } else { Join-Path $HOME ".pi-science" }
 $env:PI_SCIENCE_WORKSPACES = if ($env:PI_SCIENCE_WORKSPACES) { $env:PI_SCIENCE_WORKSPACES } else { Join-Path $HOME "pi-science-workspaces" }
-$env:PI_SCIENCE_INTERNAL_TOKEN = if ($env:PI_SCIENCE_INTERNAL_TOKEN) { $env:PI_SCIENCE_INTERNAL_TOKEN } else { [guid]::NewGuid().ToString("N") }
+$env:PI_SCIENCE_INTERNAL_TOKEN = if ($env:PI_SCIENCE_INTERNAL_TOKEN) { $env:PI_SCIENCE_INTERNAL_TOKEN } else { (& $NodePath -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))') }
+if ($LASTEXITCODE -ne 0 -or -not $env:PI_SCIENCE_INTERNAL_TOKEN) { throw "Internal token generation failed." }
 $env:PI_SCIENCE_REQUIRE_INTERNAL_TOKEN = if ($env:PI_SCIENCE_REQUIRE_INTERNAL_TOKEN) { $env:PI_SCIENCE_REQUIRE_INTERNAL_TOKEN } else { "1" }
 $env:PI_SCIENCE_PORT = "$ControlPlanePort"
 $env:PI_SCIENCE_BACKEND_URL = if ($env:PI_SCIENCE_BACKEND_URL) { $env:PI_SCIENCE_BACKEND_URL } else { "http://127.0.0.1:$ControlPlanePort" }
@@ -211,6 +222,9 @@ $env:PI_SCIENCE_NODE_PI_MANAGER = if ($env:PI_SCIENCE_NODE_PI_MANAGER) { $env:PI
 New-Item -ItemType Directory -Path (Join-Path $env:PI_SCIENCE_HOME "sessions") -Force | Out-Null
 New-Item -ItemType Directory -Path $env:PI_SCIENCE_WORKSPACES -Force | Out-Null
 New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
+
+$LaunchLock = [System.IO.File]::Open((Join-Path $RuntimeDir "start.windows.lock"), [System.IO.FileMode]::OpenOrCreate, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+$OwnedState = $null
 
 $ControlLog = Join-Path $RuntimeDir "control-plane.log"
 $ControlErrorLog = Join-Path $RuntimeDir "control-plane.log.err"
@@ -227,8 +241,11 @@ $StateWritten = $false
 
 try {
     Write-Host "==> Starting Node control plane on http://127.0.0.1:$ControlPlanePort"
-    $controlArguments = '"' + $ControlPlaneCli + '" watch src/app/main.ts'
+    $controlArguments = '"' + $ControlPlaneCli + '" "' + (Join-Path $ProjectDir 'apps\server\src\app\main.ts') + '"'
+    $controlArguments = '"' + (Join-Path $ScriptDir 'run-service.mjs') + '" --launch-token ' + $LaunchToken + ' ' + $controlArguments
     $ControlPlaneProcess = Start-Process -FilePath $NodePath -ArgumentList $controlArguments -WorkingDirectory (Join-Path $ProjectDir "apps\server") -RedirectStandardOutput $ControlLog -RedirectStandardError $ControlErrorLog -NoNewWindow -PassThru
+
+    Write-RunState -ControlPlane $ControlPlaneProcess -Frontend $null -ControlPlanePort $ControlPlanePort -FrontendPort $FrontendPort
 
     $controlDeadline = (Get-Date).AddSeconds($StartupTimeout)
     do {
@@ -249,7 +266,10 @@ try {
         throw "Port $FrontendPort is already in use; refusing to reuse an unverified frontend."
     }
     $frontendArguments = '"' + $ViteScript + '" --host 127.0.0.1 --port ' + $FrontendPort + ' --strictPort'
+    $frontendArguments = '"' + (Join-Path $ScriptDir 'run-service.mjs') + '" --launch-token ' + $LaunchToken + ' ' + $frontendArguments
     $FrontendProcess = Start-Process -FilePath $NodePath -ArgumentList $frontendArguments -WorkingDirectory (Join-Path $ProjectDir "frontend") -RedirectStandardOutput $FrontendLog -RedirectStandardError $FrontendErrorLog -NoNewWindow -PassThru
+
+    Write-RunState -ControlPlane $ControlPlaneProcess -Frontend $FrontendProcess -ControlPlanePort $ControlPlanePort -FrontendPort $FrontendPort
 
     $frontendDeadline = (Get-Date).AddSeconds($StartupTimeout)
     do {
@@ -287,9 +307,18 @@ try {
     Write-Error $_
     exit 1
 } finally {
+    if ($null -ne $OwnedState) {
+        foreach ($role in @("frontend", "control")) {
+            try { $null = Stop-OwnedPiProcess -State $OwnedState -Role $role -Checkout $ProjectDir } catch { }
+        }
+    }
     Stop-PiProcess -Process $FrontendProcess
     Stop-PiProcess -Process $ControlPlaneProcess
-    if (-not $StateWritten -and (Test-Path -LiteralPath $StateFile -PathType Leaf)) {
-        Remove-Item -LiteralPath $StateFile -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $StateFile -PathType Leaf) {
+        try {
+            $currentState = Get-Content -LiteralPath $StateFile -Raw | ConvertFrom-Json
+            if ($currentState.launch_token -eq $LaunchToken) { Remove-Item -LiteralPath $StateFile -Force }
+        } catch { }
     }
+    $LaunchLock.Dispose()
 }
