@@ -1,5 +1,7 @@
 # Installation and local production deployment
 
+[简体中文](deployment.zh-CN.md) · [README](../README.md)
+
 The supported source install builds contracts, the Node control plane, Agent Workers,
 SQLite assets, kernel bridges and the React frontend. Production serves the browser
 and API on `http://127.0.0.1:8787`. Node.js >=24.16.0 with npm is required; npm
