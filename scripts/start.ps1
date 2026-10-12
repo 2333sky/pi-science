@@ -221,8 +221,13 @@ $env:PI_SCIENCE_OPEN_BROWSER = "0"
 $env:PI_NODE_PATH = $NodePath
 $env:PI_SCIENCE_HOME = if ($env:PI_SCIENCE_HOME) { $env:PI_SCIENCE_HOME } else { Join-Path $HOME ".pi-science" }
 $env:PI_SCIENCE_WORKSPACES = if ($env:PI_SCIENCE_WORKSPACES) { $env:PI_SCIENCE_WORKSPACES } else { Join-Path $HOME "pi-science-workspaces" }
-$env:PI_SCIENCE_INTERNAL_TOKEN = if ($env:PI_SCIENCE_INTERNAL_TOKEN) { $env:PI_SCIENCE_INTERNAL_TOKEN } else { (& $NodePath -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))') }
-if ($LASTEXITCODE -ne 0 -or -not $env:PI_SCIENCE_INTERNAL_TOKEN) { throw "Internal token generation failed." }
+if (-not $env:PI_SCIENCE_INTERNAL_TOKEN) {
+    $generatedToken = & $NodePath (Join-Path $ScriptDir "generate-token.mjs")
+    if ($LASTEXITCODE -ne 0 -or $generatedToken -notmatch '^[a-f0-9]{64}$') {
+        throw "Internal token generation failed."
+    }
+    $env:PI_SCIENCE_INTERNAL_TOKEN = $generatedToken
+}
 $env:PI_SCIENCE_REQUIRE_INTERNAL_TOKEN = if ($env:PI_SCIENCE_REQUIRE_INTERNAL_TOKEN) { $env:PI_SCIENCE_REQUIRE_INTERNAL_TOKEN } else { "1" }
 $env:PI_SCIENCE_PORT = "$ControlPlanePort"
 $env:PI_SCIENCE_BACKEND_URL = if ($env:PI_SCIENCE_BACKEND_URL) { $env:PI_SCIENCE_BACKEND_URL } else { "http://127.0.0.1:$ControlPlanePort" }
