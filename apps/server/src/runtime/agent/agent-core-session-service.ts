@@ -60,7 +60,7 @@ async function globalSkillPolicy(): Promise<RuntimeSkillPolicy> {
   }
   return { mode: "inherit" };
 }
-function applySkillPolicy(skills: Array<{ name: string }>, policy: RuntimeSkillPolicy): Array<{ name: string }> {
+function applySkillPolicy<T extends { name: string }>(skills: T[], policy: RuntimeSkillPolicy): T[] {
   if (policy.mode === "none") return [];
   if (policy.mode === "inherit") return skills;
   const names = new Set(policy.skills);

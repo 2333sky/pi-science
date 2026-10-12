@@ -75,7 +75,7 @@ describe("native Node conversation routes", () => {
       commands: [{ name: "skill:review", source: "skill" }],
     });
     expect(composerCommands).toHaveBeenCalledWith(cwd);
-    expect(fakeService.liveSessions()).toEqual([]);
+    expect(fakeService.liveSessions(cwd)).toEqual([]);
     await server.close();
   });
 
