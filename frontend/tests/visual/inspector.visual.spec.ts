@@ -143,10 +143,10 @@ function pdfFocusFixture() {
   return pdf;
 }
 
-test("iframe focus supports HTML Esc and an accessible native PDF exit", async ({ page }, testInfo) => {
+test("iframe keyboard navigation contains focus and prioritizes native dialogs", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "browsing-context keyboard regression");
   const files = {
-    "focus.html": { mime: "text/html", data: '<!doctype html><html><body><input aria-label="Embedded input" autofocus><button onclick="document.body.dataset.clicked=1">Embedded action</button></body></html>' },
+    "focus.html": { mime: "text/html", data: '<!doctype html><html><body><input aria-label="Embedded input"><button onclick="document.querySelector(\'dialog\').showModal()">Open embedded dialog</button><dialog><input aria-label="Dialog input"><button onclick="this.closest(\'dialog\').close()">Close dialog</button></dialog></body></html>' },
     "focus.pdf": { mime: "application/pdf", data: pdfFocusFixture() },
   };
   await page.route("**/api/files**", async (route) => {
@@ -170,8 +170,32 @@ test("iframe focus supports HTML Esc and an accessible native PDF exit", async (
   await page.getByRole("button", { name: "Focus file", exact: true }).click();
   const htmlDialog = page.getByRole("dialog", { name: "focus.html", exact: true });
   const embeddedInput = htmlDialog.frameLocator("iframe").getByRole("textbox", { name: "Embedded input" });
-  await embeddedInput.click();
+  // Enter the frame through the modal's normal Tab order, without clicking
+  // or programmatically focusing anything in the embedded document.
+  for (let i = 0; i < 12 && !await embeddedInput.evaluate((input) => input.ownerDocument.hasFocus() && input.ownerDocument.activeElement === input); i++) {
+    await page.keyboard.press("Tab");
+  }
   await expect(embeddedInput).toBeFocused();
+  const insideFocus = () => page.evaluate(() => !!document.activeElement?.closest('[role="dialog"][aria-modal="true"]'));
+  // Walk out of the last frame control and wrap into the parent's toolbar.
+  for (let i = 0; i < 15; i++) {
+    await page.keyboard.press("Tab");
+    expect(await insideFocus()).toBe(true);
+  }
+  for (let i = 0; i < 15; i++) {
+    await page.keyboard.press("Shift+Tab");
+    expect(await insideFocus()).toBe(true);
+  }
+  const openDialog = htmlDialog.frameLocator("iframe").getByRole("button", { name: "Open embedded dialog" });
+  for (let i = 0; i < 12 && !await openDialog.evaluate((button) => button.ownerDocument.hasFocus() && button.ownerDocument.activeElement === button); i++) await page.keyboard.press("Tab");
+  await expect(openDialog).toBeFocused();
+  await page.keyboard.press("Enter");
+  const nativeDialog = htmlDialog.frameLocator("iframe").locator("dialog");
+  await expect(nativeDialog).toBeVisible();
+  await expect(htmlDialog.frameLocator("iframe").getByRole("textbox", { name: "Dialog input" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(nativeDialog).not.toBeVisible();
+  await expect(htmlDialog).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(htmlDialog).not.toBeVisible();
   await expect(page.getByRole("button", { name: "Focus file", exact: true })).toBeFocused();
@@ -180,10 +204,13 @@ test("iframe focus supports HTML Esc and an accessible native PDF exit", async (
   await page.getByRole("button", { name: "Focus file", exact: true }).click();
   const pdfDialog = page.getByRole("dialog", { name: "focus.pdf", exact: true });
   await expect(pdfDialog.getByRole("note")).toContainText("browser PDF viewer may handle Esc itself");
-  // Browser-owned PDF plugin focus is not always exposed as activeElement
-  // after a pointer click. Explicitly focus its containing browsing context.
-  await pdfDialog.locator("iframe").focus();
+  // Tab from the dialog through the toolbar into the PDF browsing context.
+  const pdfFrameFocused = () => pdfDialog.locator("iframe").evaluate((frame) => frame.ownerDocument.activeElement === frame);
+  for (let i = 0; i < 12 && !await pdfFrameFocused(); i++) await page.keyboard.press("Tab");
   await expect.poll(() => pdfDialog.locator("iframe").evaluate((frame) => frame.ownerDocument.activeElement === frame)).toBe(true);
+  // The guest PDF renderer owns its internal controls. Verify our keyboard
+  // entry and native background isolation without rewriting that UI.
+  expect(await page.locator("#main-content").evaluate((main) => !!main.closest("[inert]"))).toBe(true);
   // Chromium owns PDF keyboard handling; exercise the guaranteed parent exit.
   const exit = pdfDialog.getByRole("button", { name: "Exit focus", exact: true });
   await expect(exit).toBeVisible();

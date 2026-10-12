@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { InspectorTabs } from "./InspectorTabs";
 import { inspectorTabId, useUiStore } from "@/lib/ui";
 import type { FilePreviewInspector } from "../../types/thread";
@@ -213,6 +213,30 @@ describe("InspectorTabs", () => {
     expect(dialog.querySelector('[style*="zoom"]')).toBeNull();
     expect(within(dialog).queryByRole("button", { name: "Reset zoom to 100%" })).toBeNull();
     expect(within(dialog).getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+  });
+
+  it("includes the iframe after toolbar controls and contains focus returning from it", async () => {
+    useUiStore.getState().openInspector(file("interactive.html"));
+    render(<><button>Background action</button><Harness /></>);
+    fireEvent.click(screen.getByRole("button", { name: "Focus file" }));
+    const dialog = screen.getByRole("dialog");
+    await waitFor(() => expect(dialog.querySelector("iframe")).not.toBeNull());
+    expect(screen.getByRole("button", { name: "Background action" }).closest("[inert]")).not.toBeNull();
+    const frame = dialog.querySelector("iframe")!;
+    const toolbarButtons = within(dialog).getAllByRole("button");
+    const lastToolbarButton = toolbarButtons.at(-1)!;
+    lastToolbarButton.focus();
+    expect(fireEvent.keyDown(lastToolbarButton, { key: "Tab" })).toBe(false);
+    expect(frame).toHaveFocus();
+    frame.focus();
+    fireEvent.keyDown(frame, { key: "Tab" });
+    expect(toolbarButtons[0]).toHaveFocus();
+    screen.getByRole("button", { name: "Background action" }).focus();
+    expect(toolbarButtons[0]).toHaveFocus();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Background action" }).closest("[inert]")).toBeNull();
+    screen.getByRole("button", { name: "Background action" }).focus();
+    expect(screen.getByRole("button", { name: "Background action" })).toHaveFocus();
   });
 
   it("zooms expanded preview content with controls and Ctrl+wheel", () => {

@@ -8,6 +8,7 @@ import { notifyInspectorLayoutChange } from "@/lib/ui/inspector-layout";
 import { IconButton } from "../ui/Icon";
 import { ErrorBoundary } from "../ErrorBoundary";
 import { InspectorShell } from "./InspectorShell";
+import { previewFocusables, inertPreviewBackground, focusPreviewElement } from "./preview-focus";
 import { bindPreviewFrameEscape } from "./iframe-focus";
 import { PreviewPaneControls } from "./PreviewPaneControls";
 
@@ -49,6 +50,7 @@ export function InspectorTabs({
   const tabScrollRef = useRef<HTMLDivElement | null>(null);
   // Focus origin of the expanded dialog, restored when it closes.
   const lastFocusedRef = useRef<HTMLElement | null>(null);
+  const reverseTabRef = useRef(false);
 
   useEffect(() => {
     const validIds = new Set(tabs.map((tab) => tab.id));
@@ -72,8 +74,10 @@ export function InspectorTabs({
     if (!expandedTabId) return;
     // Remember where focus came from and move it into the expanded dialog.
     lastFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const restoreBackground = expandedPanelRef.current ? inertPreviewBackground(expandedPanelRef.current) : undefined;
     expandedPanelRef.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Tab") reverseTabRef.current = event.shiftKey;
       const nestedDialog = event.target instanceof HTMLElement ? event.target.closest('[role="dialog"]') : null;
       if (nestedDialog && nestedDialog !== expandedPanelRef.current) return;
       if (event.key === "Escape" && !event.defaultPrevented) {
@@ -82,10 +86,21 @@ export function InspectorTabs({
         setExpandedTabId(null);
       }
     };
+    const onFocusIn = (event: FocusEvent) => {
+      const panel = expandedPanelRef.current;
+      if (!panel || !(event.target instanceof Node) || panel.contains(event.target)) return;
+      // iframe key events do not bubble to React. Contain native focus when
+      // Tab leaves a browsing context, including a browser-owned PDF viewer.
+      const available = previewFocusables(panel);
+      ((reverseTabRef.current ? available.at(-1) : available[0]) ?? panel).focus();
+    };
+    document.addEventListener("focusin", onFocusIn);
     window.addEventListener("keydown", onKeyDown);
-    const unbindFrames = expandedPanelRef.current ? bindPreviewFrameEscape(expandedPanelRef.current, () => setExpandedTabId(null)) : undefined;
+    const unbindFrames = expandedPanelRef.current ? bindPreviewFrameEscape(expandedPanelRef.current, () => setExpandedTabId(null), (reverse) => { reverseTabRef.current = reverse; }) : undefined;
     return () => {
       unbindFrames?.();
+      document.removeEventListener("focusin", onFocusIn);
+      restoreBackground?.();
       window.removeEventListener("keydown", onKeyDown);
       lastFocusedRef.current?.focus();
       lastFocusedRef.current = null;
@@ -123,19 +138,23 @@ export function InspectorTabs({
       return;
     }
     if (event.key !== "Tab") return;
-    const focusables = expandedPanelRef.current.querySelectorAll<HTMLElement>(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-    );
-    const available = Array.from(focusables).filter((el) => !el.closest("[hidden], [inert]") && !el.matches(":disabled") && el.checkVisibility?.({ visibilityProperty: true }) !== false);
+    const available = previewFocusables(expandedPanelRef.current);
     if (available.length === 0) { event.preventDefault(); return; }
     const first = available[0];
     const last = available[available.length - 1];
     if (event.shiftKey && (document.activeElement === first || document.activeElement === expandedPanelRef.current)) {
       event.preventDefault();
-      last.focus();
+      focusPreviewElement(last, true);
     } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === expandedPanelRef.current)) {
       event.preventDefault();
-      first.focus();
+      focusPreviewElement(first);
+    } else {
+      const index = available.indexOf(document.activeElement as HTMLElement);
+      const destination = available[index + (event.shiftKey ? -1 : 1)];
+      if (destination?.tagName === "IFRAME") {
+        event.preventDefault();
+        focusPreviewElement(destination, event.shiftKey);
+      }
     }
   };
 

@@ -32,11 +32,14 @@ export function ImagePreview({ url, filename }: { url: string; filename: string 
       if (!event.ctrlKey && !event.metaKey) return;
       event.preventDefault();
       event.stopPropagation();
-      setScale(clampImageScale(current * Math.exp(-event.deltaY * 0.002), { min, max }));
+      setScale((previous) => {
+        const next = previous ?? fit;
+        return clampImageScale(next * Math.exp(-event.deltaY * 0.002), imageScaleLimits(fit, 4, next));
+      });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [current, min, max]);
+  }, [fit]);
   const reset = (next: number | null) => {
     setScale(next);
     viewport.current?.scrollTo?.({ left: 0, top: 0 });

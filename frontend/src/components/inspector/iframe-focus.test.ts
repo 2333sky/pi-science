@@ -48,3 +48,36 @@ it("tolerates inaccessible browsing contexts", () => {
   Object.defineProperty(frame, "contentDocument", { get() { throw new DOMException("Cross-origin", "SecurityError"); } });
   expect(() => { cleanup = bindPreviewFrameEscape(panel, vi.fn()); frame.dispatchEvent(new Event("load")); }).not.toThrow();
 });
+
+it("leaves Escape to a native dialog without requiring ARIA attributes", () => {
+  const { panel, frame } = panelWithFrame();
+  const exit = vi.fn();
+  cleanup = bindPreviewFrameEscape(panel, exit);
+  const dialog = frame.contentDocument!.createElement("dialog");
+  dialog.setAttribute("open", "");
+  const input = frame.contentDocument!.createElement("input");
+  dialog.append(input);
+  frame.contentDocument!.body.append(dialog);
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+  expect(exit).not.toHaveBeenCalled();
+});
+
+it("moves Tab across iframe boundaries into the enclosing toolbar", () => {
+  const { panel, frame } = panelWithFrame();
+  const toolbarButton = document.createElement("button");
+  panel.prepend(toolbarButton);
+  const input = frame.contentDocument!.createElement("input");
+  const last = frame.contentDocument!.createElement("button");
+  frame.contentDocument!.body.append(input, last);
+  cleanup = bindPreviewFrameEscape(panel, vi.fn());
+  last.focus();
+  const forward = new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  last.dispatchEvent(forward);
+  expect(forward.defaultPrevented).toBe(true);
+  expect(document.activeElement).toBe(toolbarButton);
+  input.focus();
+  const backward = new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true });
+  input.dispatchEvent(backward);
+  expect(backward.defaultPrevented).toBe(true);
+  expect(document.activeElement).toBe(toolbarButton);
+});

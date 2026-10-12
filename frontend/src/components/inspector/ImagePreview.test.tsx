@@ -54,3 +54,17 @@ it.each([10_000, 1_000_000])("zooms a %i pixel image continuously from fit with 
     expect(parseFloat(img.style.width)).toBeCloseTo(400);
   }
 });
+
+it.each(["ctrlKey", "metaKey"])("accumulates a batch of %s wheel events before rendering", (modifier) => {
+  render(<ImagePreview url="/batch.png" filename="batch.png" />);
+  const img = screen.getByRole("img") as HTMLImageElement;
+  const viewport = img.parentElement!.parentElement!;
+  Object.defineProperties(viewport, { clientWidth: { value: 432 }, clientHeight: { value: 432 } });
+  act(() => resize());
+  Object.defineProperties(img, { naturalWidth: { value: 10_000 }, naturalHeight: { value: 10_000 } });
+  fireEvent.load(img);
+  act(() => {
+    for (let i = 0; i < 3; i++) viewport.dispatchEvent(new WheelEvent("wheel", { [modifier]: true, deltaY: -100, bubbles: true, cancelable: true }));
+  });
+  expect(parseFloat(img.style.width)).toBeCloseTo(400 * Math.exp(0.6));
+});
