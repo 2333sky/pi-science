@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
 # pi-science — the command installed on PATH by scripts/install.sh.
 #
-# Usage:
-#   pi-science [start] [--detach] [--no-open]   start the services
-#   pi-science stop                             stop the services
-#   pi-science status                           report what is running
+# Usage: pi-science [start|install|doctor|stop|status|logs|help]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -17,7 +14,10 @@ LOG_FILE="$RUN_DIR/pi-science.log"
 LAUNCH_LOCK_DIR="$RUN_DIR/start.lock"
 CONTROL_PLANE_PORT="${PI_SCIENCE_CONTROL_PLANE_PORT:-8787}"
 FRONTEND_PORT="${PI_SCIENCE_FRONTEND_PORT:-5173}"
-FRONTEND_URL="http://127.0.0.1:$FRONTEND_PORT"
+DEPLOYMENT_MODE="${PI_SCIENCE_MODE:-production}"
+APP_PORT="$CONTROL_PLANE_PORT"
+[ "$DEPLOYMENT_MODE" != dev ] || APP_PORT="$FRONTEND_PORT"
+FRONTEND_URL="http://127.0.0.1:$APP_PORT"
 READY_TIMEOUT_SECONDS="${PI_SCIENCE_STARTUP_TIMEOUT_SECONDS:-90}"
 SUPERVISOR_CLEANUP_GRACE_TENTHS=120
 STATE_PID="" STATE_TOKEN="" STATE_STARTED=""
@@ -29,12 +29,16 @@ pi-science — Scientific AI Workbench
 
 Usage:
   pi-science [start] [options]   Start the control plane and the frontend
+  pi-science install             Install dependencies and build
+  pi-science doctor [--dev]      Check prerequisites without downloads
+  pi-science logs                Print the runtime log
   pi-science stop                Stop services started from this checkout
   pi-science status              Report what is currently running
   pi-science help                Show this message
 
 Start options:
   -d, --detach   Keep running in the background instead of holding the terminal
+      --dev      Use source code and Vite (port 5173)
       --no-open  Do not open the browser once the app is ready
 EOF
 }
@@ -184,6 +188,7 @@ write_run_state() {
   printf '%s\n' "$token" > "$temp/token"
   printf '%s\n' "$started" > "$temp/started"
   printf '%s\n' "$PROJECT_DIR" > "$temp/checkout"
+  printf '%s\n' "$APP_PORT" > "$temp/app-port"
   rm -rf "$STATE_DIR"
   mv "$temp" "$STATE_DIR"
   rm -f "$LEGACY_PID_FILE"
@@ -241,8 +246,12 @@ $current}"
 
 cmd_start() {
   local detach=false open=true
-  while [ $# -gt 0 ]; do case "$1" in -d|--detach) detach=true ;; --no-open) open=false ;; *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;; esac; shift; done
+  while [ $# -gt 0 ]; do case "$1" in --dev) DEPLOYMENT_MODE=dev ;; -d|--detach) detach=true ;; --no-open) open=false ;; *) echo "Unknown option: $1" >&2; usage >&2; exit 2 ;; esac; shift; done
 
+  export PI_SCIENCE_MODE="$DEPLOYMENT_MODE"
+  APP_PORT="$CONTROL_PLANE_PORT"
+  [ "$DEPLOYMENT_MODE" != dev ] || APP_PORT="$FRONTEND_PORT"
+  FRONTEND_URL="http://127.0.0.1:$APP_PORT"
   if ! pi_science_prepare_node 0; then
     pi_science_node_error
     exit 1
@@ -258,6 +267,10 @@ cmd_start() {
 
   local existing=""
   existing="$(running_supervisor 2>/dev/null || true)"
+  if [ -n "$existing" ]; then
+    APP_PORT="$(cat "$STATE_DIR/app-port" 2>/dev/null || printf '%s' "$APP_PORT")"
+    FRONTEND_URL="http://127.0.0.1:$APP_PORT"
+  fi
   if [ -n "$existing" ] && control_plane_is_ready; then
     echo "Pi-Science is already running at $FRONTEND_URL"
     [ "$open" = true ] && open_browser "$FRONTEND_URL"
@@ -280,7 +293,7 @@ cmd_start() {
 
   mkdir -p "$RUN_DIR"
   local token pid started deadline cleanup_wait supervisor_command
-  token="$(node -e 'process.stdout.write(require("node:crypto").randomBytes(18).toString("hex"))')"
+  token="$("$PI_SCIENCE_NODE_COMMAND" -e 'process.stdout.write(require("node:crypto").randomBytes(18).toString("hex"))')"
   (cd "$PROJECT_DIR" && exec nohup bash "$SCRIPT_DIR/start.sh" --launch-token "$token") >"$LOG_FILE" 2>&1 &
   pid=$!
   BOOTSTRAP_PID="$pid"; BOOTSTRAP_TOKEN="$token"
@@ -348,6 +361,7 @@ cmd_stop() {
 cmd_status() {
   local pid=""
   pid="$(running_supervisor 2>/dev/null || true)"
+  if [ -n "$pid" ]; then APP_PORT="$(cat "$STATE_DIR/app-port" 2>/dev/null || printf '%s' "$APP_PORT")"; FRONTEND_URL="http://127.0.0.1:$APP_PORT"; fi
   if [ -n "$pid" ]; then echo "Supervisor:         running (pid $pid, logs at $LOG_FILE)"; else echo "Supervisor:         not started by 'pi-science start --detach'"; fi
   if control_plane_is_ready; then echo "Node control plane: ready at http://127.0.0.1:$CONTROL_PLANE_PORT"; else echo "Node control plane: not responding on port $CONTROL_PLANE_PORT"; fi
   if frontend_is_ready; then echo "Frontend:           ready at $FRONTEND_URL"; else echo "Frontend:           not responding on port $FRONTEND_PORT"; fi
@@ -357,4 +371,4 @@ cmd_status() {
 [ "${PI_SCIENCE_SOURCE_ONLY:-0}" = "1" ] && return 0
 command="${1:-start}"
 [ $# -gt 0 ] && shift || true
-case "$command" in start) cmd_start "$@" ;; stop) cmd_stop ;; status) cmd_status ;; help|-h|--help) usage ;; -*) cmd_start "$command" "$@" ;; *) echo "Unknown command: $command" >&2; usage >&2; exit 2 ;; esac
+case "$command" in install) exec bash "$SCRIPT_DIR/install.sh" "$@" ;; doctor) pi_science_prepare_node 0 || { pi_science_node_error; exit 1; }; exec "$PI_SCIENCE_NODE_COMMAND" "$SCRIPT_DIR/doctor.mjs" "$@" ;; logs) cat "$LOG_FILE" ;; start) cmd_start "$@" ;; stop) cmd_stop ;; status) cmd_status ;; help|-h|--help) usage ;; -*) cmd_start "$command" "$@" ;; *) echo "Unknown command: $command" >&2; usage >&2; exit 2 ;; esac

@@ -134,6 +134,10 @@ set -e
 [ ! -e "$BIN_DIR/.pi-science-launcher.lock" ] || fail "signaled writer leaked its lock"
 if find "$BIN_DIR" -maxdepth 1 -name '.pi-science-launcher.*' -print | grep -q .; then fail "signaled writer leaked a temp file"; fi
 
+# Existing lifecycle cases exercise explicit source mode. Production has its
+# own real-build smoke test.
+export PI_SCIENCE_MODE=dev
+
 # Temporary local checkout with real Node and fake package-local CLIs. The fake
 # services record CWD/PIDs and expose only the readiness endpoints used by start.sh.
 FIXTURE="$TEMP_ROOT/runtime checkout with spaces"

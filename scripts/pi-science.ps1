@@ -3,8 +3,8 @@
     Command-line launcher for a Pi-Science checkout on Windows.
 
 .DESCRIPTION
-    Supports start, stop, status, and help. The run.state file is written by
-    start.ps1 after both services are healthy, so stop can target the exact
+    Supports install, doctor, start, stop, status, logs and help. The run.state
+    file is written by start.ps1 as processes launch, so stop can target the exact
     processes started by this checkout. Missing or stale identity never permits
     terminating a process solely because it occupies a configured port.
 #>
@@ -95,6 +95,10 @@ function Show-PiStatus {
     param([int]$ControlPlanePort, [int]$FrontendPort)
 
     $state = Read-RunState
+    if ($null -ne $state -and $state.checkout -ieq $ProjectDir) {
+        $ControlPlanePort = [int]$state.control_plane_port
+        $FrontendPort = if ($state.mode -eq "production") { $ControlPlanePort } else { [int]$state.frontend_port }
+    }
     $controlReady = Test-PortListening -Port $ControlPlanePort
     $frontendReady = Test-PortListening -Port $FrontendPort
     $stateProcess = $false
@@ -133,7 +137,11 @@ function Show-PiHelp {
 pi-science - Scientific AI Workbench
 
 Usage:
-  pi-science [start]       Start the control plane and frontend
+  pi-science [start]       Start the production build on port 8787
+  pi-science start --dev   Start source code and Vite on port 5173
+  pi-science install       Install dependencies and build
+  pi-science doctor        Check prerequisites without downloads
+  pi-science logs          Print runtime logs
   pi-science stop          Stop services started from this checkout
   pi-science status        Report what is currently running
   pi-science help          Show this message
@@ -150,7 +158,19 @@ if ($args.Count -gt 0) {
 }
 
 switch ($command.ToLowerInvariant()) {
+    "install" { & (Join-Path $ScriptDir "install.ps1") @remaining; exit $LASTEXITCODE }
+    "doctor" {
+        $node = if ($env:PI_NODE_PATH) { $env:PI_NODE_PATH } else { "node" }
+        & $node (Join-Path $ScriptDir "doctor.mjs") @remaining
+        exit $LASTEXITCODE
+    }
+    "logs" { Get-Content -LiteralPath (Join-Path $RuntimeDir "control-plane.log"); exit 0 }
     "start" {
+        if ($remaining -contains "--dev") {
+            $remaining = @($remaining | Where-Object { $_ -ne "--dev" })
+            & (Join-Path $ScriptDir "start.ps1") -Dev @remaining
+            exit $LASTEXITCODE
+        }
         $startScript = Join-Path $ScriptDir "start.ps1"
         if ($remaining.Count -gt 0) {
             & $startScript @remaining

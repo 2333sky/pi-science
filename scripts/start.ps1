@@ -8,7 +8,11 @@
     both Windows PowerShell 5.1 and PowerShell 7.
 #>
 
+param([switch]$Dev)
+
 $ErrorActionPreference = "Stop"
+$DeploymentMode = if ($Dev -or $env:PI_SCIENCE_MODE -eq "dev") { "dev" } else { "production" }
+if ($args.Count -gt 0) { throw "Usage: start.ps1 [-Dev]" }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = [System.IO.Path]::GetFullPath((Join-Path $ScriptDir ".."))
@@ -158,7 +162,7 @@ function Write-RunState {
         frontend_executable = if ($null -ne $Frontend) { $Frontend.Path } else { "" }
         checkout = $ProjectDir
         launch_token = $LaunchToken
-        mode = "dev"
+        mode = $DeploymentMode
         control_plane_port = $ControlPlanePort
         frontend_port = $FrontendPort
         started_at = (Get-Date).ToUniversalTime().ToString("o")
@@ -189,12 +193,16 @@ if ($LASTEXITCODE -ne 0) {
 
 $ControlPlaneCli = Join-Path $ProjectDir "apps\server\node_modules\tsx\dist\cli.mjs"
 $ViteScript = Join-Path $ProjectDir "frontend\node_modules\vite\bin\vite.js"
-if (-not (Test-Path -LiteralPath $ControlPlaneCli -PathType Leaf)) {
-    throw "Server dependencies are not installed. Run: powershell -File scripts/install.ps1"
+$ControlPlaneBuild = Join-Path $ProjectDir "apps\server\dist\app\main.js"
+if ($DeploymentMode -eq "dev") {
+    if (-not (Test-Path -LiteralPath $ControlPlaneCli -PathType Leaf)) { throw "Server dependencies missing. Run scripts/install.ps1" }
+    if (-not (Test-Path -LiteralPath $ViteScript -PathType Leaf)) { throw "Frontend dependencies missing. Run scripts/install.ps1" }
+} else {
+    $frontendDist = if ($env:PI_SCIENCE_FRONTEND_DIST) { $env:PI_SCIENCE_FRONTEND_DIST } else { Join-Path $ProjectDir "frontend\dist" }
+    if (-not (Test-Path -LiteralPath $ControlPlaneBuild -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $frontendDist "index.html") -PathType Leaf)) { throw "Production build missing. Run scripts/install.ps1" }
 }
-if (-not (Test-Path -LiteralPath $ViteScript -PathType Leaf)) {
-    throw "Frontend dependencies are not installed. Run: powershell -File scripts/install.ps1"
-}
+$watch = if ($env:PI_SCIENCE_SERVER_WATCH) { $env:PI_SCIENCE_SERVER_WATCH } else { "0" }
+if ($watch -notin @("0", "1")) { throw "PI_SCIENCE_SERVER_WATCH must be 0 or 1." }
 
 $ControlPlanePort = Get-PositiveInteger -EnvironmentName "PI_SCIENCE_CONTROL_PLANE_PORT" -Default 8787
 $FrontendPort = Get-PositiveInteger -EnvironmentName "PI_SCIENCE_FRONTEND_PORT" -Default 5173
@@ -203,10 +211,13 @@ $StartupTimeout = Get-PositiveInteger -EnvironmentName "PI_SCIENCE_STARTUP_TIMEO
 if (-not (Test-PortAvailable -Port $ControlPlanePort)) {
     throw "Port $ControlPlanePort is already in use."
 }
-if (-not (Test-PortAvailable -Port $FrontendPort)) {
+if ($DeploymentMode -eq "dev" -and -not (Test-PortAvailable -Port $FrontendPort)) {
     throw "Port $FrontendPort is already in use."
 }
 
+$AppPort = if ($DeploymentMode -eq "dev") { $FrontendPort } else { $ControlPlanePort }
+$env:PI_SCIENCE_HOST = "127.0.0.1"
+$env:PI_SCIENCE_OPEN_BROWSER = "0"
 $env:PI_NODE_PATH = $NodePath
 $env:PI_SCIENCE_HOME = if ($env:PI_SCIENCE_HOME) { $env:PI_SCIENCE_HOME } else { Join-Path $HOME ".pi-science" }
 $env:PI_SCIENCE_WORKSPACES = if ($env:PI_SCIENCE_WORKSPACES) { $env:PI_SCIENCE_WORKSPACES } else { Join-Path $HOME "pi-science-workspaces" }
@@ -237,17 +248,22 @@ $FrontendErrorLog = Join-Path $RuntimeDir "frontend.log.err"
 
 $ControlPlaneProcess = $null
 $FrontendProcess = $null
-$StateWritten = $false
 
 try {
+    $StartupDeadline = (Get-Date).AddSeconds($StartupTimeout)
     Write-Host "==> Starting Node control plane on http://127.0.0.1:$ControlPlanePort"
     $controlArguments = '"' + $ControlPlaneCli + '" "' + (Join-Path $ProjectDir 'apps\server\src\app\main.ts') + '"'
+    if ($DeploymentMode -eq "production") {
+        $controlArguments = '"' + $ControlPlaneBuild + '"'
+    } elseif ($watch -eq "1") {
+        $controlArguments = '"' + $ControlPlaneCli + '" watch "' + (Join-Path $ProjectDir 'apps\server\src\app\main.ts') + '"'
+    }
     $controlArguments = '"' + (Join-Path $ScriptDir 'run-service.mjs') + '" --launch-token ' + $LaunchToken + ' ' + $controlArguments
     $ControlPlaneProcess = Start-Process -FilePath $NodePath -ArgumentList $controlArguments -WorkingDirectory (Join-Path $ProjectDir "apps\server") -RedirectStandardOutput $ControlLog -RedirectStandardError $ControlErrorLog -NoNewWindow -PassThru
 
     Write-RunState -ControlPlane $ControlPlaneProcess -Frontend $null -ControlPlanePort $ControlPlanePort -FrontendPort $FrontendPort
 
-    $controlDeadline = (Get-Date).AddSeconds($StartupTimeout)
+    $controlDeadline = $StartupDeadline
     do {
         if ($ControlPlaneProcess.HasExited) {
             throw "Control plane exited during startup. See $ControlLog and $ControlErrorLog"
@@ -261,35 +277,39 @@ try {
         throw "Control plane did not become ready within ${StartupTimeout}s. See $ControlLog"
     }
 
-    Write-Host "==> Starting frontend on http://127.0.0.1:$FrontendPort"
-    if (-not (Test-PortAvailable -Port $FrontendPort)) {
-        throw "Port $FrontendPort is already in use; refusing to reuse an unverified frontend."
+    if ($DeploymentMode -eq "dev") {
+        Write-Host "==> Starting frontend on http://127.0.0.1:$FrontendPort"
+        if (-not (Test-PortAvailable -Port $FrontendPort)) {
+            throw "Port $FrontendPort is already in use; refusing to reuse an unverified frontend."
+        }
+        $frontendArguments = '"' + $ViteScript + '" --host 127.0.0.1 --port ' + $FrontendPort + ' --strictPort'
+        $frontendArguments = '"' + (Join-Path $ScriptDir 'run-service.mjs') + '" --launch-token ' + $LaunchToken + ' ' + $frontendArguments
+        $FrontendProcess = Start-Process -FilePath $NodePath -ArgumentList $frontendArguments -WorkingDirectory (Join-Path $ProjectDir "frontend") -RedirectStandardOutput $FrontendLog -RedirectStandardError $FrontendErrorLog -NoNewWindow -PassThru
+
+        Write-RunState -ControlPlane $ControlPlaneProcess -Frontend $FrontendProcess -ControlPlanePort $ControlPlanePort -FrontendPort $FrontendPort
+
+        $frontendDeadline = $StartupDeadline
+        do {
+            if ($null -ne $FrontendProcess -and $FrontendProcess.HasExited) {
+                throw "Frontend exited during startup. See $FrontendLog and $FrontendErrorLog"
+            }
+            if (Test-HttpReady -Uri "http://127.0.0.1:$FrontendPort") {
+                break
+            }
+            Start-Sleep -Milliseconds 250
+        } while ((Get-Date) -lt $frontendDeadline)
+        if (-not (Test-HttpReady -Uri "http://127.0.0.1:$FrontendPort")) {
+            throw "Frontend did not become ready within ${StartupTimeout}s. See $FrontendLog"
+        }
+
+    } elseif (-not (Test-HttpReady -Uri "http://127.0.0.1:$ControlPlanePort")) {
+        throw "Frontend build is not available on the control-plane port."
     }
-    $frontendArguments = '"' + $ViteScript + '" --host 127.0.0.1 --port ' + $FrontendPort + ' --strictPort'
-    $frontendArguments = '"' + (Join-Path $ScriptDir 'run-service.mjs') + '" --launch-token ' + $LaunchToken + ' ' + $frontendArguments
-    $FrontendProcess = Start-Process -FilePath $NodePath -ArgumentList $frontendArguments -WorkingDirectory (Join-Path $ProjectDir "frontend") -RedirectStandardOutput $FrontendLog -RedirectStandardError $FrontendErrorLog -NoNewWindow -PassThru
 
     Write-RunState -ControlPlane $ControlPlaneProcess -Frontend $FrontendProcess -ControlPlanePort $ControlPlanePort -FrontendPort $FrontendPort
-
-    $frontendDeadline = (Get-Date).AddSeconds($StartupTimeout)
-    do {
-        if ($FrontendProcess.HasExited) {
-            throw "Frontend exited during startup. See $FrontendLog and $FrontendErrorLog"
-        }
-        if (Test-HttpReady -Uri "http://127.0.0.1:$FrontendPort") {
-            break
-        }
-        Start-Sleep -Milliseconds 250
-    } while ((Get-Date) -lt $frontendDeadline)
-    if (-not (Test-HttpReady -Uri "http://127.0.0.1:$FrontendPort")) {
-        throw "Frontend did not become ready within ${StartupTimeout}s. See $FrontendLog"
-    }
-
-    Write-RunState -ControlPlane $ControlPlaneProcess -Frontend $FrontendProcess -ControlPlanePort $ControlPlanePort -FrontendPort $FrontendPort
-    $StateWritten = $true
     Write-Host ""
     Write-Host "Pi-Science is running:"
-    Write-Host "  Frontend:            http://127.0.0.1:$FrontendPort"
+    Write-Host "  Frontend:            http://127.0.0.1:$AppPort ($DeploymentMode)"
     Write-Host "  Node control plane:  http://127.0.0.1:$ControlPlanePort"
     Write-Host "  Logs:                $RuntimeDir"
     Write-Host "Press Ctrl+C to stop."
@@ -299,7 +319,7 @@ try {
         if ($ControlPlaneProcess.HasExited) {
             throw "Control plane exited. See $ControlLog and $ControlErrorLog"
         }
-        if ($FrontendProcess.HasExited) {
+        if ($null -ne $FrontendProcess -and $FrontendProcess.HasExited) {
             throw "Frontend exited. See $FrontendLog and $FrontendErrorLog"
         }
     }
