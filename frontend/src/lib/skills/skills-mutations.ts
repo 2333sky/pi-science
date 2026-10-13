@@ -1,5 +1,6 @@
 import { apiRequest } from "../client/api";
 import { queryClient } from "../client/query-client";
+import { slashCommandsPrefix } from "../conversation/slash-commands";
 import { settingsKey } from "../settings/settings-api";
 
 export interface ProjectSkillInput {
@@ -51,7 +52,7 @@ async function writeSkill<T>(url: string, init: RequestInit, fallback: string): 
 }
 
 function invalidateAfterWrite(cwd: string): void {
-  void queryClient.invalidateQueries({ queryKey: ["composer-commands", cwd] });
+  void queryClient.invalidateQueries({ queryKey: slashCommandsPrefix(cwd) });
   void queryClient.invalidateQueries({ queryKey: settingsKey("skills") });
   void queryClient.invalidateQueries({ queryKey: settingsKey() });
 }

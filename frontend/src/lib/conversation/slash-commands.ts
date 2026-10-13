@@ -30,9 +30,17 @@ const BUILTIN_COMMANDS: SlashCommand[] = [
   },
 ];
 
+/** Every catalogue of one workspace: the blank composer's read-only one and every session's. A
+ *  policy write invalidates this prefix, so the key can never drift from what it invalidates. */
+export const slashCommandsPrefix = (cwd: string) => ["composer-commands", cwd];
+
+/** The catalogue one composer reads. A blank composer has no session and reads the workspace
+ *  catalogue; an active session keeps its own runtime policy. */
+export const slashCommandsKey = (cwd: string, sessionId: string | null = null) => [...slashCommandsPrefix(cwd), sessionId];
+
 /** A blank composer uses the read-only workspace catalog; an existing session keeps its runtime policy. */
 export const slashCommandsQuery = (cwd: string, sessionId: string | null = null) => ({
-  queryKey: ["composer-commands", cwd, sessionId],
+  queryKey: slashCommandsKey(cwd, sessionId),
   enabled: Boolean(cwd),
   staleTime: 15_000,
   queryFn: async ({ signal }: { signal: AbortSignal }): Promise<SlashCommand[]> => {

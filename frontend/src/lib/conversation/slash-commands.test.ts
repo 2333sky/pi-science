@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allCommands, commandHint, commandTakesArguments, matchCommands, slashCommandsQuery } from "./slash-commands";
+import { allCommands, commandHint, commandTakesArguments, matchCommands, slashCommandsKey, slashCommandsPrefix, slashCommandsQuery } from "./slash-commands";
 import type { SlashCommand } from "./slash-commands";
 import { queryClient } from "../client/query-client";
 
@@ -69,9 +69,17 @@ describe("slash commands", () => {
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
     vi.stubGlobal("fetch", fetch);
     const query = slashCommandsQuery("/workspace", "session-1");
-    expect(query.queryKey).toEqual(["composer-commands", "/workspace", "session-1"]);
+    expect(query.queryKey).toEqual(slashCommandsKey("/workspace", "session-1"));
     await queryClient.fetchQuery(query);
     expect(String(fetch.mock.calls[0]?.[0])).toContain("/api/sessions/session-1/commands?");
+  });
+
+  it("builds every catalogue key under the workspace prefix the invalidations use", () => {
+    expect(slashCommandsPrefix("/workspace")).toEqual(["composer-commands", "/workspace"]);
+    expect(slashCommandsKey("/workspace", "session-1")).toEqual(["composer-commands", "/workspace", "session-1"]);
+    expect(slashCommandsKey("/workspace", null)).toEqual(["composer-commands", "/workspace", null]);
+    expect(slashCommandsKey("/workspace", "session-1").slice(0, slashCommandsPrefix("/workspace").length)).toEqual(slashCommandsPrefix("/workspace"));
+    expect(slashCommandsKey("/workspace", null).slice(0, slashCommandsPrefix("/workspace").length)).toEqual(slashCommandsPrefix("/workspace"));
   });
 
   it("ranks a name prefix above a name substring above a description match", () => {

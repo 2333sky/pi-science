@@ -4,6 +4,7 @@ import { AlertTriangle, ChevronDown, Loader2, Package, Pencil, Plus, RotateCcw, 
 import { useTranslation } from "react-i18next";
 import { apiRequest } from "../../lib/client/api";
 import { queryClient } from "../../lib/client/query-client";
+import { slashCommandsPrefix } from "../../lib/conversation/slash-commands";
 import { invalidateSettings, settingsApi, settingsKey } from "../../lib/settings";
 import { SkillChatDialog, SkillEditorDialog, SkillGithubDialog, SkillUploadDialog } from "./SkillDialogs";
 
@@ -19,8 +20,8 @@ type Skill = {
 
 type SkillsResponse = { skills?: Skill[]; configured?: boolean };
 
-function invalidateSkills() {
-  void queryClient.invalidateQueries({ queryKey: ["slash-commands"] });
+function invalidateSkills(cwd: string | null) {
+  if (cwd) void queryClient.invalidateQueries({ queryKey: slashCommandsPrefix(cwd) });
   void queryClient.invalidateQueries({ queryKey: settingsKey("skills") });
   invalidateSettings();
 }
@@ -190,7 +191,7 @@ export function SkillsTab({ workspaceCwd }: { workspaceCwd: string | null }) {
         body: JSON.stringify({ name: skill.name, enabled }),
       });
       setConfigured(response.configured === true);
-      invalidateSkills();
+      invalidateSkills(workspaceCwd);
     } catch (cause) {
       setSkills((current) => current.map((item) => item.name === skill.name ? { ...item, enabled: skill.enabled } : item));
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -206,7 +207,7 @@ export function SkillsTab({ workspaceCwd }: { workspaceCwd: string | null }) {
       await apiRequest("/api/settings/skills", { method: "DELETE" });
       setSkills((current) => current.map((skill) => ({ ...skill, enabled: true })));
       setConfigured(false);
-      invalidateSkills();
+      invalidateSkills(workspaceCwd);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -233,7 +234,7 @@ export function SkillsTab({ workspaceCwd }: { workspaceCwd: string | null }) {
     setDeleteConfirm(null);
     try {
       await apiRequest(`/api/settings/skills/${encodeURIComponent(skill.skill_id)}?cwd=${encodeURIComponent(workspaceCwd)}`, { method: "DELETE" });
-      invalidateSkills();
+      invalidateSkills(workspaceCwd);
       await reload();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
