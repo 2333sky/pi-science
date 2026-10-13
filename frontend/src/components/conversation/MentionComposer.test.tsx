@@ -29,10 +29,10 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 });
 
-function Harness() {
-  const [value, setValue] = useState("");
+function Harness({ initialValue = "", initialEntities = [] }: { initialValue?: string; initialEntities?: ComposerEntity[] }) {
+  const [value, setValue] = useState(initialValue);
   const [mentions, setMentions] = useState<SubagentMention[]>([]);
-  const [entities, setEntities] = useState<ComposerEntity[]>([]);
+  const [entities, setEntities] = useState<ComposerEntity[]>(initialEntities);
   const [composing, setComposing] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composingRef = useRef(false);
@@ -87,10 +87,12 @@ async function typeAt(value: string, position = value.length) {
   await Promise.resolve();
 }
 
-function renderComposer() {
+const referenceEntity: ComposerEntity = { kind: "reference", id: "protein", start: 7, end: 24, reference: { cwd: "project", path: "data/protein.csv", name: "protein.csv", isDir: false } };
+
+function renderComposer(initialValue = "", initialEntities: ComposerEntity[] = []) {
   return render(
     <QueryClientProvider client={queryClient}>
-      <Harness />
+      <Harness initialValue={initialValue} initialEntities={initialEntities} />
     </QueryClientProvider>,
   );
 }
@@ -205,6 +207,207 @@ describe("MentionComposer", () => {
     fireEvent.click(folderOption);
     await waitFor(() => expect(input()).toHaveValue("@structures "));
   }, 15_000);
+
+  it("crosses a highlighted entity in one arrow press from either boundary", () => {
+    const { container } = renderComposer("before @data/protein.csv after", [referenceEntity]);
+    const composer = input();
+    composer.setSelectionRange(24, 24);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft" })).toBe(false);
+    expect(composer.selectionStart).toBe(7);
+    expect(composer.selectionEnd).toBe(7);
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+
+    expect(fireEvent.keyDown(composer, { key: "ArrowRight" })).toBe(false);
+    expect(composer.selectionStart).toBe(24);
+    expect(composer.selectionEnd).toBe(24);
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("crosses the entity when ArrowLeft follows native movement to its right boundary", () => {
+    const { container } = renderComposer("@data/protein.csv ", [{ ...referenceEntity, start: 0, end: 17 }]);
+    const composer = input();
+    composer.setSelectionRange(18, 18);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft" })).toBe(true);
+    composer.setSelectionRange(17, 17);
+    fireEvent.select(composer);
+    expect(composer.selectionStart).toBe(17);
+    expect(composer.selectionEnd).toBe(17);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft" })).toBe(false);
+    expect(composer.selectionStart).toBe(0);
+    expect(composer.selectionEnd).toBe(0);
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("keeps Shift+ArrowLeft native and expands its backward selection to the entity edges", () => {
+    const { container } = renderComposer("@data/protein.csv ", [{ ...referenceEntity, start: 0, end: 17 }]);
+    const composer = input();
+    composer.setSelectionRange(18, 18);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft" })).toBe(true);
+    composer.setSelectionRange(17, 17);
+    fireEvent.select(composer);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft", shiftKey: true })).toBe(true);
+    composer.setSelectionRange(16, 17, "backward");
+    fireEvent.select(composer);
+    expect({ start: composer.selectionStart, end: composer.selectionEnd, direction: composer.selectionDirection }).toEqual({ start: 0, end: 17, direction: "backward" });
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("crosses adjacent entities one at a time in both directions", () => {
+    const { container } = renderComposer("before @data/protein.csv@scout after", [referenceEntity, { kind: "mention", id: "scout", name: "scout", start: 24, end: 30 }]);
+    const composer = input();
+    composer.setSelectionRange(30, 30);
+    fireEvent.keyDown(composer, { key: "ArrowLeft" });
+    expect(composer.selectionStart).toBe(24);
+    expect(composer.selectionEnd).toBe(24);
+    fireEvent.keyDown(composer, { key: "ArrowLeft" });
+    expect(composer.selectionStart).toBe(7);
+    expect(composer.selectionEnd).toBe(7);
+    fireEvent.keyDown(composer, { key: "ArrowRight" });
+    expect(composer.selectionStart).toBe(24);
+    expect(composer.selectionEnd).toBe(24);
+    fireEvent.keyDown(composer, { key: "ArrowRight" });
+    expect(composer.selectionStart).toBe(30);
+    expect(composer.selectionEnd).toBe(30);
+    expect([...container.querySelectorAll("[aria-hidden='true'] span")].map((node) => node.textContent)).toEqual(["@data/protein.csv", "@scout"]);
+  });
+
+  it("leaves plain-text arrows and modified arrows to the browser", () => {
+    renderComposer("before @data/protein.csv after", [referenceEntity]);
+    const composer = input();
+    composer.setSelectionRange(3, 3);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft" })).toBe(true);
+    expect(fireEvent.keyDown(composer, { key: "ArrowRight" })).toBe(true);
+    expect(composer.selectionStart).toBe(3);
+    expect(composer.selectionEnd).toBe(3);
+    composer.setSelectionRange(24, 24);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft", shiftKey: true })).toBe(true);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft", ctrlKey: true })).toBe(true);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft", metaKey: true })).toBe(true);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft", altKey: true })).toBe(true);
+    expect(composer.selectionStart).toBe(24);
+    expect(composer.selectionEnd).toBe(24);
+  });
+
+  it("does not handle entity navigation or undo while the IME composes", () => {
+    const { container } = renderComposer("before @data/protein.csv after", [referenceEntity]);
+    const composer = input();
+    composer.setSelectionRange(24, 24);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft", isComposing: true })).toBe(true);
+    fireEvent.compositionStart(composer);
+    expect(fireEvent.keyDown(composer, { key: "ArrowLeft" })).toBe(true);
+    expect(fireEvent.keyDown(composer, { key: "z", ctrlKey: true })).toBe(true);
+    expect(composer.selectionStart).toBe(24);
+    expect(composer.selectionEnd).toBe(24);
+    composer.setSelectionRange(7, 7);
+    expect(fireEvent.keyDown(composer, { key: "ArrowRight" })).toBe(true);
+    expect(composer.selectionStart).toBe(7);
+    expect(composer.selectionEnd).toBe(7);
+    expect(composer.value).toBe("before @data/protein.csv after");
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("snaps pointer selections inside an entity to the nearer boundary", () => {
+    renderComposer("before @data/protein.csv after", [referenceEntity]);
+    const composer = input();
+    fireEvent.pointerDown(composer);
+    composer.setSelectionRange(8, 8);
+    fireEvent.select(composer);
+    expect(composer.selectionStart).toBe(7);
+    expect(composer.selectionEnd).toBe(7);
+    fireEvent.pointerDown(composer);
+    composer.setSelectionRange(23, 23);
+    fireEvent.select(composer);
+    expect(composer.selectionStart).toBe(24);
+    expect(composer.selectionEnd).toBe(24);
+  });
+
+  it("preserves the current backward direction when extending across an entity", () => {
+    renderComposer("before @data/protein.csv after", [referenceEntity]);
+    const composer = input();
+    composer.setSelectionRange(23, 29, "backward");
+    fireEvent.select(composer);
+    expect(composer.selectionStart).toBe(7);
+    expect(composer.selectionEnd).toBe(29);
+    expect(composer.selectionDirection).toBe("backward");
+  });
+
+  it("does not place a queued completion caret after a textarea pointerdown", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
+    const { container } = renderComposer();
+    await typeAt("@data/pro");
+    act(() => input().focus());
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+    expect(input().value).toBe("@data/protein.csv ");
+    expect(frames.length).toBe(1);
+    fireEvent.pointerDown(input());
+    input().setSelectionRange(0, 0);
+    fireEvent.select(input());
+    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
+    expect(input().selectionStart).toBe(0);
+    expect(input().selectionEnd).toBe(0);
+    expect(document.activeElement?.getAttribute("placeholder")).toBe("Prompt");
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("does not refocus or place a queued completion caret after textarea blur", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
+    const { container } = renderComposer();
+    render(<button>Settings</button>);
+    await typeAt("@data/pro");
+    act(() => input().focus());
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+    expect(input().value).toBe("@data/protein.csv ");
+    expect(frames.length).toBe(1);
+    act(() => screen.getByRole("button", { name: "Settings" }).focus());
+    input().setSelectionRange(0, 0);
+    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
+    expect(input().selectionStart).toBe(0);
+    expect(input().selectionEnd).toBe(0);
+    expect(document.activeElement?.textContent).toBe("Settings");
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("still places an accepted completion caret after programmatic select events", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
+    renderComposer();
+    await typeAt("@data/pro");
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+    expect(input().value).toBe("@data/protein.csv ");
+    expect(frames.length).toBe(1);
+    input().setSelectionRange(0, 0);
+    fireEvent.select(input());
+    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
+    expect(input().selectionStart).toBe(18);
+    expect(input().selectionEnd).toBe(18);
+    expect(document.activeElement?.getAttribute("placeholder")).toBe("Prompt");
+  });
+
+  it("does not cancel queued completion placement on a plain arrow after insertion in the middle", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
+    const { container } = renderComposer();
+    await typeAt("before @data/pro after", 16);
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+    expect(input().value).toBe("before @data/protein.csv after");
+    expect(frames.length).toBe(1);
+    expect(input().selectionStart).toBe(30);
+    expect(input().selectionEnd).toBe(30);
+    expect(fireEvent.keyDown(input(), { key: "ArrowLeft" })).toBe(true);
+    input().setSelectionRange(29, 29);
+    fireEvent.select(input());
+    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
+    expect(input().selectionStart).toBe(24);
+    expect(input().selectionEnd).toBe(24);
+    expect(document.activeElement?.getAttribute("placeholder")).toBe("Prompt");
+    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
 
   it("takes the undo and redo chords because the platform stops offering its own redo", async () => {
     fileFixture = new Map([["data", [

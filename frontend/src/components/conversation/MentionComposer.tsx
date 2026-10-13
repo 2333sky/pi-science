@@ -63,7 +63,6 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   const { t } = useTranslation();
   const [caret, setCaret] = useState(value.length);
   const mirrorRef = useRef<HTMLDivElement>(null);
-  const selectionDirectionRef = useRef<"forward" | "backward" | "none">("none");
   const pendingIntentRef = useRef<ComposerEditIntent | null>(null);
   const undoHistoryRef = useRef<ComposerSnapshot[]>([]);
   const redoHistoryRef = useRef<ComposerSnapshot[]>([]);
@@ -207,6 +206,7 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   const completion = useComposerCompletion({ cwd, value, caret, composing, composingRef, onApply: applyCompletion });
 
   const handleSelect = (element: HTMLTextAreaElement) => {
+    const direction = element.selectionDirection;
     let start = element.selectionStart;
     let end = element.selectionEnd;
     if (composing || composingRef.current) { setCaret(end); return; }
@@ -220,8 +220,7 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
       if (startMention) start = startMention.start;
       if (endMention) end = endMention.end;
     }
-    if (start !== element.selectionStart || end !== element.selectionEnd) element.setSelectionRange(start, end, selectionDirectionRef.current);
-    selectionDirectionRef.current = element.selectionDirection;
+    if (start !== element.selectionStart || end !== element.selectionEnd) element.setSelectionRange(start, end, direction);
     setCaret(end);
   };
 
@@ -240,6 +239,19 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
       chordHistoryRef.current = direction;
       restoreHistory(direction);
       return;
+    }
+    if (!event.nativeEvent.isComposing && !composingRef.current && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      const element = event.currentTarget;
+      if (element.selectionStart === element.selectionEnd) {
+        const target = activeEntities.find((entity) => event.key === "ArrowLeft" ? entity.end === element.selectionStart : entity.start === element.selectionStart);
+        if (target) {
+          event.preventDefault();
+          const position = event.key === "ArrowLeft" ? target.start : target.end;
+          element.setSelectionRange(position, position);
+          setCaret(position);
+          return;
+        }
+      }
     }
     if (!event.nativeEvent.isComposing && !composingRef.current && (event.key === "Backspace" || event.key === "Delete")) {
       const element = event.currentTarget;
@@ -296,9 +308,15 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     return () => element.removeEventListener("beforeinput", handleBeforeInput);
   }, [handleBeforeInput, inputRef]);
 
+  const cancelPendingCaret = () => {
+    // Cancel on pointerdown/blur, not select. Completion placement also emits select.
+    pendingCaretRef.current = null;
+  };
+
   // Tab can carry focus out of the composer. The list belongs to the composer, so it goes with it
   // rather than staying on screen with no key left to close it.
   const handleBlur = () => {
+    cancelPendingCaret();
     completion.menu?.dismiss();
   };
 
@@ -350,6 +368,7 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
           onChange={(event) => handleChange(event.target.value)}
           onSelect={(event) => handleSelect(event.currentTarget)}
           onKeyDown={handleKey}
+          onPointerDown={cancelPendingCaret}
           onBlur={handleBlur}
           onCompositionStart={onCompositionStart}
           onCompositionEnd={onCompositionEnd}
