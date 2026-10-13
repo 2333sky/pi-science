@@ -108,6 +108,11 @@ describe("execution history and previews", () => {
     expect(session.total).toBe(62);
     expect(session.executions.every((run: { correlation: { session_id?: string } }) => run.correlation.session_id === "A")).toBe(true);
     expect((await get("from=2026-01-01T00:00:00Z&to=2026-01-01T00:00:00Z")).filtered_total).toBe(1);
+    expect(await get("target_id=exec-50&limit=50")).toMatchObject({ target_offset: 50, target_in_scope: true, target_matches: true });
+    expect(await get("target_id=exec-0&limit=50")).toMatchObject({ target_offset: 100, target_in_scope: true, target_matches: true });
+    expect(await get("target_id=exec-0&session_id=A")).toMatchObject({ target_offset: null, target_in_scope: false, target_matches: false });
+    expect(await get("target_id=exec-0&kind=job")).toMatchObject({ target_offset: null, target_in_scope: true, target_matches: false });
+    expect(await get("limit=1")).toMatchObject({ status_counts: { running: 125 }, completed_duration_ms: 0 });
     expect((await get("kind=job")).filtered_total).toBe(0);
     expect((await get("status=failed")).filtered_total).toBe(0);
     await app.close();

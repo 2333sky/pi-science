@@ -42,7 +42,7 @@ export function registerExecutionRoutes(app: FastifyInstance, jobs?: Pick<JobCoo
   app.get("/api/executions", async (request, reply) => {
     const cwd = await workspace(request, reply);
     if (!cwd) return;
-    const query = request.query as { limit?: string; offset?: string; session_id?: string; kind?: string; status?: string; search?: string; from?: string; to?: string };
+    const query = request.query as { limit?: string; offset?: string; target_id?: string; session_id?: string; kind?: string; status?: string; search?: string; from?: string; to?: string };
     const limit = Number(query.limit ?? 100);
     const offset = Number(query.offset ?? 0);
     if (!Number.isInteger(limit) || limit < 1 || limit > 1_000 || !Number.isInteger(offset) || offset < 0) {
@@ -57,7 +57,7 @@ export function registerExecutionRoutes(app: FastifyInstance, jobs?: Pick<JobCoo
     if (kind && !kind.success) return reply.code(400).send({ error: "Invalid execution kind" });
     if (status && !status.success) return reply.code(400).send({ error: "Invalid execution status" });
     const page = await executionRepository.query(cwd, {
-      limit, offset, search: query.search, from: query.from, to: query.to,
+      limit, offset, target_id: query.target_id, search: query.search, from: query.from, to: query.to,
       ...(query.session_id ? { session_id: query.session_id } : {}),
       ...(kind?.success ? { kind: kind.data } : {}),
       ...(status?.success ? { status: status.data } : {}),

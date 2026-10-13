@@ -583,6 +583,12 @@ export const executionListResponseSchema = z.object({
   filtered_total: z.number().int().nonnegative().optional(),
   offset: z.number().int().nonnegative().optional(),
   limit: z.number().int().positive().optional(),
+  status_counts: z.record(z.string(), z.number().int().nonnegative()).optional(),
+  completed_duration_ms: z.number().nonnegative().optional(),
+  completed_duration_count: z.number().int().nonnegative().optional(),
+  target_offset: z.number().int().nonnegative().nullable().optional(),
+  target_in_scope: z.boolean().optional(),
+  target_matches: z.boolean().optional(),
 });
 
 export const executionLogResponseSchema = z.object({

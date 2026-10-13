@@ -9,6 +9,18 @@ export function executionLabel(run: ExecutionRecord): string {
   return run.request.command?.join(" ") || String(run.request.tool || run.execution_id);
 }
 
+/** Prefer recorded descriptions or code excerpts; never invent a research stage. */
+export function executionShortLabel(run: ExecutionRecord): string {
+  if (typeof run.request.title === "string" && run.request.title.trim()) return run.request.title.trim();
+  if (run.kind === "kernel_cell" && run.request.code?.trim()) return run.request.code.trim().split("\n")[0]!;
+  const input = run.request.input;
+  if (run.request.tool && input && typeof input === "object" && !Array.isArray(input)) {
+    const path = (input as Record<string, unknown>).path;
+    if (typeof path === "string" && path) return `${run.request.tool} · ${fileName(path)}`;
+  }
+  return executionLabel(run);
+}
+
 export function executionSearchText(run: ExecutionRecord): string {
   return [run.execution_id, run.kind, run.surface, run.status, run.producer, executionLabel(run), ...run.files.read.map((file) => file.path), ...run.files.written.map((file) => file.path)].join("\n");
 }

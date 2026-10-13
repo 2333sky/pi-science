@@ -49,6 +49,7 @@ export function executionIdFor(...parts: string[]): string {
 
 export interface ExecutionQuery {
   limit?: number;
+  target_id?: string;
   offset?: number;
   session_id?: string;
   kind?: ExecutionKind;
@@ -114,10 +115,25 @@ export class ExecutionRepository {
     let records = await this.records(cwd);
     if (options.session_id) records = records.filter((record) => record.correlation.session_id === options.session_id);
     const total = records.length;
+    const targetInScope = options.target_id ? records.some((record) => record.execution_id === options.target_id) : undefined;
+    const statusCounts: Partial<Record<ExecutionStatus, number>> = {};
+    let completedDurationMs = 0;
+    let completedDurationCount = 0;
+    for (const record of records) {
+      statusCounts[record.status] = (statusCounts[record.status] ?? 0) + 1;
+      const start = Date.parse(record.started_at ?? "");
+      const end = Date.parse(record.ended_at ?? "");
+      if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+        completedDurationMs += end - start;
+        completedDurationCount++;
+      }
+    }
     if (options.kind) records = records.filter((record) => record.kind === options.kind);
     if (options.status) records = records.filter((record) => record.status === options.status);
-    if (options.from) records = records.filter((record) => Date.parse(record.created_at) >= Date.parse(options.from!));
-    if (options.to) records = records.filter((record) => Date.parse(record.created_at) <= Date.parse(options.to!));
+    if (options.from || options.to) {
+      const now = Date.now();
+      records = records.filter((record) => executionOverlapsWindow(record, options.from, options.to, now));
+    }
     const needle = options.search?.trim().toLocaleLowerCase();
     if (needle) records = records.filter((record) => JSON.stringify([
       record.execution_id, record.kind, record.surface, record.status, record.producer,
@@ -126,7 +142,13 @@ export class ExecutionRepository {
     const limit = Number.isFinite(options.limit) ? Math.min(1_000, Math.max(1, Math.floor(options.limit!))) : 100;
     const offset = Number.isFinite(options.offset) ? Math.max(0, Math.floor(options.offset!)) : 0;
     records.sort((left, right) => right.created_at.localeCompare(left.created_at) || left.execution_id.localeCompare(right.execution_id));
-    return { executions: structuredClone(records.slice(offset, offset + limit)), total, filtered_total: records.length, offset, limit };
+    const targetIndex = options.target_id ? records.findIndex((record) => record.execution_id === options.target_id) : -1;
+    return {
+      executions: structuredClone(records.slice(offset, offset + limit)), total, filtered_total: records.length, offset, limit,
+      status_counts: statusCounts, completed_duration_ms: completedDurationMs, completed_duration_count: completedDurationCount,
+      ...(options.target_id ? { target_in_scope: targetInScope, target_matches: targetIndex >= 0,
+        target_offset: targetIndex >= 0 ? Math.floor(targetIndex / limit) * limit : null } : {}),
+    };
   }
 
   async get(cwd: string, executionId: string): Promise<ExecutionRecord | null> {
@@ -324,3 +346,14 @@ function mergeArtifacts(left: ExecutionArtifactRef[], right: ExecutionArtifactRe
 }
 
 export const executionRepository = new ExecutionRepository();
+
+/** Inclusive interval intersection. Unknown starts cannot establish an overlap;
+ * terminal records without an end can only establish their known start instant. */
+export function executionOverlapsWindow(record: Pick<ExecutionRecord, "started_at" | "ended_at" | "status">, from?: string, to?: string, now = Date.now()): boolean {
+  const start = Date.parse(record.started_at ?? "");
+  if (!Number.isFinite(start)) return false;
+  const active = record.status === "running" || record.status === "pending";
+  const end = record.ended_at ? Date.parse(record.ended_at) : active ? Math.max(now, start) : start;
+  if (!Number.isFinite(end) || end < start) return false;
+  return end >= (from ? Date.parse(from) : -Infinity) && start <= (to ? Date.parse(to) : Infinity);
+}

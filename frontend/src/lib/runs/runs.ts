@@ -43,7 +43,7 @@ export const runLogQuery = (cwd: string, executionId: string) => ({
   queryKey: runsKey(cwd, executionId, "log"),
   queryFn: async () => {
     const { executionLogResponseSchema } = await import("@pi-science/contracts");
-    return executionLogResponseSchema.parse(await apiRequest<unknown>(`/api/executions/${executionId}/logs?cwd=${encodeURIComponent(cwd)}`));
+    return executionLogResponseSchema.parse(await apiRequest<unknown>(`/api/executions/${encodeURIComponent(executionId)}/logs?cwd=${encodeURIComponent(cwd)}`));
   },
   staleTime: 0,
 });
@@ -76,6 +76,7 @@ export function reproduceRunPrompt(run: ExecutionRecord): string {
 
 export interface RunsFilters {
   session_id?: string;
+  target_id?: string;
   search?: string;
   kind?: ExecutionRecord["kind"];
   status?: ExecutionRecord["status"];
@@ -100,4 +101,15 @@ export const runsPageQuery = (cwd: string, filters: RunsFilters, liveConnected =
     query.state.data?.executions.some((run) => run.status === "pending" || run.status === "running") ? 5_000 : 30_000,
   refetchIntervalInBackground: false,
   refetchOnWindowFocus: true,
+});
+
+
+export const runQuery = (cwd: string, executionId: string) => ({
+  queryKey: runsKey(cwd, "record", executionId),
+  queryFn: async () => {
+    const { executionRecordSchema } = await import("@pi-science/contracts");
+    return executionRecordSchema.parse(await apiRequest<unknown>(`/api/executions/${encodeURIComponent(executionId)}?${new URLSearchParams({ cwd })}`));
+  },
+  staleTime: 0,
+  retry: false as const,
 });

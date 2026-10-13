@@ -28,3 +28,12 @@ describe("executionTimeline", () => {
     expect(result.rows.every((row) => !row.known && row.width === 0)).toBe(true);
   });
 });
+
+it("uses real major/minor ticks and increases resolution with zoom", async () => {
+  const { timelineTicks } = await import("./timeline");
+  const fit = timelineTicks(0, 60_000);
+  expect(fit.some((tick) => tick.major && tick.time === 30_000 && tick.left === 50)).toBe(true);
+  expect(fit.some((tick) => !tick.major)).toBe(true);
+  expect(timelineTicks(0, 60_000, 4).length).toBeGreaterThan(fit.length);
+  expect(timelineTicks(0, 86_400_000 * 365).length).toBeLessThanOrEqual(200);
+});

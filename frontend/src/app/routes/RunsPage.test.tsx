@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { MemoryRouter, Route, Routes, useLocation, useSearchParams } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import i18n from "../../i18n";
 import { queryClient } from "../../lib/client/query-client";
 import type { ExecutionRecord } from "@pi-science/contracts";
@@ -103,7 +103,7 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+const defaultFetch = async (input: RequestInfo | URL) => {
   const url = String(input);
   if (url.includes("/api/executions?")) {
     const params = new URL(url, "http://localhost").searchParams;
@@ -112,18 +112,26 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       (!params.get("status") || run.status === params.get("status")) &&
       (!params.get("search") || JSON.stringify(run).toLowerCase().includes(params.get("search")!.toLowerCase())));
     const offset = Number(params.get("offset") || 0);
-    return jsonResponse({ executions: filtered.slice(offset, offset + 50), total: scoped.length, filtered_total: filtered.length, offset, limit: 50 });
+    const targetIndex = filtered.findIndex((run) => run.execution_id === params.get("target_id"));
+    return jsonResponse({ executions: filtered.slice(offset, offset + 50), total: scoped.length, filtered_total: filtered.length, offset, limit: 50,
+      status_counts: { running: scoped.filter((run) => run.status === "running").length, succeeded: scoped.filter((run) => run.status === "succeeded").length, failed: scoped.filter((run) => run.status === "failed").length },
+      target_in_scope: scoped.some((run) => run.execution_id === params.get("target_id")), target_matches: targetIndex >= 0, target_offset: targetIndex >= 0 ? Math.floor(targetIndex / 50) * 50 : null });
   }
   if (url.includes("/api/executions/exec_kernel/logs")) return jsonResponse({ stdout: "kernel stdout", stderr: "", source: "preview", complete: false });
   if (url.includes("/api/executions/exec_job/logs")) return jsonResponse({ stdout: "", stderr: "job stderr", source: "job", complete: true });
   if (url.includes("/api/executions/exec_tool/logs")) return jsonResponse({ stdout: "tool output", stderr: "", source: "preview", complete: false });
   if (url.includes("/api/artifacts/artifact-result")) return jsonResponse({ path: "outputs/result.csv" });
+  const id = new URL(url, "http://localhost").pathname.match(/^\/api\/executions\/([^/]+)$/)?.[1];
+  const record = executions.find((run) => run.execution_id === id);
+  if (record) return jsonResponse(record);
   return jsonResponse({ error: `unhandled ${url}` }, 404);
-});
+};
+const fetchMock = vi.fn(defaultFetch);
 
 function LocationProbe() {
   const location = useLocation();
-  return <output aria-label="location">{location.pathname}{location.search}</output>;
+  const navigate = useNavigate();
+  return <><output aria-label="location">{location.pathname}{location.search}</output><button onClick={() => navigate(-1)}>Browser back</button><button onClick={() => navigate(1)}>Browser forward</button></>;
 }
 
 function SessionRunsHarness() {
@@ -163,7 +171,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   queryClient.clear();
-  fetchMock.mockClear();
+  fetchMock.mockReset().mockImplementation(defaultFetch);
   toastMock.mockClear();
   openInspectorMock.mockClear();
   setDraftMock.mockClear();
@@ -184,7 +192,7 @@ describe("RunsPage execution ledger", () => {
     await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_tool"));
     expect(screen.getByTestId("runs-workbench")).toHaveAttribute("data-compact-detail", "false");
     expect(screen.getByTestId("runs-workbench").parentElement).toHaveClass("runs-workbench-container");
-    expect(screen.getByText("agent-event-observer")).toBeInTheDocument();
+    expect(await screen.findByText("agent-event-observer")).toBeInTheDocument();
     expect(screen.getAllByText("Running", { selector: "dd" }).length).toBeGreaterThan(0);
   });
 
@@ -196,7 +204,7 @@ describe("RunsPage execution ledger", () => {
     fireEvent.click(screen.getByRole("button", { name: /analysis\.ipynb/ }));
     await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_kernel"));
     expect(screen.getByTestId("runs-workbench")).toHaveAttribute("data-compact-detail", "true");
-    expect(screen.getByText("node-kernel-gateway")).toBeInTheDocument();
+    expect(await screen.findByText("node-kernel-gateway")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to executions" }));
     expect(screen.getByTestId("runs-workbench")).toHaveAttribute("data-compact-detail", "false");
@@ -318,7 +326,7 @@ describe("execution scope and timeline", () => {
     renderPage();
     await screen.findByText("agent-event-observer");
     expect(screen.getByLabelText("Execution scope")).toHaveValue("workspace");
-    fireEvent.change(screen.getByLabelText("Browse executions"), { target: { value: "timeline" } });
+    fireEvent.click(screen.getByRole("button", { name: "Execution timeline" }));
     expect(screen.getByLabelText("Execution timeline")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /node train\.js/ }));
     await screen.findByText("node-job-coordinator");
@@ -326,7 +334,12 @@ describe("execution scope and timeline", () => {
   });
 
   it("requests older pages and resets paging when search changes", async () => {
-    fetchMock.mockImplementationOnce(async () => jsonResponse({ executions: Array.from({ length: 50 }, (_, index) => ({ ...toolExecution, execution_id: `exec-page-${index}` })), total: 125, filtered_total: 125 }));
+    const defaultFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/api/executions?") && !new URL(url, "http://localhost").searchParams.get("search")) return jsonResponse({ executions: Array.from({ length: 50 }, (_, index) => ({ ...toolExecution, execution_id: `exec-page-${index}` })), total: 125, filtered_total: 125 });
+      return defaultFetch(input);
+    });
     renderPage();
     await screen.findByText("agent-event-observer");
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
@@ -341,9 +354,88 @@ describe("execution scope and timeline", () => {
   it("submits time bounds to the server and rejects a reversed range", async () => {
     renderPage();
     await screen.findByText("agent-event-observer");
-    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-08-15T01:00" } });
+    fireEvent.change(screen.getByLabelText("Window start"), { target: { value: "2026-08-15T01:00" } });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("from="), expect.anything()));
-    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-08-14T01:00" } });
+    fireEvent.change(screen.getByLabelText("Window end"), { target: { value: "2026-08-14T01:00" } });
     expect(screen.getByRole("alert")).toHaveTextContent("end time must be after");
+  });
+});
+
+describe("review regressions", () => {
+  it.each([75, 125])("keeps historical target %s outside the first page and can locate its page", async (position) => {
+    const target = { ...kernelExecution, execution_id: `historical-${position}`, producer: `historical-producer-${position}` };
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === `/api/executions/${target.execution_id}`) return jsonResponse(target);
+      if (url.pathname === "/api/executions") {
+        const offset = Number(url.searchParams.get("offset") || 0);
+        return jsonResponse({ executions: offset === Math.floor((position - 1) / 50) * 50 ? [target] : executions,
+          total: 125, filtered_total: 125, target_offset: Math.floor((position - 1) / 50) * 50, target_matches: true, target_in_scope: true });
+      }
+      return defaultFetch(input);
+    });
+    renderPage(`/workspace/project/runs?execution=${target.execution_id}`);
+    await screen.findByText(target.producer);
+    expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${target.execution_id}`);
+    expect(screen.getByText(/outside the current page/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Execution timeline" }));
+    expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${target.execution_id}`);
+    fireEvent.click(screen.getByRole("button", { name: "Go to execution page" }));
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent(`offset=${Math.floor((position - 1) / 50) * 50}`));
+    expect(await screen.findByRole("button", { name: /analysis\.ipynb/ })).toBeInTheDocument();
+  });
+
+  it("shows an explicit missing target and never substitutes the first record", async () => {
+    renderPage("/workspace/project/runs?execution=missing");
+    expect(await screen.findByRole("alert")).toHaveTextContent("Execution missing was not found");
+    expect(screen.getByLabelText("location")).toHaveTextContent("execution=missing");
+    expect(screen.getByLabelText("location")).not.toHaveTextContent("execution=exec_tool");
+  });
+
+  it("keeps an out-of-scope target and offers an explicit range adjustment", async () => {
+    renderPage("/workspace/project/runs?session_id=session-1&execution=exec_job");
+    await screen.findByText("node-job-coordinator");
+    expect(screen.getByText(/outside the current scope or filters/)).toBeInTheDocument();
+    expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
+    fireEvent.click(screen.getByRole("button", { name: "Show workspace and clear filters" }));
+    await screen.findByRole("button", { name: /node train\.js/ });
+    expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
+  });
+
+  it("restores URL mode, paging, window and selection across browser navigation", async () => {
+    renderPage("/workspace/project/runs?session_id=session-1&scope=workspace&view=timeline&execution=exec_job&from=2026-08-15T00%3A00%3A00Z&to=2026-08-16T00%3A00%3A00Z&offset=100");
+    await screen.findByText("node-job-coordinator");
+    expect(screen.getByRole("button", { name: "Execution timeline" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByLabelText("Window start")).toHaveValue("2026-08-15T00:00");
+    fireEvent.click(screen.getByRole("button", { name: "List" }));
+    expect(screen.getByLabelText("location")).toHaveTextContent("view=list");
+    fireEvent.click(screen.getByRole("button", { name: "Browser back" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Execution timeline" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByLabelText("location")).toHaveTextContent("offset=100");
+    expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
+    fireEvent.click(screen.getByRole("button", { name: "Browser forward" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "List" })).toHaveAttribute("aria-pressed", "true"));
+  });
+
+  it("prioritizes session timeline and hides redundant grouping", async () => {
+    renderPage("/workspace/project/runs?session_id=session-1");
+    await screen.findByText("agent-event-observer");
+    expect(screen.getByRole("button", { name: "Execution timeline" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByLabelText("Group by session (current page)")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
+    expect(screen.getByTestId("timeline-canvas")).toHaveStyle({ width: "200%" });
+    fireEvent.click(screen.getByRole("button", { name: "Fit range" }));
+    expect(screen.getByTestId("timeline-canvas")).toHaveStyle({ width: "100%" });
+  });
+
+  it("shows code, results and actual output filenames without expanding raw JSON", async () => {
+    renderPage("/workspace/project/runs?execution=exec_kernel");
+    await screen.findByText("node-kernel-gateway");
+    expect(screen.getByText(/^print\('ok'\).*2 \+ 2$/, { selector: "pre" })).toBeVisible();
+    expect(screen.getByText(/^ok\s+4$/, { selector: "pre" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /outputs\/result\.csv/ })).toBeVisible();
+    const raw = screen.getByText("Advanced: raw record").closest("details");
+    expect(raw).not.toHaveAttribute("open");
   });
 });

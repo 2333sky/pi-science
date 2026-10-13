@@ -17,3 +17,16 @@ export function executionTimeline(runs: ExecutionRecord[], now = Date.now()) {
     width: row.known ? 100 * (row.end - row.start) / span : 0,
   })) };
 }
+
+export function timelineTicks(start: number, end: number, zoom = 1) {
+  const span = Math.max(1, end - start);
+  const target = span / (5 * zoom);
+  const steps = [1, 5, 10, 50, 100, 500, 1_000, 5_000, 10_000, 30_000, 60_000, 300_000, 900_000, 3_600_000, 21_600_000, 86_400_000];
+  const step = steps.find((value) => value >= target) ?? Math.ceil(target / 86_400_000) * 86_400_000;
+  const ticks = [];
+  for (let time = Math.ceil(start / step) * step; time <= end && ticks.length < 200; time += step) {
+    ticks.push({ time, left: 100 * (time - start) / span, major: true });
+    if (time + step / 2 <= end) ticks.push({ time: time + step / 2, left: 100 * (time + step / 2 - start) / span, major: false });
+  }
+  return ticks;
+}
