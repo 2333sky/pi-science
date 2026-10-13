@@ -4,7 +4,7 @@ import { AlertTriangle, ChevronDown, Loader2, Package, Pencil, Plus, RotateCcw, 
 import { useTranslation } from "react-i18next";
 import { apiRequest } from "../../lib/client/api";
 import { queryClient } from "../../lib/client/query-client";
-import { slashCommandsPrefix } from "../../lib/conversation/slash-commands";
+import { slashCommandsPrefix, slashCommandsRoot } from "../../lib/conversation/slash-commands";
 import { invalidateSettings, settingsApi, settingsKey } from "../../lib/settings";
 import { SkillChatDialog, SkillEditorDialog, SkillGithubDialog, SkillUploadDialog } from "./SkillDialogs";
 
@@ -20,8 +20,10 @@ type Skill = {
 
 type SkillsResponse = { skills?: Skill[]; configured?: boolean };
 
-function invalidateSkills(cwd: string | null) {
-  if (cwd) void queryClient.invalidateQueries({ queryKey: slashCommandsPrefix(cwd) });
+/** `cwd` marks a workspace-scoped skill write. Without it the global skill policy changed, which
+ *  leaves the catalogue of every workspace stale. */
+function invalidateSkills(cwd?: string | null) {
+  void queryClient.invalidateQueries({ queryKey: cwd ? slashCommandsPrefix(cwd) : slashCommandsRoot });
   void queryClient.invalidateQueries({ queryKey: settingsKey("skills") });
   invalidateSettings();
 }
@@ -191,7 +193,7 @@ export function SkillsTab({ workspaceCwd }: { workspaceCwd: string | null }) {
         body: JSON.stringify({ name: skill.name, enabled }),
       });
       setConfigured(response.configured === true);
-      invalidateSkills(workspaceCwd);
+      invalidateSkills();
     } catch (cause) {
       setSkills((current) => current.map((item) => item.name === skill.name ? { ...item, enabled: skill.enabled } : item));
       setError(cause instanceof Error ? cause.message : String(cause));
@@ -207,7 +209,7 @@ export function SkillsTab({ workspaceCwd }: { workspaceCwd: string | null }) {
       await apiRequest("/api/settings/skills", { method: "DELETE" });
       setSkills((current) => current.map((skill) => ({ ...skill, enabled: true })));
       setConfigured(false);
-      invalidateSkills(workspaceCwd);
+      invalidateSkills();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {

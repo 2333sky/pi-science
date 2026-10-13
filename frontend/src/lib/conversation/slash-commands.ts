@@ -30,9 +30,12 @@ const BUILTIN_COMMANDS: SlashCommand[] = [
   },
 ];
 
+/** Every catalogue of every workspace. A global skill policy write leaves all of them stale. */
+export const slashCommandsRoot = ["composer-commands"];
+
 /** Every catalogue of one workspace: the blank composer's read-only one and every session's. A
  *  policy write invalidates this prefix, so the key can never drift from what it invalidates. */
-export const slashCommandsPrefix = (cwd: string) => ["composer-commands", cwd];
+export const slashCommandsPrefix = (cwd: string) => [...slashCommandsRoot, cwd];
 
 /** The catalogue one composer reads. A blank composer has no session and reads the workspace
  *  catalogue; an active session keeps its own runtime policy. */

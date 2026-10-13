@@ -162,6 +162,34 @@ describe("SkillsTab", () => {
     unmount();
   });
 
+  it("refetches every workspace catalogue when the global policy changes", async () => {
+    renderTab("/tmp/ws");
+    await screen.findByText("beta");
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const readsFor = (cwd: string) => calls.filter((call) => call.url.startsWith("/api/composer/commands?") && call.url.includes(`cwd=${encodeURIComponent(cwd)}`)).length;
+    const other = renderHook(() => useQuery(slashCommandsQuery("/tmp/other")), { wrapper });
+    await waitFor(() => expect(readsFor("/tmp/other")).toBe(1));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Enable beta" }));
+
+    await waitFor(() => expect(readsFor("/tmp/other")).toBeGreaterThan(1));
+    other.unmount();
+  });
+
+  it("refetches the catalogue when the tab has no workspace scope", async () => {
+    renderTab(null);
+    await screen.findByText("beta");
+    const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const catalogueReads = () => calls.filter((call) => call.url.startsWith("/api/composer/commands?")).length;
+    const catalogue = renderHook(() => useQuery(slashCommandsQuery("/tmp/ws")), { wrapper });
+    await waitFor(() => expect(catalogueReads()).toBe(1));
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Enable beta" }));
+
+    await waitFor(() => expect(catalogueReads()).toBeGreaterThan(1));
+    catalogue.unmount();
+  });
+
   it("opens the editor for a project skill", async () => {
     renderTab("/tmp/ws");
     await screen.findByText("beta");

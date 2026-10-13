@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { allCommands, commandHint, commandTakesArguments, matchCommands, slashCommandsKey, slashCommandsPrefix, slashCommandsQuery } from "./slash-commands";
+import { allCommands, commandHint, commandTakesArguments, matchCommands, slashCommandsKey, slashCommandsPrefix, slashCommandsRoot, slashCommandsQuery } from "./slash-commands";
 import type { SlashCommand } from "./slash-commands";
 import { queryClient } from "../client/query-client";
 
@@ -76,6 +76,7 @@ describe("slash commands", () => {
 
   it("builds every catalogue key under the workspace prefix the invalidations use", () => {
     expect(slashCommandsPrefix("/workspace")).toEqual(["composer-commands", "/workspace"]);
+    expect(slashCommandsPrefix("/workspace").slice(0, slashCommandsRoot.length)).toEqual(slashCommandsRoot);
     expect(slashCommandsKey("/workspace", "session-1")).toEqual(["composer-commands", "/workspace", "session-1"]);
     expect(slashCommandsKey("/workspace", null)).toEqual(["composer-commands", "/workspace", null]);
     expect(slashCommandsKey("/workspace", "session-1").slice(0, slashCommandsPrefix("/workspace").length)).toEqual(slashCommandsPrefix("/workspace"));
