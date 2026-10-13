@@ -378,6 +378,45 @@ test.describe("inline structured references", () => {
     expect(await caretAt(composer), "the right half snaps to the token end").toBe(17);
   });
 
+  test("a word-wise arrow is not trapped by a bound reference", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
+    const composer = await openComposer(page);
+    await acceptProteinReference(page, composer);
+    await composer.press("Home");
+    await composer.pressSequentially("before ");
+    await expect(composer).toHaveValue("before @data/protein.csv ");
+    await composer.press("End");
+    expect(await caretAt(composer), "End leaves the caret at the end of the line").toBe(25);
+
+    // "before " shifted the token to [7, 24), so 24 is its right boundary.
+    await composer.press("ArrowLeft");
+    expect(await caretAt(composer), "plain left lands on the right boundary").toBe(24);
+
+    // macOS moves by word on Option and binds Ctrl+ArrowLeft to the line start, which already
+    // leaves the token. Windows and Linux move by word on Ctrl.
+    const wordLeft = process.platform === "darwin" ? "Alt+ArrowLeft" : "Control+ArrowLeft";
+    const wordRight = process.platform === "darwin" ? "Alt+ArrowRight" : "Control+ArrowRight";
+    await composer.press(wordLeft);
+    expect(await caretAt(composer), "the word key crosses to the left boundary").toBe(7);
+    await composer.press(wordLeft);
+    expect(await caretAt(composer), "the next press continues into the preceding word").toBe(0);
+
+    for (let step = 0; step < 7; step += 1) await composer.press("ArrowRight");
+    expect(await caretAt(composer), "the caret is back on the left boundary").toBe(7);
+    await composer.press(wordRight);
+    expect(await caretAt(composer), "the word key crosses to the right boundary").toBe(24);
+    await composer.press(wordRight);
+    expect(await caretAt(composer), "the next press continues past the reference").toBe(25);
+
+    if (process.platform === "darwin") {
+      await composer.press("ArrowLeft");
+      expect(await caretAt(composer)).toBe(24);
+      await composer.press("Control+ArrowLeft");
+      expect(await caretAt(composer), "the line-start chord leaves the token as well").toBe(0);
+    }
+    await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+  });
+
   test("a real CJK composition keeps the binding and the history moves it with the text", async ({ page, context }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
     const composer = await openComposer(page);
