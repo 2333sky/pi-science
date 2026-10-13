@@ -32,8 +32,19 @@ describe("executionTimeline", () => {
 it("uses real major/minor ticks and increases resolution with zoom", async () => {
   const { timelineTicks } = await import("./timeline");
   const fit = timelineTicks(0, 60_000);
+  expect(timelineTicks(0, 53_000).filter((tick) => tick.major).length).toBeGreaterThanOrEqual(3);
   expect(fit.some((tick) => tick.major && tick.time === 30_000 && tick.left === 50)).toBe(true);
   expect(fit.some((tick) => !tick.major)).toBe(true);
   expect(timelineTicks(0, 60_000, 4).length).toBeGreaterThan(fit.length);
   expect(timelineTicks(0, 86_400_000 * 365).length).toBeLessThanOrEqual(200);
+});
+
+
+it("keeps active and long elapsed times readable without inventing an end", async () => {
+  const { formatDuration } = await import("./run-formatters");
+  const active = executionTimeline([run("active", 0, undefined, "running")], 5_500).rows[0]!;
+  expect(formatDuration(active.end - active.start)).toBe("5.5 s");
+  expect(active.run.ended_at).toBeUndefined();
+  expect(formatDuration(48 * 3_600_000)).toBe("2d 0h");
+  expect(formatDuration(Number.NaN)).toBe("—");
 });

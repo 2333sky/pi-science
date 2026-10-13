@@ -61,12 +61,16 @@ export function executionDuration(run: ExecutionRecord, runningLabel: string): s
   const start = Date.parse(run.started_at ?? run.created_at);
   const end = run.ended_at ? Date.parse(run.ended_at) : Number.NaN;
   if (!Number.isFinite(start) || !Number.isFinite(end)) return "—";
-  const milliseconds = Math.max(0, end - start);
+  return end >= start ? formatDuration(end - start) : "—";
+}
+
+export function formatDuration(milliseconds: number): string {
+  if (!Number.isFinite(milliseconds) || milliseconds < 0) return "—";
   if (milliseconds < 1_000) return `${milliseconds} ms`;
   if (milliseconds < 60_000) return `${(milliseconds / 1_000).toFixed(milliseconds < 10_000 ? 1 : 0)} s`;
-  const minutes = Math.floor(milliseconds / 60_000);
-  const seconds = Math.floor((milliseconds % 60_000) / 1_000);
-  return `${minutes}m ${seconds}s`;
+  if (milliseconds >= 86_400_000) return `${Math.floor(milliseconds / 86_400_000)}d ${Math.floor((milliseconds % 86_400_000) / 3_600_000)}h`;
+  if (milliseconds >= 3_600_000) return `${Math.floor(milliseconds / 3_600_000)}h ${Math.floor((milliseconds % 3_600_000) / 60_000)}m`;
+  return `${Math.floor(milliseconds / 60_000)}m ${Math.floor((milliseconds % 60_000) / 1_000)}s`;
 }
 
 export function formatTimestamp(value?: string): string {
