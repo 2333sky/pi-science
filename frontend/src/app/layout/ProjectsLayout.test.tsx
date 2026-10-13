@@ -70,6 +70,24 @@ function renderWorkspaceShell(initialEntry = "/workspace/proj/research") {
 }
 
 describe("V4 independent primary navigation and context", () => {
+  it("keeps the Rail in a fixed-width layout slot and exposes expandable action labels", () => {
+    const { container } = renderWorkspaceShell();
+    const slot = container.querySelector("[data-workspace-rail-slot]");
+    const rail = slot?.querySelector("nav");
+    expect(slot).toHaveClass("w-[var(--rail-width-mobile)]", "md:w-[var(--rail-width)]");
+    expect(rail).toHaveClass("workspace-rail");
+    for (const [role, name] of [
+      ["button", "New conversation"],
+      ["link", "Conversations"],
+      ["link", "Research"],
+      ["link", "Run history"],
+      ["link", "Projects"],
+      ["button", "Settings"],
+    ] as const) {
+      const action = screen.getByRole(role, { name });
+      expect(action.querySelector(".workspace-rail-label")).toHaveTextContent(name);
+    }
+  });
   it("collapses from the brand header and expands from the top-left brand without navigating", async () => {
     const { container } = renderWorkspaceShell();
     await screen.findByRole("searchbox");
