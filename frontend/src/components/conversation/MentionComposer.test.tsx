@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SubagentMention } from "../../lib/conversation";
 import type { ComposerEntity } from "../../lib/conversation/composer-document";
@@ -180,6 +180,50 @@ describe("MentionComposer", () => {
     fireEvent.click(await screen.findByRole("option", { name: /Reference entire folder/ }));
     await waitFor(() => expect(input()).toHaveValue("@structures "));
     expect(mirror?.querySelector("span")?.textContent).toBe("@structures");
+  });
+
+  it("keeps current completions when an earlier file choice places its caret late", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+    fileFixture = new Map([
+      ["", [{ name: "structures", path: "structures", isDir: true, size: 0 }]],
+      ["structures", [{ name: "WT.pdb", path: "structures/WT.pdb", isDir: false, size: 100 }]],
+    ]);
+    renderComposer();
+    await typeAt("@");
+    fireEvent.click(await screen.findByRole("option", { name: /structures.*Open folder/ }));
+    await screen.findByRole("button", { name: "structures" });
+    fireEvent.click(await screen.findByRole("option", { name: /WT\.pdb/ }));
+    await waitFor(() => expect(input()).toHaveValue("@structures/WT.pdb "));
+
+    await typeAt("@");
+    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
+    const folderOption = await screen.findByRole("option", { name: /Reference entire folder/ });
+    expect(folderOption).toBeInTheDocument();
+    expect(input().selectionStart).toBe(1);
+    expect(input().selectionEnd).toBe(1);
+    fireEvent.click(folderOption);
+    await waitFor(() => expect(input()).toHaveValue("@structures "));
+  }, 15_000);
+
+  it("takes the undo and redo chords because the platform stops offering its own redo", async () => {
+    fileFixture = new Map([["data", [
+      { name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 },
+    ]]]);
+    const { container } = renderComposer();
+    await typeAt("@data/pro");
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+    await waitFor(() => expect(input()).toHaveValue("@data/protein.csv "));
+    const mirror = container.querySelector<HTMLElement>("[aria-hidden='true']");
+    expect(mirror?.querySelector("span")?.textContent).toBe("@data/protein.csv");
+
+    fireEvent.keyDown(input(), { key: "z", metaKey: true });
+    await waitFor(() => expect(input()).toHaveValue("@data/pro"));
+    expect(mirror?.querySelector("span")).toBeNull();
+
+    fireEvent.keyDown(input(), { key: "Z", metaKey: true, shiftKey: true });
+    await waitFor(() => expect(input()).toHaveValue("@data/protein.csv "));
+    expect(mirror?.querySelector("span")?.textContent).toBe("@data/protein.csv");
   });
 
   it("undoes and redoes a file reference together with its identity", async () => {

@@ -67,10 +67,12 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   const pendingIntentRef = useRef<ComposerEditIntent | null>(null);
   const undoHistoryRef = useRef<ComposerSnapshot[]>([]);
   const redoHistoryRef = useRef<ComposerSnapshot[]>([]);
+  const pendingCaretRef = useRef<{ documentKey: string | null; start: number; end: number } | null>(null);
+  const chordHistoryRef = useRef<"undo" | "redo" | null>(null);
   const expectedDocumentKeyRef = useRef<string | null>(null);
-  const observedDocumentKeyRef = useRef(documentKey(value, entities ?? mentions.map((mention) => ({ ...mention, kind: "mention" as const }))));
-  const activeEntities: ComposerEntity[] = entities ?? mentions.map((mention) => ({ ...mention, kind: "mention" as const }));
+  const activeEntities = validComposerEntities(value, entities ?? mentions.map((mention) => ({ ...mention, kind: "mention" as const })));
   const activeDocumentKey = documentKey(value, activeEntities);
+  const observedDocumentKeyRef = useRef(activeDocumentKey);
   useLayoutEffect(() => {
     if (activeDocumentKey === observedDocumentKeyRef.current) return;
     observedDocumentKeyRef.current = activeDocumentKey;
@@ -107,6 +109,20 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     redoHistoryRef.current = [];
   }, []);
 
+  const placeCaret = useCallback((start: number, end = start) => {
+    const request = { documentKey: expectedDocumentKeyRef.current, start, end };
+    pendingCaretRef.current = request;
+    requestAnimationFrame(() => {
+      if (pendingCaretRef.current !== request || observedDocumentKeyRef.current !== request.documentKey) return;
+      pendingCaretRef.current = null;
+      const element = inputRef.current;
+      if (!element) return;
+      element.focus();
+      element.setSelectionRange(request.start, request.end);
+      setCaret(request.end);
+    });
+  }, [inputRef]);
+
   const restoreHistory = useCallback((direction: "undo" | "redo") => {
     const source = direction === "undo" ? undoHistoryRef.current : redoHistoryRef.current;
     const destination = direction === "undo" ? redoHistoryRef.current : undoHistoryRef.current;
@@ -114,15 +130,9 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     if (!target) return false;
     destination.push(snapshot());
     emitChange(target.value, target.entities);
-    requestAnimationFrame(() => {
-      const element = inputRef.current;
-      if (!element) return;
-      element.focus();
-      element.setSelectionRange(target.selectionStart, target.selectionEnd);
-      setCaret(target.selectionEnd);
-    });
+    placeCaret(target.selectionStart, target.selectionEnd);
     return true;
-  }, [emitChange, inputRef, snapshot]);
+  }, [emitChange, placeCaret, snapshot]);
 
   useEffect(() => {
     const element = inputRef.current;
@@ -150,14 +160,6 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     element.scrollTop = overflowing && caretWasAtEnd ? contentHeight : previousScrollTop;
     if (mirrorRef.current) mirrorRef.current.scrollTop = element.scrollTop;
   }, [inputRef, value]);
-
-  const placeCaret = useCallback((position: number) => {
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(position, position);
-      setCaret(position);
-    });
-  }, [inputRef]);
 
   const handleChange = (nextValue: string) => {
     const intent = pendingIntentRef.current;
@@ -225,6 +227,20 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
 
   const handleKey = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (completion.handleKeyDown(event)) return;
+    const pressed = event.metaKey || event.ctrlKey ? event.key.toLowerCase() : "";
+    const undoChord = pressed === "z" && !event.shiftKey;
+    const redoChord = !undoChord && ((pressed === "z" && event.shiftKey) || (event.ctrlKey && pressed === "y"));
+    // A keystroke that is not this chord closes the window for the event it may have paired with.
+    if (!undoChord && !redoChord) chordHistoryRef.current = null;
+    if ((undoChord || redoChord) && !event.nativeEvent.isComposing && !composingRef.current) {
+      // A native history step would move the text without its bindings, and the platform stops
+      // offering its own redo once this stack cancels the undo, so the chord belongs here.
+      event.preventDefault();
+      const direction = undoChord ? "undo" : "redo";
+      chordHistoryRef.current = direction;
+      restoreHistory(direction);
+      return;
+    }
     if (!event.nativeEvent.isComposing && !composingRef.current && (event.key === "Backspace" || event.key === "Delete")) {
       const element = event.currentTarget;
       if (element.selectionStart === element.selectionEnd) {
@@ -251,7 +267,13 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     if (native.inputType === "historyUndo" || native.inputType === "historyRedo") {
       native.preventDefault();
       pendingIntentRef.current = null;
-      restoreHistory(native.inputType === "historyUndo" ? "undo" : "redo");
+      const direction = native.inputType === "historyUndo" ? "undo" : "redo";
+      // A browser that still delivers the event after the chord must not move the stack twice.
+      if (chordHistoryRef.current === direction) {
+        chordHistoryRef.current = null;
+        return;
+      }
+      restoreHistory(direction);
       return;
     }
     const element = inputRef.current;
