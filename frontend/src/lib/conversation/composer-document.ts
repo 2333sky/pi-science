@@ -12,20 +12,40 @@ export interface ComposerDocument {
   entities: ComposerEntity[];
 }
 
-export function entityToken(entity: ComposerEntity): string {
-  return entity.kind === "mention" ? `@${entity.name}` : `@${entity.reference.path}`;
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+/** Token text for a well-shaped binding. Malformed runtime shapes yield null so the caller drops the binding instead
+ * of reading a missing field. */
+export function entityToken(entity: unknown): string | null {
+  if (!isRecord(entity)) return null;
+  if (entity.kind === "mention") return typeof entity.name === "string" ? `@${entity.name}` : null;
+  if (entity.kind !== "reference") return null;
+  const reference = entity.reference;
+  return isRecord(reference) && typeof reference.cwd === "string" && typeof reference.path === "string" && typeof reference.isDir === "boolean"
+    ? `@${reference.path}` : null;
+}
+
+/** Shape check before any field read: an unusable binding is discarded, never thrown on. */
+function shapedEntity(entity: unknown): { entity: ComposerEntity; token: string; start: number; stop: number } | null {
+  if (!isRecord(entity)) return null;
+  const token = entityToken(entity);
+  if (token === null || typeof entity.id !== "string" || entity.id === ""
+    || !Number.isInteger(entity.start) || !Number.isInteger(entity.end)) return null;
+  return { entity: entity as unknown as ComposerEntity, token, start: entity.start as number, stop: entity.end as number };
 }
 
 /** Fail open for malformed metadata: never block typing or rebind plain text. */
 export function validComposerEntities(value: string, entities: readonly ComposerEntity[]): ComposerEntity[] {
+  const shaped = entities.flatMap((entity) => shapedEntity(entity) ?? []);
   const result: ComposerEntity[] = [];
+  const ids = new Set<string>();
   let end = 0;
-  for (const entity of [...entities].sort((a, b) => a.start - b.start)) {
-    if (!Number.isInteger(entity.start) || !Number.isInteger(entity.end)
-      || entity.start < end || entity.start < 0 || entity.start >= entity.end || entity.end > value.length
-      || value.slice(entity.start, entity.end) !== entityToken(entity)) continue;
+  for (const { entity, token, start, stop } of shaped.sort((a, b) => a.start - b.start)) {
+    if (ids.has(entity.id) || start < end || start < 0 || start >= stop || stop > value.length
+      || value.slice(start, stop) !== token) continue;
+    ids.add(entity.id);
     result.push(entity);
-    end = entity.end;
+    end = stop;
   }
   return result;
 }
@@ -83,10 +103,23 @@ export function applyComposerEdit(document: ComposerDocument, intent: ComposerEd
   return { value: nextValue, entities: validComposerEntities(nextValue, shifted), caret: start + inserted.length };
 }
 
-/** Without the selection and input type a changed string cannot identify which repeated token was edited. */
+/** The common prefix and suffix bracket the smallest changed range an untransacted edit can localize. */
+function minimalChangeRange(previous: string, nextValue: string) {
+  const limit = Math.min(previous.length, nextValue.length);
+  let start = 0;
+  while (start < limit && previous[start] === nextValue[start]) start += 1;
+  const before = previous.slice(start);
+  const after = nextValue.slice(start);
+  let suffix = 0;
+  while (suffix < before.length && suffix < after.length && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix += 1;
+  return { start, end: start + before.length - suffix };
+}
+
+/** Without the transaction the minimal changed range decides: bindings that intersect it are dropped, the rest shift. */
 export function updateComposerDocument(document: ComposerDocument, nextValue: string): ComposerDocument & { caret: number } {
   if (nextValue === document.value) return { ...document, entities: validComposerEntities(document.value, document.entities), caret: nextValue.length };
-  return { value: nextValue, entities: [], caret: nextValue.length };
+  const { start, end } = minimalChangeRange(document.value, nextValue);
+  return applyComposerEdit(document, { value: document.value, entities: document.entities, selectionStart: start, selectionEnd: end, inputType: "insertReplacementText" }, nextValue);
 }
 
 export function inlineWorkspaceReferences(entities: readonly ComposerEntity[]): WorkspaceReference[] {

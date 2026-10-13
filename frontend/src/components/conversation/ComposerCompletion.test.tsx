@@ -553,6 +553,24 @@ describe("composer completion keyboard paths", () => {
     expect(input().parentElement?.querySelector("[aria-hidden='true']")?.textContent).toContain("@data/protein.csv");
   });
 
+  it("keeps a bound file through an IME edit that arrives without an input transaction", async () => {
+    renderComposer();
+    await type("@data/pro");
+    await press("Tab");
+    await waitFor(() => expect(input()).toHaveValue("@data/protein.csv "));
+
+    // A composition edit that reaches the composer with no beforeinput in front of it.
+    const element = input();
+    fireEvent.compositionStart(element);
+    element.setSelectionRange(0, 0);
+    fireEvent.change(element, { target: { value: "pin @data/protein.csv " } });
+    fireEvent.compositionEnd(element, { data: "pin " });
+    await settle();
+
+    expect(input()).toHaveValue("pin @data/protein.csv ");
+    expect(input().parentElement?.querySelector("div[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
   it("removes an inline file and its highlighted binding with Backspace", async () => {
     const { container } = renderComposer();
     await type("@data/pro");
