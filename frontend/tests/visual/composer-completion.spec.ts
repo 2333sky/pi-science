@@ -257,9 +257,8 @@ test("AC-23 an open menu with a long candidate keeps 375px layouts free of horiz
 
 const inlineToken = (page: Page) => page.locator('div[aria-hidden="true"].whitespace-pre-wrap span');
 
-/** Types the bare token, walks into the data folder and accepts protein.csv, which leaves the
- *  caret one position past the token's end. Waiting one animation frame lets the completion's
- *  queued caret placement land, so the navigation assertions below are not racing that frame. */
+/** Types the bare token, walks into the data folder and accepts protein.csv. The completion places
+ *  the caret in the same commit as the text, so the caret is already one position past the token. */
 async function acceptProteinReference(page: Page, composer: Locator): Promise<void> {
   await composer.fill("@");
   const menu = page.getByRole("listbox");
@@ -267,7 +266,7 @@ async function acceptProteinReference(page: Page, composer: Locator): Promise<vo
   await menu.getByRole("option", { name: /data.*Open folder/ }).click();
   await menu.getByRole("option", { name: /protein\.csv/ }).click();
   await expect(composer).toHaveValue("@data/protein.csv ");
-  await page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); }));
+  expect(await composer.evaluate((element: HTMLTextAreaElement) => element.selectionStart)).toBe(18);
 }
 
 const caretAt = (composer: Locator) => composer.evaluate((element: HTMLTextAreaElement) => element.selectionStart);
@@ -335,6 +334,26 @@ test.describe("inline structured references", () => {
     await composer.press("ControlOrMeta+x");
     await expect(composer).toHaveValue("");
     await expect(inlineToken(page)).toHaveCount(0);
+  });
+
+  test("a completion inside a sentence places the caret on the token before the next key", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the caret contract");
+    const composer = await openComposer(page);
+    await composer.pressSequentially("before @ after");
+    await composer.press("Home");
+    for (let step = 0; step < 8; step += 1) await composer.press("ArrowRight");
+    expect(await caretAt(composer), "the caret sits right after the bare @").toBe(8);
+
+    const menu = page.getByRole("listbox");
+    await expect(menu).toBeVisible();
+    await menu.getByRole("option", { name: /data.*Open folder/ }).click();
+    await menu.getByRole("option", { name: /protein\.csv/ }).click();
+
+    await expect(composer).toHaveValue("before @data/protein.csv after");
+    // No frame is awaited: the caret already belongs to the token instead of the end of the sentence.
+    expect(await caretAt(composer)).toBe(24);
+    await composer.press("ArrowLeft");
+    expect(await caretAt(composer), "the next key starts from the token, not the end of the text").toBe(7);
   });
 
   test("an arrow key crosses a bound reference at its boundary", async ({ page }, testInfo) => {
