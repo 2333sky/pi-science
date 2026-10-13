@@ -9,6 +9,33 @@ const TOGGLE = /^(Expand|Collapse) sidebar$/;
 // so it is matched by prefix rather than exactly.
 const KNOWLEDGE = /^Project Knowledge/;
 
+test("desktop rail reveals labels above adjacent panes without shifting the layout", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "desktop-light", "Desktop hover and keyboard coverage");
+  await page.goto(`${root}/research`);
+  const rail = page.locator(RAIL);
+  const railSlot = page.locator("[data-workspace-rail-slot]");
+  const main = page.locator("main");
+  const panel = page.locator(PANEL);
+  const mainX = (await main.boundingBox())!.x;
+  const panelX = (await panel.boundingBox())!.x;
+  await expect(railSlot).toHaveCSS("width", "60px");
+  await expect(rail).toHaveCSS("width", "60px");
+  const research = rail.getByRole("link", { name: "Research", exact: true });
+  await research.hover();
+  await expect(rail).toHaveCSS("width", "220px");
+  await expect(research.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
+  expect((await main.boundingBox())!.x).toBe(mainX);
+  expect((await panel.boundingBox())!.x).toBe(panelX);
+  await page.mouse.move(700, 300);
+  await expect(rail).toHaveCSS("width", "60px");
+  await research.focus();
+  await expect(rail).toHaveCSS("width", "220px");
+  await expect(research.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
+  await main.focus();
+  await expect(rail).toHaveCSS("width", "60px");
+});
+
+
 test("collapsed workspace keeps a direct Projects link and names the sidebar actions", async ({ page }, testInfo) => {
   test.skip(!["desktop-light", "mobile"].includes(testInfo.project.name), "Desktop and mobile navigation coverage");
   await page.goto(`${root}/session/${VISUAL_SESSION}`);
