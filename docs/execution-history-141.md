@@ -36,6 +36,12 @@ while `view=runs` continues to select the conversation surface. Browser history
 and refresh restore state. Explicit targets are fetched independently by ID when
 outside the page and never replaced by the first row. Notices provide explicit
 page/filter navigation. Missing targets retain their URL and show an error.
+Ordinary automatic or clicked row selections carry `selection=page`; Previous/Next
+clears that selection and selects the new page's first record. Explicit deep links
+without this marker retain their exact target across pagination. An empty page
+leaves ordinary selection empty. Search input commits to the URL after 300ms of
+inactivity; URL changes, clearing and unmounting cancel pending edits. Page queries
+consume TanStack Query's AbortSignal so obsolete requests are cancelled.
 
 Additional metadata is optional in the shared schema to preserve compatibility
 with existing callers/fixtures; the server always supplies it. Legacy inspector

@@ -88,13 +88,13 @@ export interface RunsFilters {
 
 export const runsPageQuery = (cwd: string, filters: RunsFilters, liveConnected = false) => ({
   queryKey: runsKey(cwd, "page", JSON.stringify(filters)),
-  queryFn: async () => {
+  queryFn: async ({ signal }: { signal: AbortSignal }) => {
     const params = new URLSearchParams({ cwd });
     for (const [key, value] of Object.entries(filters)) {
       if (value !== undefined && value !== "") params.set(key, String(value));
     }
     const { executionListResponseSchema } = await import("@pi-science/contracts");
-    return executionListResponseSchema.parse(await apiRequest<unknown>(`/api/executions?${params}`));
+    return executionListResponseSchema.parse(await apiRequest<unknown>(`/api/executions?${params}`, { signal }));
   },
   staleTime: 0,
   refetchInterval: liveConnected ? false as const : (query: { state: { data?: { executions: ExecutionRecord[] } } }) =>

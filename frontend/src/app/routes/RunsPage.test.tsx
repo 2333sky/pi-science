@@ -358,6 +358,39 @@ describe("execution scope and timeline", () => {
     expect(String(lastListCall?.[0])).toContain("search=result.csv");
   });
 
+  it.each(["automatic", "clicked", "deep-link"])("ordinary paging selects the new page while explicit deep links stay pinned: %s", async (mode) => {
+    const deepLink = mode === "deep-link";
+    const first = { ...toolExecution, execution_id: "page-first" };
+    const second = { ...jobExecution, execution_id: "page-second" };
+    const defaultFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input) => {
+      const url = new URL(String(input), "http://localhost");
+      if (url.pathname === "/api/executions") {
+        const offset = Number(url.searchParams.get("offset") || 0);
+        return jsonResponse({ executions: offset ? [second] : [first], total: 51, filtered_total: 51,
+          target_in_scope: true, target_matches: true, target_offset: url.searchParams.get("target_id") === second.execution_id ? 50 : 0 });
+      }
+      if (url.pathname.endsWith("/page-first")) return jsonResponse(first);
+      return defaultFetch(input);
+    });
+    renderPage(`/workspace/project/runs${deepLink ? "?execution=page-first" : ""}`);
+    await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("execution=page-first"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Next" })).toBeEnabled());
+    if (mode === "clicked") fireEvent.click(screen.getByRole("button", { name: /write/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent("offset=50");
+      expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${deepLink ? "page-first" : "page-second"}`);
+    });
+    if (deepLink) expect(await screen.findByRole("button", { name: "Go to execution page" })).toBeInTheDocument();
+    else {
+      expect(screen.queryByRole("button", { name: "Go to execution page" })).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByRole("button", { name: "Previous" })).toBeEnabled());
+      fireEvent.click(screen.getByRole("button", { name: "Previous" }));
+      await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent("execution=page-first"));
+    }
+  });
+
   it("submits time bounds to the server and rejects a reversed range", async () => {
     renderPage();
     await screen.findByText("agent-event-observer");

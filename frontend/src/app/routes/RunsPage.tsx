@@ -67,7 +67,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     updateRoute({ scope, session_id: contextSessionId ?? null, offset: null, detail: "0" });
   };
   const selectExecution = (executionId: string) => {
-    updateRoute({ execution: executionId, detail: "1" });
+    updateRoute({ execution: executionId, selection: "page", detail: "1" });
     setDetailTab("summary");
   };
 
@@ -90,7 +90,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     if (selectedId || !runs[0]) return;
     setSearchParams((current) => {
       if (current.has("execution")) return current;
-      const next = new URLSearchParams(current); next.set("execution", runs[0]!.execution_id); next.set("detail", "0"); return next;
+      const next = new URLSearchParams(current); next.set("execution", runs[0]!.execution_id); next.set("detail", "0"); next.set("selection", "page"); return next;
     }, { replace: true });
   }, [runs, selectedId, setSearchParams]);
   useEffect(() => {
@@ -107,6 +107,13 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   useEffect(() => {
     if (logResult.error) toast(logResult.error instanceof Error ? logResult.error.message : t("runs.logError"), "error");
   }, [logResult.error, t, toast]);
+
+  const changePage = (nextOffset: number) => {
+    // Explicit URLs without the page-selection marker retain their authoritative target.
+    updateRoute({ offset: String(nextOffset), detail: "0",
+      ...(searchParams.get("selection") === "page" ? { execution: null, selection: null } : {}) });
+    setDetailTab("summary");
+  };
 
   const locateTarget = () => {
     if (runsResult.data?.target_offset != null) {
@@ -153,7 +160,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     const toolCallId = run.correlation.tool_call_id;
     if (!toolCallId) return;
     const next = new URLSearchParams(searchParams);
-    for (const key of ["view", "runs_view", "execution", "scope", "session_id", "offset", "from", "to", "search", "kind", "status", "group", "detail"]) next.delete(key);
+    for (const key of ["view", "runs_view", "execution", "scope", "session_id", "offset", "from", "to", "search", "kind", "status", "group", "detail", "selection"]) next.delete(key);
     next.delete("execution");
     next.set("focus", `tool-${toolCallId}`);
     setSearchParams(next);
@@ -218,9 +225,9 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
       </div>
     </div>
     <nav aria-label={t("runs.pagination")} className="mt-4 flex flex-wrap items-center justify-between gap-2 text-sm text-text">
-      <button type="button" disabled={offset === 0 || loading} onClick={() => { updateRoute({ offset: String(Math.max(0, offset - PAGE_SIZE)), detail: "0" }); }} className="rounded-input border border-border px-3 py-2 disabled:opacity-40">{t("runs.previous")}</button>
+      <button type="button" disabled={offset === 0 || loading} onClick={() => { changePage(Math.max(0, offset - PAGE_SIZE)); }} className="rounded-input border border-border px-3 py-2 disabled:opacity-40">{t("runs.previous")}</button>
       <span>{scopeLabel} · {t("runs.pagePosition", { from: runs.length ? offset + 1 : 0, to: runs.length ? offset + runs.length : 0, total: filteredTotal })}</span>
-      <button type="button" disabled={offset + runs.length >= filteredTotal || loading || invalidRange} onClick={() => { updateRoute({ offset: String(offset + PAGE_SIZE), detail: "0" }); }} className="rounded-input border border-border px-3 py-2 disabled:opacity-40">{t("runs.next")}</button>
+      <button type="button" disabled={offset + runs.length >= filteredTotal || loading || invalidRange} onClick={() => { changePage(offset + PAGE_SIZE); }} className="rounded-input border border-border px-3 py-2 disabled:opacity-40">{t("runs.next")}</button>
     </nav>
   </WorkspacePage>;
 }
