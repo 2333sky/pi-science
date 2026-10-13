@@ -409,6 +409,46 @@ describe("MentionComposer", () => {
     expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
   });
 
+  /** The caret is already inside the token when the arrow key that moved it is processed, which is the
+   *  state the handler sees. React also synthesises an onSelect from the keydown itself, so the crossing
+   *  has to hold whichever of the two selects consumes the direction. */
+  async function acceptAndPlaceInside(position: number): Promise<void> {
+    fileFixture = new Map([["data", [
+      { name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 },
+    ]]]);
+    renderComposer();
+    await typeAt("@data/pro");
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+    await waitFor(() => expect(input()).toHaveValue("@data/protein.csv "));
+    input().setSelectionRange(position, position);
+  }
+
+  it("crosses the reference backwards when a word-wise move enters it", async () => {
+    // 12 sits in the right half, where the pointer rule would snap forward to 17.
+    await acceptAndPlaceInside(12);
+    fireEvent.keyDown(input(), { key: "ArrowLeft", altKey: true });
+    fireEvent.select(input());
+    expect(input().selectionStart).toBe(0);
+    expect(input().selectionEnd).toBe(0);
+  });
+
+  it("crosses the reference forwards when a word-wise move enters it", async () => {
+    // 8 sits in the left half, where the pointer rule would snap back to 0.
+    await acceptAndPlaceInside(8);
+    fireEvent.keyDown(input(), { key: "ArrowRight", altKey: true });
+    fireEvent.select(input());
+    expect(input().selectionStart).toBe(17);
+    expect(input().selectionEnd).toBe(17);
+  });
+
+  it("keeps the nearest-half rule for a selection that no key announced", async () => {
+    await acceptAndPlaceInside(12);
+    input().setSelectionRange(12, 12);
+    fireEvent.select(input());
+    expect(input().selectionStart).toBe(17);
+    expect(input().selectionEnd).toBe(17);
+  });
+
   it("takes the undo and redo chords because the platform stops offering its own redo", async () => {
     fileFixture = new Map([["data", [
       { name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 },

@@ -67,6 +67,7 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   const undoHistoryRef = useRef<ComposerSnapshot[]>([]);
   const redoHistoryRef = useRef<ComposerSnapshot[]>([]);
   const pendingCaretRef = useRef<{ documentKey: string | null; start: number; end: number } | null>(null);
+  const keyboardDirectionRef = useRef<"backward" | "forward" | null>(null);
   const chordHistoryRef = useRef<"undo" | "redo" | null>(null);
   const expectedDocumentKeyRef = useRef<string | null>(null);
   const activeEntities = validComposerEntities(value, entities ?? mentions.map((mention) => ({ ...mention, kind: "mention" as const })));
@@ -210,10 +211,14 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     let start = element.selectionStart;
     let end = element.selectionEnd;
     if (composing || composingRef.current) { setCaret(end); return; }
+    // Only a keyboard move carries a direction of travel; a pointer click keeps the nearest-half rule.
+    const travel = keyboardDirectionRef.current;
+    keyboardDirectionRef.current = null;
     const startMention = activeEntities.find((entity) => entity.start < start && start < entity.end);
     const endMention = activeEntities.find((entity) => entity.start < end && end < entity.end);
     if (start === end && startMention) {
-      const snapped = start < (startMention.start + startMention.end) / 2 ? startMention.start : startMention.end;
+      const crossed = travel === "backward" ? startMention.start : travel === "forward" ? startMention.end : null;
+      const snapped = crossed ?? (start < (startMention.start + startMention.end) / 2 ? startMention.start : startMention.end);
       start = snapped;
       end = snapped;
     } else {
@@ -240,7 +245,9 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
       restoreHistory(direction);
       return;
     }
-    if (!event.nativeEvent.isComposing && !composingRef.current && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    const arrow = event.key === "ArrowLeft" || event.key === "ArrowRight";
+    if (arrow && !event.nativeEvent.isComposing && !composingRef.current) keyboardDirectionRef.current = event.key === "ArrowLeft" ? "backward" : "forward";
+    if (!event.nativeEvent.isComposing && !composingRef.current && !event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && arrow) {
       const element = event.currentTarget;
       if (element.selectionStart === element.selectionEnd) {
         const target = activeEntities.find((entity) => event.key === "ArrowLeft" ? entity.end === element.selectionStart : entity.start === element.selectionStart);
@@ -311,6 +318,7 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
   const cancelPendingCaret = () => {
     // Cancel on pointerdown/blur, not select. Completion placement also emits select.
     pendingCaretRef.current = null;
+    keyboardDirectionRef.current = null;
   };
 
   // Tab can carry focus out of the composer. The list belongs to the composer, so it goes with it
