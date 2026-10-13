@@ -8,6 +8,11 @@
  *  POSTs. Accepting a candidate must only edit the input, so the counter has to
  *  stay at zero for the whole file, the accessibility test included.
  *
+ *  This file also carries the browser acceptance for the inline structured
+ *  references (PRD docs/prd-composer-inline-structured-references.md §7.1 and
+ *  §8C): a real keyboard undo/redo, and edits that reach the composer without
+ *  an input transaction.
+ *
  *  No baseline: every assertion here is DOM text or geometry, so the matrix
  *  runs without adding screenshots.
  */
@@ -248,6 +253,74 @@ test("AC-23 an open menu with a long candidate keeps 375px layouts free of horiz
     expect(labelWidth.clientWidth, "the long label has no box to truncate into").toBeGreaterThan(0);
     expect(labelWidth.scrollWidth, "the long label was not clipped").toBeGreaterThan(labelWidth.clientWidth);
   }
+});
+
+const inlineToken = (page: Page) => page.locator('div[aria-hidden="true"].whitespace-pre-wrap span');
+
+/** The picked file is compared end to end: the token stays in the sentence with
+ *  its identity, the old top-bar card must not come back, and the browser's own
+ *  undo and redo move the text and the identity together. */
+test.describe("inline structured references", () => {
+  test("browsing keeps the token inline and Cmd/Ctrl undo restores text and identity together", async ({ page }, testInfo) => {
+    // Keyboard chords are worth one real browser; the DOM contract is identical in the other projects.
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
+    const composer = await openComposer(page);
+    await composer.fill("@");
+
+    const menu = page.getByRole("listbox");
+    await expect(menu).toBeVisible();
+    const folderRow = menu.getByRole("option", { name: /data.*Open folder/ });
+    await expect(folderRow).toHaveCount(1);
+    await folderRow.click();
+
+    // Browsing moves the menu into the folder and leaves the sentence untouched.
+    await expect(composer).toHaveValue("@");
+    const breadcrumbs = page.getByRole("navigation", { name: "Workspace folder path" });
+    await expect(breadcrumbs.getByRole("button", { name: "data" })).toBeVisible();
+    const fileRow = menu.getByRole("option", { name: /protein\.csv/ });
+    await expect(fileRow).toHaveCount(1);
+    await fileRow.click();
+
+    await expect(composer).toHaveValue("@data/protein.csv ");
+    await expect(inlineToken(page)).toHaveCount(1);
+    await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+    await expect(page.getByRole("button", { name: "Remove reference protein.csv" })).toHaveCount(0);
+
+    await composer.press("ControlOrMeta+z");
+    await expect(composer).toHaveValue("@");
+    await expect(inlineToken(page)).toHaveCount(0);
+
+    await composer.press("ControlOrMeta+Shift+z");
+    await expect(composer).toHaveValue("@data/protein.csv ");
+    await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+  });
+
+  test("an edit with no input transaction keeps the untouched binding and cut removes it", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
+    const composer = await openComposer(page);
+    await composer.fill("@");
+    await expect(page.getByRole("listbox")).toBeVisible();
+    await page.getByRole("listbox").getByRole("option", { name: /data.*Open folder/ }).click();
+    await page.getByRole("listbox").getByRole("option", { name: /protein\.csv/ }).click();
+    await expect(composer).toHaveValue("@data/protein.csv ");
+
+    // An edit that never announced itself: the text changes and no beforeinput precedes it. The
+    // binding the edit did not touch has to survive, and the token has to move with its text.
+    await composer.evaluate((element: HTMLTextAreaElement) => {
+      const value = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value");
+      value?.set?.call(element, `prefix ${element.value}`);
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect(composer).toHaveValue("prefix @data/protein.csv ");
+    await expect(inlineToken(page)).toHaveCount(1);
+    await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+
+    await composer.press("Home");
+    await composer.press("Shift+End");
+    await composer.press("ControlOrMeta+x");
+    await expect(composer).toHaveValue("");
+    await expect(inlineToken(page)).toHaveCount(0);
+  });
 });
 
 test("AC-24 the open completion menu has no serious axe violations @accessibility", async ({ page }) => {

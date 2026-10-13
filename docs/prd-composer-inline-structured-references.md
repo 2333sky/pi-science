@@ -164,6 +164,13 @@ Compare @WT.pdb with @mutant.pdb near residue 42.
 粘贴 "@secret.csv" 不创建任何新的 reference entity
 ```
 
+### 7.3 自管历史的约定
+
+- undo/redo 由 composer 自管栈，上限 100 条。外部 draft 更新（不是本组件发出的文档变化）清空两个栈。
+- 快捷键（Cmd/Ctrl+Z、Cmd/Ctrl+Shift+Z、Ctrl+Y）与 `historyUndo`/`historyRedo` 事件都调用同一个恢复函数，一次按键只推进一次历史。
+- 实测（Chrome，macOS）：应用取消 `historyUndo` 之后，Chrome 不再为 Cmd+Shift+Z 发出 `historyRedo`。快捷键因此在 keydown 接管，不能只依赖 `beforeinput`。
+- 光标落地走 `requestAnimationFrame`，请求被更新或文档已变化时丢弃，避免旧帧把光标写回上一个文档的偏移。
+
 ## 八、发布步骤
 
 - **A／基础模型**：统一实体、合法性校验与编辑算法，添加单元测试。
