@@ -257,6 +257,21 @@ test("AC-23 an open menu with a long candidate keeps 375px layouts free of horiz
 
 const inlineToken = (page: Page) => page.locator('div[aria-hidden="true"].whitespace-pre-wrap span');
 
+/** Types the bare token, walks into the data folder and accepts protein.csv, which leaves the
+ *  caret one position past the token's end. Waiting one animation frame lets the completion's
+ *  queued caret placement land, so the navigation assertions below are not racing that frame. */
+async function acceptProteinReference(page: Page, composer: Locator): Promise<void> {
+  await composer.fill("@");
+  const menu = page.getByRole("listbox");
+  await expect(menu).toBeVisible();
+  await menu.getByRole("option", { name: /data.*Open folder/ }).click();
+  await menu.getByRole("option", { name: /protein\.csv/ }).click();
+  await expect(composer).toHaveValue("@data/protein.csv ");
+  await page.evaluate(() => new Promise<void>((resolve) => { requestAnimationFrame(() => resolve()); }));
+}
+
+const caretAt = (composer: Locator) => composer.evaluate((element: HTMLTextAreaElement) => element.selectionStart);
+
 /** The picked file is compared end to end: the token stays in the sentence with
  *  its identity, the old top-bar card must not come back, and the browser's own
  *  undo and redo move the text and the identity together. */
@@ -320,6 +335,80 @@ test.describe("inline structured references", () => {
     await composer.press("ControlOrMeta+x");
     await expect(composer).toHaveValue("");
     await expect(inlineToken(page)).toHaveCount(0);
+  });
+
+  test("an arrow key crosses a bound reference at its boundary", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
+    const composer = await openComposer(page);
+    await acceptProteinReference(page, composer);
+
+    await composer.press("ArrowLeft");
+    expect(await caretAt(composer), "one step left lands on the token end").toBe(17);
+    await composer.press("ArrowLeft");
+    expect(await caretAt(composer), "the next step crosses the whole token").toBe(0);
+    await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+
+    await composer.press("ArrowRight");
+    expect(await caretAt(composer), "one step right crosses the whole token back").toBe(17);
+  });
+
+  test("a shifted arrow selects the whole reference and keeps its direction", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
+    const composer = await openComposer(page);
+    await acceptProteinReference(page, composer);
+
+    await composer.press("ArrowLeft");
+    await composer.press("Shift+ArrowLeft");
+    const selection = await composer.evaluate((element: HTMLTextAreaElement) => ({
+      start: element.selectionStart, end: element.selectionEnd, direction: element.selectionDirection,
+    }));
+    expect(selection).toEqual({ start: 0, end: 17, direction: "backward" });
+  });
+
+  test("clicking inside a bound reference lands on the nearer end", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the pointer contract");
+    const composer = await openComposer(page);
+    await acceptProteinReference(page, composer);
+    const box = await inlineToken(page).boundingBox();
+    expect(box, "the highlighted token has no box").not.toBeNull();
+
+    await page.mouse.click(box!.x + 3, box!.y + box!.height / 2);
+    expect(await caretAt(composer), "the left half snaps to the token start").toBe(0);
+    await page.mouse.click(box!.x + box!.width - 3, box!.y + box!.height / 2);
+    expect(await caretAt(composer), "the right half snaps to the token end").toBe(17);
+  });
+
+  test("a real CJK composition keeps the binding and the history moves it with the text", async ({ page, context }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-light", "one real browser is enough for the keyboard contract");
+    const composer = await openComposer(page);
+    await acceptProteinReference(page, composer);
+    await page.evaluate(() => {
+      (window as unknown as { ime: string[] }).ime = [];
+      const record = (name: string) => (event: Event) => {
+        (window as unknown as { ime: string[] }).ime.push(`${name}:${(event as InputEvent).inputType ?? ""}`);
+      };
+      document.addEventListener("beforeinput", record("beforeinput"), true);
+      document.addEventListener("compositionend", record("compositionend"), true);
+    });
+
+    const cdp = await context.newCDPSession(page);
+    await composer.press("Home");
+    await cdp.send("Input.imeSetComposition", { text: "pin", selectionStart: 3, selectionEnd: 3 });
+    await cdp.send("Input.insertText", { text: "拼音 " });
+
+    await expect(composer).toHaveValue("拼音 @data/protein.csv ");
+    await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+    const events = await page.evaluate(() => (window as unknown as { ime: string[] }).ime);
+    expect(events).toContain("beforeinput:insertCompositionText");
+    expect(events).toContain("compositionend:");
+
+    // A composition commits in more than one step, so undo walks back one step at a time. The
+    // binding has to survive every step, not just the last one.
+    for (let attempt = 0; attempt < 3 && await composer.inputValue() !== "@data/protein.csv "; attempt += 1) {
+      await composer.press("ControlOrMeta+z");
+      await expect(inlineToken(page)).toHaveText("@data/protein.csv");
+    }
+    await expect(composer).toHaveValue("@data/protein.csv ");
   });
 });
 
