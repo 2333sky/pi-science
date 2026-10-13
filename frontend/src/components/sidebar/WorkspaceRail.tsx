@@ -17,7 +17,7 @@ const brandMark = <span className="flex h-header w-header shrink-0 items-center 
 const currentBox = "bg-surface-selected text-accent before:absolute before:-left-2 before:h-[26px] before:w-[3px] before:rounded-[3px] before:bg-accent before:content-['']";
 
 function RailLabel({ label }: { label: string }) {
-  return <span className="workspace-rail-label min-w-0 flex-1 truncate pr-2 text-ui-label font-medium">{label}</span>;
+  return <span className="workspace-rail-label min-w-0 flex-1 truncate pr-2 text-left text-ui-label font-medium">{label}</span>;
 }
 function RailGlyph({ icon, count }: { icon: LucideIcon; count?: number }) {
   return <span className="relative flex h-header w-header shrink-0 items-center justify-center"><Icon icon={icon} size="lg" />{!!count && <span aria-hidden="true" className="absolute right-0 top-0 flex h-[var(--rail-badge-size)] min-w-[var(--rail-badge-size)] items-center justify-center rounded-[9px] bg-accent-fill px-1 text-ui-micro text-accent-fg">{count}</span>}</span>;
@@ -44,7 +44,7 @@ export function WorkspaceRail({ cwd, toggleRef, onExpand }: { cwd: string | null
   // The slot stays rail-width; the nav itself grows above the context panel on hover.
   return <div data-workspace-rail-slot className="relative z-[70] h-full w-[var(--rail-width-mobile)] shrink-0 md:w-[var(--rail-width)]">
     <nav aria-label={t("shell.primaryNav")} className="app-sidebar rail-enter workspace-rail absolute inset-y-0 left-0 flex h-full w-[var(--rail-width-mobile)] flex-col items-center gap-1.5 overflow-hidden border-r border-faint py-panel md:w-[var(--rail-width)]">
-      {!cwd && <Link key="projects" to="/" title={t("nav.projects")} aria-label={t("nav.projects")} aria-current={section === "projects" ? "page" : undefined} onClick={closeSidebarOnNarrow} className={cn(brandBox, railInteraction, section === "projects" && currentBox)}>{brandMark}<RailLabel label={t("nav.projects")} /></Link>}
+      {!cwd && <Link key="projects" to="/" title={t("nav.projects")} aria-label={t("nav.projects")} aria-current={section === "projects" ? "page" : undefined} onClick={closeSidebarOnNarrow} className={cn(brandBox, railInteraction, section === "projects" && currentBox, "text-text")}>{brandMark}<RailLabel label={t("nav.projects")} /></Link>}
       {cwd && !collapsed && <div className={brandBox}>{brandMark}<RailLabel label="pi-science" /></div>}
       {cwd && collapsed && <button key="context-toggle" ref={toggleRef} type="button" aria-label={t("shell.expandContextPanel")} title={t("shell.expandContextPanel")} aria-controls="workspace-context-panel" aria-expanded={false} onClick={event => onExpand ? onExpand(event.currentTarget) : setCollapsed(false)} className={cn(brandBox, railInteraction)}>{brandMark}<RailLabel label={t("shell.expandContextPanel")} /></button>}
       <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 overflow-x-hidden overflow-y-auto px-[7px] md:px-2">

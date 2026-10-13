@@ -222,7 +222,8 @@ owner should confirm or revise them:
   remains `60px` desktop / `58px` mobile; at desktop widths (>=768px) the Rail
   expands as a floating layer above adjacent panes and displays each primary
   action's translated label. Hover applies only on hover-capable devices;
-  keyboard focus also reveals labels. Mobile remains icon-only. Expansion
+  visible keyboard focus also reveals labels; pointer clicks do not keep
+  the overlay open after the pointer leaves. Mobile remains icon-only. Expansion
   uses `--motion-normal` / `--ease-standard` and `--shadow-pop`; reduced-motion
   preferences are honored by the shared motion override.
 - Rail count badge: minimum width `17px`, height `17px`, radius `9px`,
