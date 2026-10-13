@@ -579,6 +579,10 @@ export const executionRecordSchema = z.object({
 
 export const executionListResponseSchema = z.object({
   executions: z.array(executionRecordSchema).default([]),
+  total: z.number().int().nonnegative().optional(),
+  filtered_total: z.number().int().nonnegative().optional(),
+  offset: z.number().int().nonnegative().optional(),
+  limit: z.number().int().positive().optional(),
 });
 
 export const executionLogResponseSchema = z.object({

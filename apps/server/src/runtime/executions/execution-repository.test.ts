@@ -81,3 +81,23 @@ describe("ExecutionRepository", () => {
     unsubscribe();
   });
 });
+
+it("reuses unchanged materializations and invalidates appends and external edits", async () => {
+  const cwd = await workspace();
+  const repository = new ExecutionRepository();
+  const { vi } = await import("vitest");
+  const events = vi.spyOn(repository, "events");
+  await repository.start(cwd, { execution_id: "cache", kind: "tool", surface: "pi", producer: "test" });
+  await repository.query(cwd);
+  const reads = events.mock.calls.length;
+  const record = await repository.get(cwd, "cache");
+  record!.request.tool = "mutation";
+  expect((await repository.get(cwd, "cache"))!.request.tool).toBeUndefined();
+  await repository.query(cwd);
+  expect(events.mock.calls.length).toBe(reads);
+  await repository.finish(cwd, "cache", { status: "succeeded", producer: "test" });
+  expect((await repository.query(cwd)).executions[0]!.status).toBe("succeeded");
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(join(cwd, ".pi-science", "execution-events-v1.jsonl"), "");
+  expect((await repository.query(cwd)).total).toBe(0);
+});

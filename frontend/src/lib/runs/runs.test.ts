@@ -45,3 +45,15 @@ describe("runsQuery", () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("session_id=session-1"), expect.anything());
   });
 });
+
+it("reproduction includes recorded evidence and requires confirmation before execution", async () => {
+  const { reproduceRunPrompt } = await import("./runs");
+  const run = { ...record("succeeded"), request: { code: "print(42)" }, runtime: { python: "3.12" },
+    files: { read: [{ path: "input.csv", detection: "explicit" as const, sha256: "abc" }], written: [] } };
+  const prompt = reproduceRunPrompt(run);
+  expect(prompt).toContain("not a verified reproduction");
+  expect(prompt).toContain("ask for confirmation before re-running");
+  expect(prompt).toContain("print(42)");
+  expect(prompt).toContain('"sha256": "abc"');
+  expect(prompt).toContain('"python": "3.12"');
+});

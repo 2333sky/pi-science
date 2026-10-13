@@ -105,7 +105,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
   const url = String(input);
-  if (url.startsWith("/api/executions?") || url.includes("/api/executions?")) return jsonResponse({ executions });
+  if (url.includes("/api/executions?")) {
+    const params = new URL(url, "http://localhost").searchParams;
+    const scoped = executions.filter((run) => !params.get("session_id") || run.correlation.session_id === params.get("session_id"));
+    const filtered = scoped.filter((run) => (!params.get("kind") || run.kind === params.get("kind")) &&
+      (!params.get("status") || run.status === params.get("status")) &&
+      (!params.get("search") || JSON.stringify(run).toLowerCase().includes(params.get("search")!.toLowerCase())));
+    const offset = Number(params.get("offset") || 0);
+    return jsonResponse({ executions: filtered.slice(offset, offset + 50), total: scoped.length, filtered_total: filtered.length, offset, limit: 50 });
+  }
   if (url.includes("/api/executions/exec_kernel/logs")) return jsonResponse({ stdout: "kernel stdout", stderr: "", source: "preview", complete: false });
   if (url.includes("/api/executions/exec_job/logs")) return jsonResponse({ stdout: "", stderr: "job stderr", source: "job", complete: true });
   if (url.includes("/api/executions/exec_tool/logs")) return jsonResponse({ stdout: "tool output", stderr: "", source: "preview", complete: false });
@@ -200,7 +208,7 @@ describe("RunsPage execution ledger", () => {
 
     fireEvent.change(screen.getByLabelText("Search executions"), { target: { value: "result.csv" } });
     expect(await screen.findByRole("button", { name: /analysis\.ipynb/ })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /node train\.js/ })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: /node train\.js/ })).toBeNull());
 
     fireEvent.change(screen.getByLabelText("Search executions"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Filter by execution type"), { target: { value: "job" } });
@@ -215,7 +223,7 @@ describe("RunsPage execution ledger", () => {
     await screen.findByText("node-kernel-gateway");
 
     fireEvent.click(screen.getByRole("tab", { name: "Input" }));
-    expect(screen.getByText(/print\('ok'\)/, { selector: "pre" })).toBeInTheDocument();
+    expect(screen.getAllByText(/print\('ok'\)/, { selector: "pre" })[0]).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("tab", { name: "Files" }));
     expect(screen.getByText("data/input.csv")).toBeInTheDocument();
@@ -253,7 +261,7 @@ describe("RunsPage execution ledger", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
     await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("write"));
 
-    fireEvent.click(screen.getByRole("button", { name: "Reproduce" }));
+    fireEvent.click(screen.getByRole("button", { name: "Ask AI to attempt reproduction" }));
     expect(setDraftMock).toHaveBeenCalledWith(expect.stringContaining("exec_tool"));
     expect(screen.getByLabelText("location")).toHaveTextContent("/workspace/%2Fworkspace/session/session-1");
   });
@@ -274,6 +282,7 @@ describe("RunsPage execution ledger", () => {
   });
 
   it("offers the session kernel from execution records only when kernel cells exist", async () => {
+    fetchMock.mockImplementationOnce(async () => jsonResponse({ executions: [{ ...kernelExecution, correlation: { session_id: "session-1" } }], total: 1, filtered_total: 1 }));
     renderSessionPage("/workspace/project/session/session-1?view=runs&execution=exec_kernel");
     const button = await screen.findByRole("button", { name: "Open session kernel" });
 
@@ -285,7 +294,56 @@ describe("RunsPage execution ledger", () => {
   it("surfaces failure evidence without requiring the output tab", async () => {
     renderPage("/workspace/project/runs?execution=exec_job");
     expect(await screen.findByText("Execution problem")).toBeInTheDocument();
-    expect(screen.getByText("training failed")).toBeInTheDocument();
+    expect(screen.getAllByText("training failed")[0]).toBeInTheDocument();
     expect(screen.getByText(/exit code 1/)).toBeInTheDocument();
+  });
+});
+
+
+describe("execution scope and timeline", () => {
+  it("keeps session URL scope, allows workspace records, then restores the session", async () => {
+    renderPage("/workspace/project/runs?session_id=session-1");
+    await screen.findByText("agent-event-observer");
+    expect(screen.queryByRole("button", { name: /node train\.js/ })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Execution scope")).toHaveValue("session");
+    fireEvent.change(screen.getByLabelText("Execution scope"), { target: { value: "workspace" } });
+    await screen.findByRole("button", { name: /node train\.js/ });
+    expect(screen.getByLabelText("location")).toHaveTextContent("scope=workspace");
+    expect(screen.getByLabelText("location")).toHaveTextContent("session_id=session-1");
+    fireEvent.change(screen.getByLabelText("Execution scope"), { target: { value: "session" } });
+    await waitFor(() => expect(screen.queryByRole("button", { name: /node train\.js/ })).not.toBeInTheDocument());
+  });
+
+  it("defaults workspace entry to all records and links timeline selections to details", async () => {
+    renderPage();
+    await screen.findByText("agent-event-observer");
+    expect(screen.getByLabelText("Execution scope")).toHaveValue("workspace");
+    fireEvent.change(screen.getByLabelText("Browse executions"), { target: { value: "timeline" } });
+    expect(screen.getByLabelText("Execution timeline")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /node train\.js/ }));
+    await screen.findByText("node-job-coordinator");
+    expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
+  });
+
+  it("requests older pages and resets paging when search changes", async () => {
+    fetchMock.mockImplementationOnce(async () => jsonResponse({ executions: Array.from({ length: 50 }, (_, index) => ({ ...toolExecution, execution_id: `exec-page-${index}` })), total: 125, filtered_total: 125 }));
+    renderPage();
+    await screen.findByText("agent-event-observer");
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("offset=50"), expect.anything()));
+    fireEvent.change(screen.getByLabelText("Search executions"), { target: { value: "result.csv" } });
+    await screen.findByRole("button", { name: /analysis\.ipynb/ });
+    const lastListCall = fetchMock.mock.calls.filter(([input]) => String(input).includes("/api/executions?" )).at(-1);
+    expect(String(lastListCall?.[0])).toContain("offset=0");
+    expect(String(lastListCall?.[0])).toContain("search=result.csv");
+  });
+
+  it("submits time bounds to the server and rejects a reversed range", async () => {
+    renderPage();
+    await screen.findByText("agent-event-observer");
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-08-15T01:00" } });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("from="), expect.anything()));
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-08-14T01:00" } });
+    expect(screen.getByRole("alert")).toHaveTextContent("end time must be after");
   });
 });
