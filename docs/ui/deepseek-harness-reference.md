@@ -217,6 +217,14 @@ owner should confirm or revise them:
   `.context-tab[aria-selected=true]::after` (`left:5px;right:5px;height:2px`);
   the `2px` active bar itself reuses the confirmed conversation-tabs value from
   `ConversationRoot.module.css` `.tabs`.
+- Hover/focus-expanded workspace Rail width: `220px` (Pi-Science
+  interaction proposal, not an upstream measurement). The reserved rail slot
+  remains `60px` desktop / `58px` mobile; at desktop widths (>=768px) the Rail
+  expands as a floating layer above adjacent panes and displays each primary
+  action's translated label. Hover applies only on hover-capable devices;
+  keyboard focus also reveals labels. Mobile remains icon-only. Expansion
+  uses `--motion-normal` / `--ease-standard` and `--shadow-pop`; reduced-motion
+  preferences are honored by the shared motion override.
 - Rail count badge: minimum width `17px`, height `17px`, radius `9px`,
   `--accent-fg` ink on `--accent-fill`, `text-ui-micro` type (`0.625rem`). V4
   Pi-Science proposal citing prototype `.rail-button .count`
