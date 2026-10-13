@@ -18,6 +18,31 @@
 }
 
 .sidebar-tab-list { container-type: inline-size; }
+
+/* Expand the desktop primary rail above the context/main panes without
+   changing the width reserved by its layout slot. Keyboard focus offers the
+   same labels; touch-sized rails keep their original compact presentation. */
+.workspace-rail {
+  transition: width var(--motion-normal) var(--ease-standard), box-shadow var(--motion-normal) var(--ease-standard);
+}
+.workspace-rail-label {
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+@media (min-width: 768px) {
+  .workspace-rail:focus-within {
+    width: 220px;
+    box-shadow: var(--shadow-pop);
+  }
+  .workspace-rail:focus-within .workspace-rail-label { opacity: 1; }
+}
+@media (min-width: 768px) and (hover: hover) {
+  .workspace-rail:hover {
+    width: 220px;
+    box-shadow: var(--shadow-pop);
+  }
+  .workspace-rail:hover .workspace-rail-label { opacity: 1; }
+}
 @container (max-width: 220px) {
   .sidebar-tab-icon { display: none; }
 }
