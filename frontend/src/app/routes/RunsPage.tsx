@@ -32,7 +32,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   const openInspector = useUiStore((state) => state.openInspector);
   const setComposerDraft = useRuntimeStore((state) => state.setDraft);
   const sessions = useRuntimeStore((state) => state.sessions);
-  const sessionTitles = Object.fromEntries((sessions ?? []).filter((session) => session.cwd === workspaceCwd && session.name).map((session) => [session.id, session.name!]));
+  const sessionTitles = Object.assign(Object.create(null) as Record<string, string>, Object.fromEntries((sessions ?? []).filter((session) => session.cwd === workspaceCwd && session.name).map((session) => [session.id, session.name!])));
   const [searchParams, setSearchParams] = useSearchParams();
   const contextSessionId = sessionId || searchParams.get("session_id") || undefined;
   const activeSessionId = searchParams.get("scope") === "workspace" ? undefined : contextSessionId;

@@ -215,12 +215,19 @@ describe("RunsPage execution ledger", () => {
     await screen.findAllByText("write");
 
     fireEvent.change(screen.getByLabelText("Search executions"), { target: { value: "result.csv" } });
-    expect(await screen.findByRole("button", { name: /analysis\.ipynb/ })).toBeInTheDocument();
-    await waitFor(() => expect(screen.queryByRole("button", { name: /node train\.js/ })).toBeNull());
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent("search=result.csv");
+      expect(screen.getByRole("button", { name: /analysis\.ipynb/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /node train\.js/ })).toBeNull();
+    });
 
     fireEvent.change(screen.getByLabelText("Search executions"), { target: { value: "" } });
     fireEvent.change(screen.getByLabelText("Filter by execution type"), { target: { value: "job" } });
-    expect(await screen.findByRole("button", { name: /node train\.js/ })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent("kind=job");
+      expect(screen.getByRole("button", { name: /node train\.js/ })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /analysis\.ipynb/ })).toBeNull();
+    });
 
     fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "succeeded" } });
     expect(await screen.findByText("No matching executions")).toBeInTheDocument();
@@ -438,4 +445,11 @@ describe("review regressions", () => {
     const raw = screen.getByText("Advanced: raw record").closest("details");
     expect(raw).not.toHaveAttribute("open");
   });
+});
+
+
+it.each(["constructor", "__proto__"])("uses the raw session ID %s when no real title is known", async (id) => {
+  renderPage(`/workspace/project/runs?session_id=${id}`);
+  await waitFor(() => expect(screen.getByLabelText("Execution scope")).toHaveValue("session"));
+  expect(screen.getByText(`Current session · ${id}`)).toBeInTheDocument();
 });
