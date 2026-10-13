@@ -37,7 +37,11 @@ and refresh restore state. Explicit targets are fetched independently by ID when
 outside the page and never replaced by the first row. Notices provide explicit
 page/filter navigation. Missing targets retain their URL and show an error.
 Ordinary automatic or clicked row selections carry `selection=page`; Previous/Next
-clears that selection and selects the new page's first record. Explicit deep links
+clears that selection and selects the new page's first record. Scope and filter
+changes also reset ordinary selection. The page list query never includes the
+selected ID: visible row selection uses existing records without refetching or
+unmounting the timeline. Explicit off-page targets request location metadata
+separately, preserving timeline zoom and collapsed groups. Explicit deep links
 without this marker retain their exact target across pagination. An empty page
 leaves ordinary selection empty. Search input commits to the URL after 300ms of
 inactivity; URL changes, clearing and unmounting cancel pending edits. Page queries

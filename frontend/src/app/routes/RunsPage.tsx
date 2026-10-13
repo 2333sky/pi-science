@@ -49,6 +49,8 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   const kind = RUN_KINDS.find((value) => value === searchParams.get("kind"));
   const status = RUN_STATUSES.find((value) => value === searchParams.get("status"));
   const selectedId = searchParams.get("execution");
+  const pageSelection = searchParams.get("selection") === "page";
+  const resetPageSelection: Record<string, string | null> = pageSelection ? { execution: null, selection: null, detail: "0" } : {};
   const invalidRange = Boolean((from && !Number.isFinite(Date.parse(from))) || (to && !Number.isFinite(Date.parse(to))) || (from && to && Date.parse(from) > Date.parse(to)));
   const [detailTab, setDetailTab] = useState<DetailTab>("summary");
   const compactDetailOpen = Boolean(selectedId && searchParams.get("detail") !== "0");
@@ -61,26 +63,31 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
       return next;
     }, { replace });
   };
-  const changeFilters = (changes: Record<string, string | null>, replace = false) => updateRoute({ ...changes, offset: null }, replace);
+  const changeFilters = (changes: Record<string, string | null>, replace = false) => updateRoute({ ...changes, offset: null, ...resetPageSelection }, replace);
   const clearFilters = () => changeFilters({ search: null, kind: null, status: null, from: null, to: null });
   const changeScope = (scope: string) => {
-    updateRoute({ scope, session_id: contextSessionId ?? null, offset: null, detail: "0" });
+    updateRoute({ scope, session_id: contextSessionId ?? null, offset: null, detail: "0", ...resetPageSelection });
   };
   const selectExecution = (executionId: string) => {
     updateRoute({ execution: executionId, selection: "page", detail: "1" });
     setDetailTab("summary");
   };
 
-  const runsResult = useQuery({ ...runsPageQuery(workspaceCwd, {
+  const pageFilters = {
     session_id: activeSessionId, search: search.trim(), kind, status,
-    from: from || undefined, to: to || undefined, offset, limit: PAGE_SIZE, target_id: selectedId ?? undefined,
-  }, liveConnected), enabled: !invalidRange });
+    from: from || undefined, to: to || undefined, offset, limit: PAGE_SIZE,
+  };
+  const runsResult = useQuery({ ...runsPageQuery(workspaceCwd, pageFilters, liveConnected), enabled: !invalidRange });
   const runs = invalidRange ? EMPTY_RUNS : runsResult.data?.executions ?? EMPTY_RUNS;
   const total = runsResult.data?.total;
   const filteredTotal = runsResult.data?.filtered_total ?? runs.length;
   const loading = runsResult.isFetching;
   const pageSelected = runs.find((run) => run.execution_id === selectedId);
   const targetResult = useQuery({ ...runQuery(workspaceCwd, selectedId ?? ""), enabled: Boolean(selectedId && !pageSelected) });
+  // Locate explicit cross-page targets separately; selecting a visible row never changes the list key.
+  const targetPageQuery = runsPageQuery(workspaceCwd, { ...pageFilters, target_id: selectedId ?? undefined }, liveConnected);
+  const targetPageResult = useQuery({ ...targetPageQuery, queryKey: [...targetPageQuery.queryKey, "target-location"], enabled: Boolean(!invalidRange && selectedId && !pageSelection && runsResult.data && !pageSelected && targetResult.data) });
+  const targetPage = !pageSelection && !pageSelected ? targetPageResult.data : undefined;
   const selected = pageSelected || (targetResult.data?.execution_id === selectedId ? targetResult.data : undefined);
   const hasSessionKernel = Boolean(sessionId && activeSessionId === sessionId && runs.some((run) => run.kind === "kernel_cell"));
 
@@ -97,6 +104,10 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     if (runsResult.error) toast(runsResult.error instanceof Error ? runsResult.error.message : t("runs.loadError"), "error");
   }, [runsResult.error, t, toast]);
 
+  useEffect(() => {
+    if (targetPageResult.error) toast(targetPageResult.error instanceof Error ? targetPageResult.error.message : t("runs.loadError"), "error");
+  }, [targetPageResult.error, t, toast]);
+
   const logQuery = runLogQuery(workspaceCwd, selected?.execution_id ?? "");
   const logResult = useQuery({ ...logQuery,
     queryKey: [...logQuery.queryKey, selected?.status, selected?.ended_at, JSON.stringify(selected?.result)],
@@ -111,13 +122,13 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   const changePage = (nextOffset: number) => {
     // Explicit URLs without the page-selection marker retain their authoritative target.
     updateRoute({ offset: String(nextOffset), detail: "0",
-      ...(searchParams.get("selection") === "page" ? { execution: null, selection: null } : {}) });
+      ...resetPageSelection });
     setDetailTab("summary");
   };
 
   const locateTarget = () => {
-    if (runsResult.data?.target_offset != null) {
-      updateRoute({ offset: String(runsResult.data.target_offset), detail: "0" });
+    if (targetPage?.target_offset != null) {
+      updateRoute({ offset: String(targetPage.target_offset), detail: "0" });
     } else {
       // Keep the target ID and relax restrictions explicitly; never substitute a row.
       updateRoute({ scope: "workspace", offset: null, search: null, kind: null, status: null, from: null, to: null, detail: "0" });
@@ -175,12 +186,12 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   const failures = counts ? ["failed", "timed_out", "interrupted", "lost", "cancelled"].reduce((sum, key) => sum + (counts[key] || 0), 0) : undefined;
   const duration = runsResult.data?.completed_duration_count === 0 ? undefined : runsResult.data?.completed_duration_ms;
   const detailError = targetResult.error;
-  const outsidePage = Boolean(selected && !pageSelected && !loading);
+  const outsidePage = Boolean(selected && !pageSelected && !loading && targetPage);
 
   return <WorkspacePage className="runs-page">
     <WorkspacePageHeader title={t("runs.title")} description={<span title={activeSessionId}>{scopeLabel}{contextTitle && ` · ${contextTitle}`}</span>} actions={<>
       {hasSessionKernel && <button type="button" onClick={() => openInspector({ variant: "notebook-panel" })} className="flex min-h-9 items-center gap-2 rounded-input border border-border bg-surface px-3 text-sm text-text"><Braces size={15} />{t("notebook.openSessionKernel")}</button>}
-      <WorkspacePageRefreshButton label={t("common.refresh")} loading={loading} onClick={() => { void runsResult.refetch(); if (selectedId && !pageSelected) void targetResult.refetch(); }} />
+      <WorkspacePageRefreshButton label={t("common.refresh")} loading={loading} onClick={() => { void runsResult.refetch(); if (selectedId && !pageSelected) void targetResult.refetch(); if (targetPage) void targetPageResult.refetch(); }} />
     </>} />
 
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -213,7 +224,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
           : <ExecutionLedger runs={runs} selectedId={selected?.execution_id ?? null} onSelect={selectExecution} groupBySession={groupBySession} sessionTitles={sessionTitles} showSession={!activeSessionId} />)
           : <section className="runs-ledger-pane min-w-0">{loading ? <div className="p-10 text-center text-muted"><Loader2 className="mx-auto animate-spin" size={20} />{t("common.loading")}</div> : runsResult.error ? <EmptyState icon={<AlertTriangle size={32} />} title={t("runs.loadError")} hint={String(runsResult.error)} /> : <EmptyState icon={search || kind || status || from || to ? <FileSearch size={36} /> : <Play size={36} />} title={t(search || kind || status || from || to ? "runs.noMatches" : "runs.empty")} hint={t(search || kind || status || from || to ? "runs.noMatchesHint" : "runs.emptyHint")} />}</section>}
         <section aria-label={t("runs.details")} className="runs-detail-pane min-w-0 bg-bg/40">
-          {outsidePage && <div role="status" className="shrink-0 border-b border-border bg-surface-2 px-4 py-3 text-sm text-text"><p>{t(runsResult.data?.target_matches === false ? "runs.targetOutsideFilters" : "runs.targetOutsidePage")}</p><button type="button" onClick={locateTarget} className="mt-2 rounded-input border border-border bg-surface px-3 py-1.5 text-xs font-medium">{t(runsResult.data?.target_offset != null ? "runs.locateTargetPage" : "runs.relaxTargetFilters")}</button></div>}
+          {outsidePage && <div role="status" className="shrink-0 border-b border-border bg-surface-2 px-4 py-3 text-sm text-text"><p>{t(targetPage?.target_matches === false ? "runs.targetOutsideFilters" : "runs.targetOutsidePage")}</p><button type="button" onClick={locateTarget} className="mt-2 rounded-input border border-border bg-surface px-3 py-1.5 text-xs font-medium">{t(targetPage?.target_offset != null ? "runs.locateTargetPage" : "runs.relaxTargetFilters")}</button></div>}
           {selected ? <ExecutionDetails run={selected} tab={detailTab} onTabChange={setDetailTab} onBack={() => updateRoute({ detail: "0" }, true)} onCopy={(text, message) => void copyText(text, message)} onOpenFile={openFile} onOpenArtifact={(artifact) => void openArtifact(artifact)}
             onOpenSession={selected.correlation.session_id && selected.correlation.session_id !== sessionId ? () => openSession(selected) : undefined}
             onLocate={sessionId && selected.correlation.session_id === sessionId && selected.correlation.tool_call_id ? () => locateExecution(selected) : undefined}

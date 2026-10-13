@@ -93,12 +93,32 @@ for (const [position, id] of [[75, "exec-50"], [125, "exec-0"]] as const) {
 test("timeline zoom, collapsed workspace groups and keyboard selection remain usable", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "Timeline interaction coverage");
   await installRuns(page);
-  await page.goto(`${root}/runs?view=timeline&execution=exec-124`);
+  const listRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/executions") listRequests.push(request.url());
+  });
+  await page.goto(`${root}/runs?view=timeline`);
   await expect(page.getByTestId("timeline-exec-124")).toBeVisible();
   await expect(page.locator("time")).not.toHaveCount(2);
   await page.getByRole("button", { name: "Zoom in" }).click();
   await expect(page.getByTestId("timeline-canvas")).toHaveCSS("width", /px$/);
   await expect(page.getByText("2×", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Zoom in" }).click();
+  await expect(page.getByText("4×", { exact: true })).toBeVisible();
+  const timeline = page.getByRole("region", { name: "Execution timeline" });
+  const otherGroup = timeline.getByRole("button", { name: /other-session/ });
+  await otherGroup.click();
+  const requestCount = listRequests.length;
+  expect(requestCount).toBe(1);
+  for (const id of [121, 118, 124]) {
+    const row = timeline.getByRole("button", { name: new RegExp(`analysis-${id}\\b`) });
+    await row.click();
+    await expect(row).toHaveAttribute("aria-current", "true");
+    await expect(page.getByRole("region", { name: "Execution details" }).getByRole("heading", { name: `analysis-${id}`, exact: true })).toBeVisible();
+    await expect(page.getByText("4×", { exact: true })).toBeVisible();
+    await expect(otherGroup).toHaveAttribute("aria-expanded", "false");
+    expect(listRequests).toHaveLength(requestCount);
+  }
   await page.getByRole("button", { name: "Fit range" }).click();
   const group = page.getByRole("region", { name: "Execution timeline" }).getByRole("button", { name: /Markdown rendering demo/ });
   await group.click();

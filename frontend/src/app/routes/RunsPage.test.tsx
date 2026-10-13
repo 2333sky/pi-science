@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes, useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import i18n from "../../i18n";
@@ -103,11 +103,11 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
 
-const defaultFetch = async (input: RequestInfo | URL) => {
+const fetchExecutions = async (input: RequestInfo | URL, records: ExecutionRecord[] = executions) => {
   const url = String(input);
   if (url.includes("/api/executions?")) {
     const params = new URL(url, "http://localhost").searchParams;
-    const scoped = executions.filter((run) => !params.get("session_id") || run.correlation.session_id === params.get("session_id"));
+    const scoped = records.filter((run) => !params.get("session_id") || run.correlation.session_id === params.get("session_id"));
     const filtered = scoped.filter((run) => (!params.get("kind") || run.kind === params.get("kind")) &&
       (!params.get("status") || run.status === params.get("status")) &&
       (!params.get("search") || JSON.stringify(run).toLowerCase().includes(params.get("search")!.toLowerCase())));
@@ -122,11 +122,14 @@ const defaultFetch = async (input: RequestInfo | URL) => {
   if (url.includes("/api/executions/exec_tool/logs")) return jsonResponse({ stdout: "tool output", stderr: "", source: "preview", complete: false });
   if (url.includes("/api/artifacts/artifact-result")) return jsonResponse({ path: "outputs/result.csv" });
   const id = new URL(url, "http://localhost").pathname.match(/^\/api\/executions\/([^/]+)$/)?.[1];
-  const record = executions.find((run) => run.execution_id === id);
+  const record = records.find((run) => run.execution_id === id);
   if (record) return jsonResponse(record);
   return jsonResponse({ error: `unhandled ${url}` }, 404);
 };
+const defaultFetch = (input: RequestInfo | URL) => fetchExecutions(input);
 const fetchMock = vi.fn(defaultFetch);
+
+const ownedRecords = [toolExecution, { ...jobExecution, correlation: { session_id: "session-2" } }, { ...kernelExecution, correlation: { session_id: "session-1" } }];
 
 function LocationProbe() {
   const location = useLocation();
@@ -417,12 +420,63 @@ describe("review regressions", () => {
     renderPage(`/workspace/project/runs?execution=${target.execution_id}`);
     await screen.findByText(target.producer);
     expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${target.execution_id}`);
-    expect(screen.getByText(/outside the current page/)).toBeInTheDocument();
+    expect(await screen.findByText(/outside the current page/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Execution timeline" }));
     expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${target.execution_id}`);
     fireEvent.click(screen.getByRole("button", { name: "Go to execution page" }));
     await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent(`offset=${Math.floor((position - 1) / 50) * 50}`));
     expect(await screen.findByRole("button", { name: /analysis\.ipynb/ })).toBeInTheDocument();
+  });
+
+  it("keeps 4x zoom and collapsed groups without querying history on row selection", async () => {
+    fetchMock.mockImplementation((input) => fetchExecutions(input, ownedRecords));
+    renderPage("/workspace/project/runs?view=timeline");
+    await screen.findByText("agent-event-observer");
+    const timeline = screen.getByRole("region", { name: "Execution timeline" });
+    const initialTimeline = timeline;
+    const listCalls = () => fetchMock.mock.calls.filter(([input]) => new URL(String(input), "http://localhost").pathname === "/api/executions");
+    const count = listCalls().length;
+    expect(count).toBe(1);
+    fireEvent.click(within(timeline).getByRole("button", { name: "Zoom in" }));
+    fireEvent.click(within(timeline).getByRole("button", { name: "Zoom in" }));
+    const group = within(timeline).getByRole("button", { name: /session-2/ });
+    fireEvent.click(group);
+    for (const [label, producer] of [[/analysis\.ipynb/, "node-kernel-gateway"], [/write/, "agent-event-observer"], [/analysis\.ipynb/, "node-kernel-gateway"]] as const) {
+      fireEvent.click(within(timeline).getByRole("button", { name: label }));
+      await screen.findByText(producer);
+      expect(screen.getByRole("region", { name: "Execution timeline" })).toBe(initialTimeline);
+      expect(within(timeline).getByText("4×")).toBeInTheDocument();
+      expect(group).toHaveAttribute("aria-expanded", "false");
+      expect(within(timeline).queryByRole("button", { name: /node train\.js/ })).toBeNull();
+      expect(listCalls()).toHaveLength(count);
+    }
+  });
+
+  it.each([false, true])("resets ordinary selection across scope and filters but preserves explicit targets: %s", async (deepLink) => {
+    fetchMock.mockImplementation((input) => fetchExecutions(input, ownedRecords));
+    renderPage(`/workspace/project/runs?session_id=session-1&scope=workspace${deepLink ? "&execution=exec_job" : ""}`);
+    await screen.findByText(deepLink ? "node-job-coordinator" : "agent-event-observer");
+    if (!deepLink) {
+      fireEvent.click(screen.getByRole("button", { name: /node train\.js/ }));
+      await screen.findByText("node-job-coordinator");
+    }
+    fireEvent.change(screen.getByLabelText("Execution scope"), { target: { value: "session" } });
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${deepLink ? "exec_job" : "exec_tool"}`);
+      expect(screen.getByRole("button", { name: /write/ })).toBeInTheDocument();
+    });
+    if (deepLink) expect(await screen.findByText(/outside the current scope or filters/)).toBeInTheDocument();
+    else {
+      await screen.findByText("agent-event-observer");
+      expect(screen.queryByText("node-job-coordinator")).toBeNull();
+      expect(screen.queryByText(/outside the current scope or filters/)).toBeNull();
+    }
+    fireEvent.change(screen.getByLabelText("Filter by execution type"), { target: { value: "kernel_cell" } });
+    await waitFor(() => {
+      expect(screen.getByLabelText("location")).toHaveTextContent("kind=kernel_cell");
+      expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${deepLink ? "exec_job" : "exec_kernel"}`);
+    });
+    if (!deepLink) await screen.findByText("node-kernel-gateway");
   });
 
   it("shows an explicit missing target and never substitutes the first record", async () => {
@@ -435,7 +489,7 @@ describe("review regressions", () => {
   it("keeps an out-of-scope target and offers an explicit range adjustment", async () => {
     renderPage("/workspace/project/runs?session_id=session-1&execution=exec_job");
     await screen.findByText("node-job-coordinator");
-    expect(screen.getByText(/outside the current scope or filters/)).toBeInTheDocument();
+    expect(await screen.findByText(/outside the current scope or filters/)).toBeInTheDocument();
     expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
     fireEvent.click(screen.getByRole("button", { name: "Show workspace and clear filters" }));
     await screen.findByRole("button", { name: /node train\.js/ });
