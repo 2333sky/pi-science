@@ -109,19 +109,23 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     redoHistoryRef.current = [];
   }, []);
 
+  const applyCaretRequest = useCallback((request: { start: number; end: number }) => {
+    const element = inputRef.current;
+    if (!element) return;
+    element.focus();
+    element.setSelectionRange(request.start, request.end);
+    setCaret(request.end);
+  }, [inputRef]);
+
   const placeCaret = useCallback((start: number, end = start) => {
     const request = { documentKey: expectedDocumentKeyRef.current, start, end };
     pendingCaretRef.current = request;
-    requestAnimationFrame(() => {
-      if (pendingCaretRef.current !== request || observedDocumentKeyRef.current !== request.documentKey) return;
+    // Nothing to wait for when the document this caret belongs to is already on screen.
+    if (request.documentKey === null) {
       pendingCaretRef.current = null;
-      const element = inputRef.current;
-      if (!element) return;
-      element.focus();
-      element.setSelectionRange(request.start, request.end);
-      setCaret(request.end);
-    });
-  }, [inputRef]);
+      applyCaretRequest(request);
+    }
+  }, [applyCaretRequest]);
 
   const restoreHistory = useCallback((direction: "undo" | "redo") => {
     const source = direction === "undo" ? undoHistoryRef.current : redoHistoryRef.current;
@@ -160,6 +164,16 @@ export function MentionComposer({ cwd, value, mentions = [], entities, onChange,
     element.scrollTop = overflowing && caretWasAtEnd ? contentHeight : previousScrollTop;
     if (mirrorRef.current) mirrorRef.current.scrollTop = element.scrollTop;
   }, [inputRef, value]);
+
+  // The placement runs inside the commit that carries its document, so no keystroke or click can land
+  // between the value change and the caret. A request whose document never arrived is dropped.
+  useLayoutEffect(() => {
+    const request = pendingCaretRef.current;
+    if (!request) return;
+    pendingCaretRef.current = null;
+    if (request.documentKey !== activeDocumentKey) return;
+    applyCaretRequest(request);
+  }, [activeDocumentKey, applyCaretRequest]);
 
   const handleChange = (nextValue: string) => {
     const intent = pendingIntentRef.current;

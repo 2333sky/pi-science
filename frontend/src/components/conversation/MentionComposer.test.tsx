@@ -184,30 +184,6 @@ describe("MentionComposer", () => {
     expect(mirror?.querySelector("span")?.textContent).toBe("@structures");
   });
 
-  it("keeps current completions when an earlier file choice places its caret late", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
-    fileFixture = new Map([
-      ["", [{ name: "structures", path: "structures", isDir: true, size: 0 }]],
-      ["structures", [{ name: "WT.pdb", path: "structures/WT.pdb", isDir: false, size: 100 }]],
-    ]);
-    renderComposer();
-    await typeAt("@");
-    fireEvent.click(await screen.findByRole("option", { name: /structures.*Open folder/ }));
-    await screen.findByRole("button", { name: "structures" });
-    fireEvent.click(await screen.findByRole("option", { name: /WT\.pdb/ }));
-    await waitFor(() => expect(input()).toHaveValue("@structures/WT.pdb "));
-
-    await typeAt("@");
-    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
-    const folderOption = await screen.findByRole("option", { name: /Reference entire folder/ });
-    expect(folderOption).toBeInTheDocument();
-    expect(input().selectionStart).toBe(1);
-    expect(input().selectionEnd).toBe(1);
-    fireEvent.click(folderOption);
-    await waitFor(() => expect(input()).toHaveValue("@structures "));
-  }, 15_000);
-
   it("crosses a highlighted entity in one arrow press from either boundary", () => {
     const { container } = renderComposer("before @data/protein.csv after", [referenceEntity]);
     const composer = input();
@@ -331,82 +307,60 @@ describe("MentionComposer", () => {
     expect(composer.selectionDirection).toBe("backward");
   });
 
-  it("does not place a queued completion caret after a textarea pointerdown", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+  it("places a completion caret inside a sentence on the same commit", async () => {
     fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
-    const { container } = renderComposer();
-    await typeAt("@data/pro");
-    act(() => input().focus());
+    renderComposer();
+    await typeAt("before @data/pro after", 16);
     fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
-    expect(input().value).toBe("@data/protein.csv ");
-    expect(frames.length).toBe(1);
-    fireEvent.pointerDown(input());
-    input().setSelectionRange(0, 0);
-    fireEvent.select(input());
-    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
-    expect(input().selectionStart).toBe(0);
-    expect(input().selectionEnd).toBe(0);
-    expect(document.activeElement?.getAttribute("placeholder")).toBe("Prompt");
-    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+
+    // No frame is awaited: the placement belongs to the commit that carries the text, so nothing can
+    // type or move the caret at the position the browser left behind.
+    expect(input().value).toBe("before @data/protein.csv after");
+    expect(input().selectionStart).toBe(24);
+    expect(input().selectionEnd).toBe(24);
   });
 
-  it("does not refocus or place a queued completion caret after textarea blur", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
-    fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
-    const { container } = renderComposer();
-    render(<button>Settings</button>);
-    await typeAt("@data/pro");
-    act(() => input().focus());
-    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
-    expect(input().value).toBe("@data/protein.csv ");
-    expect(frames.length).toBe(1);
-    act(() => screen.getByRole("button", { name: "Settings" }).focus());
-    input().setSelectionRange(0, 0);
-    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
-    expect(input().selectionStart).toBe(0);
-    expect(input().selectionEnd).toBe(0);
-    expect(document.activeElement?.textContent).toBe("Settings");
-    expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
-  });
-
-  it("still places an accepted completion caret after programmatic select events", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+  it("places an accepted completion caret before any observer can run", async () => {
     fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
     renderComposer();
     await typeAt("@data/pro");
     fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+
     expect(input().value).toBe("@data/protein.csv ");
-    expect(frames.length).toBe(1);
-    input().setSelectionRange(0, 0);
-    fireEvent.select(input());
-    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
     expect(input().selectionStart).toBe(18);
     expect(input().selectionEnd).toBe(18);
     expect(document.activeElement?.getAttribute("placeholder")).toBe("Prompt");
   });
 
-  it("does not cancel queued completion placement on a plain arrow after insertion in the middle", async () => {
-    const frames: FrameRequestCallback[] = [];
-    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => frames.push(callback));
+  it("keeps a pointer selection that follows a completion", async () => {
     fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
     const { container } = renderComposer();
-    await typeAt("before @data/pro after", 16);
+    await typeAt("@data/pro");
     fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
-    expect(input().value).toBe("before @data/protein.csv after");
-    expect(frames.length).toBe(1);
-    expect(input().selectionStart).toBe(30);
-    expect(input().selectionEnd).toBe(30);
-    expect(fireEvent.keyDown(input(), { key: "ArrowLeft" })).toBe(true);
-    input().setSelectionRange(29, 29);
+    expect(input().selectionStart).toBe(18);
+
+    fireEvent.pointerDown(input());
+    input().setSelectionRange(0, 0);
     fireEvent.select(input());
-    act(() => { frames.splice(0).forEach((frame) => frame(0)); });
-    expect(input().selectionStart).toBe(24);
-    expect(input().selectionEnd).toBe(24);
-    expect(document.activeElement?.getAttribute("placeholder")).toBe("Prompt");
+
+    expect(input().selectionStart).toBe(0);
+    expect(input().selectionEnd).toBe(0);
     expect(container.querySelector("[aria-hidden='true'] span")?.textContent).toBe("@data/protein.csv");
+  });
+
+  it("does not take focus back after the user moved it away from the composer", async () => {
+    fileFixture = new Map([["data", [{ name: "protein.csv", path: "data/protein.csv", isDir: false, size: 12 }]]]);
+    renderComposer();
+    render(<button>Settings</button>);
+    await typeAt("@data/pro");
+    fireEvent.click(await screen.findByRole("option", { name: /protein\.csv/ }));
+
+    act(() => screen.getByRole("button", { name: "Settings" }).focus());
+    input().setSelectionRange(0, 0);
+
+    expect(input().selectionStart).toBe(0);
+    expect(input().selectionEnd).toBe(0);
+    expect(document.activeElement?.textContent).toBe("Settings");
   });
 
   /** The caret is already inside the token when the arrow key that moved it is processed, which is the
