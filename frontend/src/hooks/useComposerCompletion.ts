@@ -90,23 +90,25 @@ export function useComposerCompletion(params: {
     [agents, caret, commands, cwd, value],
   );
   const detectedScope = detected ? completionScope(detected.query) : null;
-  const [browseState, setBrowseState] = useState<{ scope: string; path: string; query: string }>({ scope: "", path: "", query: "" });
+  // `path: null` means no hand navigation yet, `path: ""` means the user navigated to the workspace
+  // root. Keeping them apart is what lets the root breadcrumb leave the typed directory.
+  const [browseState, setBrowseState] = useState<{ scope: string; path: string | null; query: string }>({ scope: "", path: null, query: "" });
   const browsePath = detected?.query.providerId === "mention"
-    && browseState.scope === detectedScope && browseState.query === detected.query.query ? browseState.path : "";
+    && browseState.scope === detectedScope && browseState.query === detected.query.query ? browseState.path : null;
   const effectiveDetected = useMemo(() => {
-    if (!detected || detected.query.providerId !== "mention" || !detected.query.directory || !browsePath) return detected;
+    if (!detected || detected.query.providerId !== "mention" || !detected.query.directory || browsePath === null) return detected;
     return {
       ...detected,
       query: {
         ...detected.query,
-        directory: { ...detected.query.directory, subdir: browsePath, prefix: "", base: `${browsePath}/` },
+        directory: { ...detected.query.directory, subdir: browsePath, prefix: "", base: browsePath ? `${browsePath}/` : "" },
       },
     };
   }, [browsePath, detected]);
   useEffect(() => {
     const currentQuery = detected?.query.query ?? "";
     if (browseState.scope !== detectedScope || browseState.query !== currentQuery) {
-      setBrowseState({ scope: detectedScope ?? "", path: "", query: currentQuery });
+      setBrowseState({ scope: detectedScope ?? "", path: null, query: currentQuery });
     }
   }, [browseState.query, browseState.scope, detected, detectedScope]);
   const subdir = effectiveDetected?.query.directory?.subdir ?? null;
@@ -118,7 +120,7 @@ export function useComposerCompletion(params: {
   }, [directoryQuery.data]);
 
   const items = useMemo(
-    () => (effectiveDetected ? completeQuery(effectiveDetected, { value, caret, cwd, entries, agents, commands, browsePath })
+    () => (effectiveDetected ? completeQuery(effectiveDetected, { value, caret, cwd, entries, agents, commands, browsePath: browsePath ?? undefined })
       .filter((item) => ["apply", "navigate-directory"].includes(planAccept({ query: effectiveDetected.query, item, value }).kind)) : []),
     [agents, browsePath, caret, commands, cwd, effectiveDetected, entries, value],
   );

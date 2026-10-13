@@ -46,7 +46,10 @@ const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       { name: "scout", description: "Gather context", source: "builtin" },
     ] });
   }
-  if (url.startsWith("/api/files/breadcrumbs")) return json([]);
+  if (url.startsWith("/api/files/breadcrumbs")) {
+    const subdir = new URLSearchParams(url.slice(url.indexOf("?"))).get("subdir") ?? "";
+    return json(subdir ? subdir.split("/").map((name, index, parts) => ({ name, path: parts.slice(0, index + 1).join("/") })) : []);
+  }
   if (url.includes("/commands?")) {
     if (commandsFail) return json({ detail: "no runtime" }, 500);
     return json({ commands: [{ name: "skill:review", description: "Review files", source: "skill" }] });
@@ -414,6 +417,20 @@ describe("composer completion keyboard paths", () => {
     await type("results/structures/1abc");
     await press("Tab");
     expect(input()).toHaveValue("results/structures/1abc.pdb");
+  });
+
+  it("returns to the workspace root when the root breadcrumb is clicked", async () => {
+    renderComposer();
+    await type("@data/");
+    const labels = () => screen.getAllByRole("option").map((option) => option.querySelector("span")?.textContent);
+    await waitFor(() => expect(labels()).toEqual(["dataset.csv", "protein.csv"]));
+
+    fireEvent.click(screen.getByRole("button", { name: "Workspace" }));
+
+    await waitFor(() => expect(labels()).toEqual([
+      "protein_structure/", "protein_structure/", "notes.md", "protein_old.csv", "protein.csv", "report.md",
+    ]));
+    expect(input()).toHaveValue("@data/");
   });
 
   it("navigates the candidate list with the arrow keys and accepts with Enter", async () => {
