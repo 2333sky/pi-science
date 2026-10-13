@@ -40,9 +40,13 @@ export function useComposer(params: {
   const sendPrompt = useRuntimeStore((s) => s.sendPrompt);
   const activeSessionId = useRuntimeStore((s) => s.activeSessionId);
   const input = useRuntimeStore((s) => s.draft);
-  const setInput = useRuntimeStore((s) => s.setDraft);
-  const [files, setFiles] = useState<File[]>([]);
-  const [entities, setEntities] = useState<ComposerEntity[]>([]);
+  const setDraft = useRuntimeStore((s) => s.setDraft);
+  const composerRevisionRef = useRef(0);
+  const setInput = useCallback((value: string) => { composerRevisionRef.current += 1; setDraft(value); }, [setDraft]);
+  const [files, updateFiles] = useState<File[]>([]);
+  const [entities, updateEntities] = useState<ComposerEntity[]>([]);
+  const setFiles = useCallback<React.Dispatch<React.SetStateAction<File[]>>>((value) => { composerRevisionRef.current += 1; updateFiles(value); }, []);
+  const setEntities = useCallback<React.Dispatch<React.SetStateAction<ComposerEntity[]>>>((value) => { composerRevisionRef.current += 1; updateEntities(value); }, []);
   const validEntities = useMemo(() => validComposerEntities(input, entities), [input, entities]);
   const mentions = useMemo(() => validEntities.flatMap((entity) => entity.kind === "mention"
     ? [{ id: entity.id, name: entity.name, start: entity.start, end: entity.end }] : []), [validEntities]);
@@ -61,6 +65,18 @@ export function useComposer(params: {
   );
   const clearWorkspaceReferences = useUiStore((state) => state.clearWorkspaceReferences);
   const composerContextRef = useRef<{ cwd: string; conversationKey: string | null; sessionId: string | null } | null>(null);
+
+  useEffect(() => {
+    const unsubscribeRuntime = useRuntimeStore.subscribe((state, previous) => {
+      if (state.draft !== previous.draft || (previous.activeSessionId !== null && state.activeSessionId !== previous.activeSessionId)) composerRevisionRef.current += 1;
+    });
+    const unsubscribeUi = useUiStore.subscribe((state, previous) => {
+      const current = state.workspaceReferences.filter((reference) => reference.cwd === cwd);
+      const before = previous.workspaceReferences.filter((reference) => reference.cwd === cwd);
+      if (current.length !== before.length || current.some((reference, index) => reference !== before[index])) composerRevisionRef.current += 1;
+    });
+    return () => { unsubscribeRuntime(); unsubscribeUi(); composerRevisionRef.current += 1; };
+  }, [cwd]);
 
   useEffect(() => {
     const composerContext = { cwd, conversationKey, sessionId: activeSessionId };
@@ -82,7 +98,7 @@ export function useComposer(params: {
     if (initialDraft && !useRuntimeStore.getState().draft) {
       setInput(initialDraft);
     }
-  }, [activeSessionId, clearWorkspaceReferences, conversationKey, cwd, location.state, setInput]);
+  }, [activeSessionId, clearWorkspaceReferences, conversationKey, cwd, location.state, setEntities, setFiles, setInput]);
 
   const uploadFiles = useCallback(async (fileList: FileList | File[]) => {
     const arr = Array.from(fileList);
@@ -99,7 +115,7 @@ export function useComposer(params: {
         toast(err instanceof Error ? err.message : t("conversation.uploadError"), "error");
       }
     }
-  }, [t, toast, cwd]);
+  }, [t, toast, cwd, setFiles]);
 
   const runSlashCommand = async (value: string): Promise<"handled" | "requires-session" | false> => {
     const match = value.match(/^\/(\S+)(?:\s+([\s\S]*))?$/);
@@ -169,6 +185,7 @@ export function useComposer(params: {
     setEntities([]);
     setFiles([]);
     clearWorkspaceReferences(cwd);
+    const sentRevision = composerRevisionRef.current;
     onSend?.();
     // A late result belongs to the conversation that sent the prompt. The composer records
     // that context, so a user who opened another conversation meanwhile is left alone.
@@ -186,13 +203,12 @@ export function useComposer(params: {
         }
       })
       .catch(() => {
-        // Keep the failed message visible with its inline error, but restore the
-        // original draft/attachments so retrying does not require retyping.
+        // The thread keeps the failed message and its retry action when a newer draft owns the composer.
         const composer = composerContextRef.current;
-        if (composer?.cwd !== cwd || composer.conversationKey !== sentFrom) return;
-        if (!useRuntimeStore.getState().draft) setInput(originalDraft);
-        setEntities((current) => current.length > 0 ? current : sentEntities);
-        setFiles((current) => current.length > 0 ? current : sentFiles);
+        if (composer?.cwd !== cwd || composer.conversationKey !== sentFrom || composerRevisionRef.current !== sentRevision || useRuntimeStore.getState().draft) return;
+        setInput(originalDraft);
+        setEntities(sentEntities);
+        setFiles(sentFiles);
         sentReferences.forEach((reference) => useUiStore.getState().addWorkspaceReference(reference));
       });
   };

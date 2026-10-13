@@ -404,8 +404,7 @@ describe("composer send-failure restore", () => {
       await pending.catch(() => undefined);
     });
 
-    // References are always re-added; the draft is only restored when empty.
-    await waitFor(() => expect(useUiStore.getState().workspaceReferences).toHaveLength(1));
+    expect(useUiStore.getState().workspaceReferences).toEqual([]);
     expect(useRuntimeStore.getState().draft).toBe("typed while sending");
   });
 });
