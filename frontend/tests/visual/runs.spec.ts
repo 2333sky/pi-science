@@ -158,3 +158,26 @@ test("long concurrent, zero and unknown intervals stay readable @accessibility",
   const results = await new AxeBuilder({ page }).analyze();
   expect(results.violations.filter((v) => v.impact === "critical" || v.impact === "serious")).toEqual([]);
 });
+
+
+test("base64 commands stay compact in list and timeline while details retain evidence", async ({ page }, testInfo) => {
+  test.skip(!["desktop-light", "mobile"].includes(testInfo.project.name), "Long command coverage");
+  const command = ["python", "draw.py", "--image", `data:image/png;base64,${"iVBORw0KGgoAAAANSUhEUg".repeat(2_000)}`];
+  const run = { ...records[0]!, kind: "job", request: { command }, result: { output_preview: command[3] } };
+  await page.route("**/api/executions?*", (route) => route.fulfill({ json: { executions: [run], total: 1, filtered_total: 1 } }));
+  await page.goto(`${root}/runs?view=list`);
+  for (const view of ["list", "timeline"]) {
+    if (view === "timeline") await page.getByRole("button", { name: "Execution timeline", exact: true }).click();
+    const pane = page.getByRole("region", { name: view === "list" ? "Execution ledger" : "Execution timeline" });
+    const row = pane.getByRole("button", { name: /python draw\.py --image/ });
+    await expect(row).toBeVisible();
+    expect((await pane.textContent())!.length).toBeLessThan(1_000);
+    expect(await pane.locator("[title]").evaluateAll((elements) => elements.every((el) => (el.getAttribute("title")?.length ?? 0) < 500))).toBe(true);
+    expect(await row.evaluate((el) => el.getBoundingClientRect().height)).toBeLessThan(180);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)).toBe(false);
+    await row.click();
+    const detail = page.getByRole("region", { name: "Execution details" });
+    await expect(detail.locator("pre").first()).toHaveText(command.join(" "));
+    if (testInfo.project.name === "mobile") await page.getByRole("button", { name: "Back to executions" }).click();
+  }
+});

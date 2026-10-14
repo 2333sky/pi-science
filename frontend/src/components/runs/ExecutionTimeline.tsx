@@ -4,7 +4,7 @@ import { ChevronDown, Maximize2, Minus, Plus } from "lucide-react";
 import type { ExecutionLedgerProps } from "./ExecutionLedger";
 import { executionTimeline, timelineTicks } from "./timeline";
 import { ExecutionStatusIcon } from "./ExecutionStatusIcon";
-import { formatDuration, executionLabel, executionShortLabel, executionError, formatTimestamp, isActiveExecution, isProblemExecution } from "./run-formatters";
+import { formatDuration, executionPreview, executionLabel, executionShortLabel, executionError, formatTimestamp, isActiveExecution, isProblemExecution } from "./run-formatters";
 import { cn } from "../../lib/ui";
 
 export function ExecutionTimeline({ runs, selectedId, onSelect, groupBySession, sessionTitles = {} }: ExecutionLedgerProps) {
@@ -53,12 +53,14 @@ export function ExecutionTimeline({ runs, selectedId, onSelect, groupBySession, 
         {groups.map((group) => <div key={group.id}>
           {groupBySession && <button type="button" aria-expanded={!collapsed.has(group.id)} onClick={() => setCollapsed((current) => { const next = new Set(current); if (!next.delete(group.id)) next.add(group.id); return next; })} className="sticky left-0 flex min-h-10 w-full items-center gap-2 border-b border-border bg-surface-2 px-4 text-left text-xs font-medium text-text"><ChevronDown size={13} className={collapsed.has(group.id) ? "-rotate-90" : ""} /><span className="max-w-[260px] truncate" title={group.id}>{sessionTitles[group.id] || group.id || t("runs.unassociated")}</span><span className="text-muted">{group.rows.length}</span></button>}
           {(!groupBySession || !collapsed.has(group.id)) && group.rows.map(({ run, left, width, known, start, end, active: running }) => {
+            const source = executionPreview(executionLabel(run));
+            const label = executionShortLabel(run);
             const problem = isProblemExecution(run);
             const duration = known ? formatDuration(end - start) : "—";
             const summary = executionError(run) || run.result.output_preview || run.result.stdout_preview;
-            return <button key={run.execution_id} type="button" aria-label={`${executionShortLabel(run)} · ${executionLabel(run)} · ${t(`runs.status.${run.status}`)} · ${duration}${known ? "" : ` · ${t("runs.unknownTiming")}`}`} aria-current={selectedId === run.execution_id ? "true" : undefined} onClick={() => onSelect(run.execution_id)} title={`${executionLabel(run)}\n${t(`runs.status.${run.status}`)} · ${duration}\n${formatTimestamp(run.started_at)} — ${formatTimestamp(run.ended_at)}${summary ? `\n${summary}` : ""}`} className={cn("runs-timeline-grid grid min-h-20 w-full border-b border-faint text-left focus-visible:relative focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent", selectedId === run.execution_id ? "bg-accent-soft" : "bg-surface hover:bg-surface-2/60")}>
+            return <button key={run.execution_id} type="button" aria-label={`${label} · ${source} · ${t(`runs.status.${run.status}`)} · ${duration}${known ? "" : ` · ${t("runs.unknownTiming")}`}`} aria-current={selectedId === run.execution_id ? "true" : undefined} onClick={() => onSelect(run.execution_id)} title={`${source}\n${t(`runs.status.${run.status}`)} · ${duration}\n${formatTimestamp(run.started_at)} — ${formatTimestamp(run.ended_at)}${summary ? `\n${executionPreview(summary, 240)}` : ""}`} className={cn("runs-timeline-grid grid min-h-20 w-full border-b border-faint text-left focus-visible:relative focus-visible:z-10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent", selectedId === run.execution_id ? "bg-accent-soft" : "bg-surface hover:bg-surface-2/60")}>
               <span className={cn("sticky left-0 z-10 min-w-0 px-4 py-3", selectedId === run.execution_id ? "bg-accent-soft" : "bg-surface")}>
-                <span className="flex items-start gap-2"><ExecutionStatusIcon status={run.status} size={14} /><span className="line-clamp-2 break-all text-[13px] font-medium leading-5 text-text">{executionShortLabel(run)}</span></span>
+                <span className="flex items-start gap-2"><ExecutionStatusIcon status={run.status} size={14} /><span className="line-clamp-2 break-all text-[13px] font-medium leading-5 text-text">{label}</span></span>
                 <span className={cn("mt-1 block pl-[22px] text-xs", problem ? "text-error-text" : "text-muted")}>{t(`runs.status.${run.status}`)} · {duration}</span>
               </span>
               <span className="relative mr-4 flex min-w-0 items-center">

@@ -405,6 +405,26 @@ describe("execution scope and timeline", () => {
 });
 
 describe("review regressions", () => {
+  it.each(["list", "timeline"])("bounds base64 command previews in %s while preserving detail and copy", async (view) => {
+    const payload = "iVBORw0KGgoAAAANSUhEUg".repeat(2_000);
+    const command = ["python", "draw.py", "--image", `data:image/png;base64,${payload}`];
+    const run = { ...jobExecution, request: { command }, result: { stderr_preview: payload } };
+    fetchMock.mockImplementation((input) => fetchExecutions(input, [run]));
+    renderPage(`/workspace/project/runs?view=${view}`);
+    const row = await screen.findByRole("button", { name: /python draw\.py --image/ });
+    const pane = screen.getByRole("region", { name: view === "list" ? "Execution ledger" : "Execution timeline" });
+    expect(pane.textContent!.length).toBeLessThan(1_000);
+    expect(row.getAttribute("aria-label")?.length ?? row.textContent!.length).toBeLessThan(650);
+    for (const element of pane.querySelectorAll("[title]")) expect(element.getAttribute("title")!.length).toBeLessThan(500);
+    expect(pane.textContent).not.toContain(payload);
+    expect(pane.textContent).toContain("…");
+    await screen.findByText("node-job-coordinator");
+    const detail = screen.getByRole("region", { name: "Execution details" });
+    expect(within(detail).getByText(command.join(" "), { selector: "pre" })).toBeInTheDocument();
+    fireEvent.click(within(detail).getByRole("button", { name: "Copy command" }));
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith(command.join(" ")));
+  });
+
   it.each([75, 125])("keeps historical target %s outside the first page and can locate its page", async (position) => {
     const target = { ...kernelExecution, execution_id: `historical-${position}`, producer: `historical-producer-${position}` };
     fetchMock.mockImplementation(async (input) => {

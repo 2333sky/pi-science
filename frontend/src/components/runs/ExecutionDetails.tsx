@@ -8,7 +8,7 @@ import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/ui";
 import { ExecutionStatusIcon } from "./ExecutionStatusIcon";
 import type { DetailTab, DisplayLog } from "./run-types";
-import { executionCommandText, executionDuration, executionError, executionLabel, executionShortLabel, formatTimestamp, isProblemExecution } from "./run-formatters";
+import { executionCommandText, executionDuration, executionError, executionPreview, executionLabel, executionShortLabel, formatTimestamp, isProblemExecution } from "./run-formatters";
 
 export interface ExecutionDetailsProps {
   run: ExecutionRecord;
@@ -44,7 +44,7 @@ export function ExecutionDetails({ run, tab, onTabChange, onBack, onCopy, onOpen
         </button>
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2"><ExecutionStatusIcon status={run.status} size={16} /><h2 title={executionLabel(run)} className="line-clamp-2 break-all text-base font-semibold leading-6 text-text">{executionShortLabel(run)}</h2></div>
+            <div className="flex items-center gap-2"><ExecutionStatusIcon status={run.status} size={16} /><h2 title={executionPreview(executionLabel(run))} className="line-clamp-2 break-all text-base font-semibold leading-6 text-text">{executionShortLabel(run)}</h2></div>
             <div className="mt-1.5 flex flex-wrap gap-2 text-xs text-muted">
               <span className="rounded bg-surface-2 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-text">{run.surface}</span>
               <span className="rounded bg-surface-2 px-1.5 py-0.5">{t(`runs.kind.${run.kind}`)}</span>

@@ -52,7 +52,11 @@ with existing callers/fixtures; the server always supplies it. Legacy inspector
 queries still return arrays, and session inspectors request their session directly.
 
 Lists show recorded session ownership, status, result/error previews, and output
-counts. Session grouping and the timeline operate on the current page and say so.
+counts. Command/code/title previews and source tooltips are capped at 120
+characters; list result previews are capped at 240 and two visible lines.
+Accessible row names use bounded previews too, so large base64 arguments never
+enter the browsing pane as full strings. Original command/code evidence and
+copy actions in details retain the full recorded content. Session grouping and the timeline operate on the current page and say so.
 The timeline uses a shared absolute timestamp axis, preserving overlap. Running
 executions extend to now; terminal executions without valid start/end timestamps
 are marked unavailable. Zero duration remains zero in the model, with a minimum
