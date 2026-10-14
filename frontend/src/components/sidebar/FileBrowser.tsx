@@ -9,6 +9,7 @@ import { useFeedback } from "../feedback/feedback-context";
 import { FileContextMenu, type ContextPoint, type FileListEntry } from "./FileContextMenu";
 import { useRuntimeStore } from "../../lib/agent-runtime";
 import { Icon } from "../ui/Icon";
+import { ApiError, apiRequest } from "../../lib/client/api";
 
 interface DirState { entries: FileListEntry[]; loading: boolean; error: string | null }
 
@@ -65,6 +66,42 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
   const [dragHeight, setDragHeight] = useState<number | null>(null);
   const [resizing, setResizing] = useState(false);
 
+  const [dropTarget, setDropTarget] = useState<{ path: string; valid: boolean } | null>(null);
+  const dragDepthRef = useRef(0);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const uploadRef = useRef<AbortController | null>(null);
+  const showAllRootRef = useRef(false);
+
+  useEffect(() => {
+    dragDepthRef.current = 0;
+    setDropTarget(null);
+    setUploadStatus("");
+    setUploading(false);
+    showAllRootRef.current = false;
+    return () => {
+      uploadRef.current?.abort();
+      uploadRef.current = null;
+    };
+  }, [cwd]);
+
+  useEffect(() => {
+    const clear = () => { dragDepthRef.current = 0; setDropTarget(null); };
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") clear(); };
+    window.addEventListener("dragend", clear);
+    window.addEventListener("drop", clear);
+    window.addEventListener("blur", clear);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("drop", clear);
+      window.removeEventListener("blur", clear);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, []);
+
+  useEffect(() => { if (!shouldPoll) setDropTarget(null); }, [shouldPoll]);
+
   const availableContainerHeight = () => rootRef.current?.parentElement?.getBoundingClientRect().height;
   const displayedHeight = clampFileBrowserHeight(dragHeight ?? fileBrowserHeight);
 
@@ -108,7 +145,9 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
       setLoading(true);
     }
     try {
-      const rootEntries = await workspaceFiles.sidebar(cwd, signal);
+      const rootEntries = showAllRootRef.current
+        ? (await workspaceFiles.directory(cwd, "", signal)).entries
+        : await workspaceFiles.sidebar(cwd, signal);
       if (token !== requestTokenRef.current || signal?.aborted) return;
       setEntries(rootEntries);
 
@@ -265,6 +304,92 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
     void loadFiles();
   };
 
+  const uploadToDirectory = async (files: File[], directory: string, rejected: string[]) => {
+    const controller = new AbortController();
+    uploadRef.current = controller;
+    setUploading(true);
+    const failures = [...rejected];
+    let succeeded = 0;
+    try {
+      for (const [index, file] of files.entries()) {
+        if (controller.signal.aborted) return;
+        setUploadStatus(t("files.uploadProgress", { current: index + 1, total: files.length, name: file.name }));
+        try {
+          // File.name should be a basename; never let a synthetic drop supply a path.
+          if (!file.name || /[/\\]/.test(file.name) || file.name === "." || file.name === "..") {
+            throw new Error(t("files.uploadInvalidName"));
+          }
+          const form = new FormData();
+          form.append("file", file);
+          await apiRequest(`/api/files/upload?${new URLSearchParams({ cwd, path: directory ? `${directory}/${file.name}` : file.name })}`, {
+            method: "POST", body: form, signal: controller.signal,
+            errorFallback: t("files.uploadError"),
+          });
+          succeeded += 1;
+          workspaceFiles.invalidate();
+          if (controller.signal.aborted) return;
+          if (directory) {
+            openFoldersRef.current = new Set([...openFoldersRef.current, directory]);
+            setOpenFolders(new Set(openFoldersRef.current));
+          } else {
+            // Reveal uploads even when the root's usual first 30 entries exclude them.
+            showAllRootRef.current = true;
+          }
+          await loadFiles(controller.signal, true);
+        } catch (error) {
+          if (controller.signal.aborted) return;
+          const reason = error instanceof ApiError && error.status === 409 ? t("files.uploadConflict")
+            : error instanceof ApiError && error.status === 413 ? t("files.uploadTooLarge")
+            : error instanceof Error ? error.message : t("files.uploadError");
+          failures.push(`${file.name}: ${reason}`);
+        }
+      }
+      if (controller.signal.aborted) return;
+      const summary = t("files.uploadResult", { succeeded, failed: failures.length });
+      const message = failures.length ? `${summary} ${failures.join("; ")}` : summary;
+      setUploadStatus(message);
+      toast(message, failures.length ? "error" : "success");
+    } finally {
+      if (uploadRef.current === controller) {
+        uploadRef.current = null;
+        setUploading(false);
+        setDropTarget(null);
+      }
+    }
+  };
+
+  // Delegate to rows so nested icons/text never change the target or flicker.
+  // Only OS file drags are intercepted; text/links and internal drags pass through.
+  const handleFileDrag = (event: React.DragEvent<HTMLDivElement>, drop = false) => {
+    if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const row = (event.target as Element).closest<HTMLElement>("[data-file-drop-path]");
+    const directory = row ? (row.dataset.fileDropDirectory === "true" ? row.dataset.fileDropPath! : null) : "";
+    event.dataTransfer.dropEffect = directory === null || uploading || !active ? "none" : "copy";
+    if (!drop) {
+      setDropTarget(uploading || !active ? null : { path: directory ?? row!.dataset.fileDropPath!, valid: directory !== null });
+      return;
+    }
+    dragDepthRef.current = 0;
+    setDropTarget(null);
+    if (directory === null || uploadRef.current || !active) return;
+    const rejected: string[] = [];
+    const files: File[] = [];
+    const items = Array.from(event.dataTransfer.items ?? []).filter((item) => item.kind === "file");
+    if (items.length) {
+      for (const item of items) {
+        const entry = item.webkitGetAsEntry?.();
+        if (entry?.isDirectory) rejected.push(`${entry.name}: ${t("files.uploadFolderUnsupported")}`);
+        else {
+          const file = item.getAsFile();
+          if (file) files.push(file);
+        }
+      }
+    } else files.push(...Array.from(event.dataTransfer.files));
+    if (files.length || rejected.length) void uploadToDirectory(files, directory, rejected);
+  };
+
   const handleContextMenu = (e: React.MouseEvent, entry: FileListEntry) => {
     e.preventDefault();
     setContextMenu({ entry, point: { x: e.clientX, y: e.clientY } });
@@ -352,7 +477,27 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
           </button>
         </div>
         {visible && (
-          <div className="mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto">
+          <div
+            aria-label={t("files.dropRoot")}
+            aria-busy={uploading}
+            onDragEnter={(event) => {
+              if (Array.from(event.dataTransfer.types).includes("Files")) dragDepthRef.current += 1;
+              handleFileDrag(event);
+            }}
+            onDragOver={handleFileDrag}
+            onDrop={(event) => handleFileDrag(event, true)}
+            onDragLeave={(event) => {
+              if (!Array.from(event.dataTransfer.types).includes("Files")) return;
+              dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+              if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+              // Some browsers omit relatedTarget on drag events. Balance enter/leave
+              // events in that case so crossing child elements keeps the highlight.
+              if (!event.relatedTarget && dragDepthRef.current > 0) return;
+              dragDepthRef.current = 0;
+              setDropTarget(null);
+            }}
+            className={cn("mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto rounded-input", dropTarget?.path === "" && dropTarget.valid && "bg-accent/10 ring-2 ring-inset ring-accent/60")}
+          >
             {loading && entries.length === 0 ? (
               <p className="px-2 text-ui-meta italic text-muted/60">{t("common.loading")}</p>
             ) : entries.length === 0 ? (
@@ -367,7 +512,12 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
                     <button
                       onClick={() => handleClick(e)}
                       onContextMenu={(ev) => handleContextMenu(ev, e)}
-                      className="flex h-tool w-full items-center gap-2 truncate rounded-input px-2 text-left text-ui-caption text-text/80 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40"
+                      data-file-drop-path={e.path}
+                      data-file-drop-directory={e.isDir}
+                      data-drop-state={dropTarget?.path === e.path && dropTarget.valid ? "valid" : dropTarget?.path === e.path && !dropTarget.valid ? "invalid" : undefined}
+                      className={cn("flex h-tool w-full items-center gap-2 truncate rounded-input px-2 text-left text-ui-caption text-text/80 transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40",
+                        dropTarget?.path === e.path && dropTarget.valid && "bg-accent/10 ring-2 ring-inset ring-accent/60",
+                        dropTarget?.path === e.path && !dropTarget.valid && "cursor-not-allowed bg-error/10 ring-2 ring-inset ring-error/60")}
                       title={e.path}
                       style={{ paddingLeft: `${8 + e.depth * 12}px` }}
                       aria-expanded={e.isDir ? openFolders.has(e.path) : undefined}
@@ -384,8 +534,12 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
                 );
               })
             )}
+            <div className="min-h-10 flex-1 px-2 py-2 text-ui-meta text-muted/60">
+              {t(dropTarget?.valid === false ? "files.dropInvalid" : "files.dropRoot")}
+            </div>
           </div>
         )}
+        {visible && uploadStatus && <p role="status" className="max-h-24 shrink-0 overflow-y-auto break-words px-2 py-1 text-ui-meta text-muted">{uploadStatus}</p>}
       </div>
 
       {/* Context menu */}
