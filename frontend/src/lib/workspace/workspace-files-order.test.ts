@@ -31,4 +31,29 @@ describe("sortFileEntries", () => {
     expect(result.slice(0, 2).map(item => item.name)).toEqual(["dir2", "Dir10"]);
     expect(result.every(item => !item.name.startsWith("."))).toBe(true);
   });
+
+  it("reserves bounded slots for recent uploads without hiding folders unnecessarily", async () => {
+    const entries = [
+      ...Array.from({ length: 2000 }, (_, i) => entry(`file${i}.csv`, false)),
+      entry("work", true), entry("z-upload.csv", false), entry(".uploaded", false), entry(".hidden", false),
+    ];
+    vi.spyOn(workspaceFiles, "directory").mockResolvedValue({ entries, breadcrumbs: [] });
+    const result = await workspaceFiles.sidebar("proj", undefined, ["z-upload.csv", ".uploaded"]);
+    expect(result).toHaveLength(30);
+    expect(result.map(item => item.path)).toEqual(expect.arrayContaining(["work", "z-upload.csv", ".uploaded"]));
+    expect(result.some(item => item.path === ".hidden")).toBe(false);
+    expect((await workspaceFiles.sidebar("other")).some(item => item.path === "z-upload.csv")).toBe(false);
+  });
+
+  it("limits reservations to the latest 30 paths and drops removed files on subsequent reads", async () => {
+    let entries = Array.from({ length: 100 }, (_, i) => entry(`upload${i}.csv`, false));
+    vi.spyOn(workspaceFiles, "directory").mockImplementation(async () => ({ entries, breadcrumbs: [] }));
+    const recent = entries.map(item => item.path);
+    expect(await workspaceFiles.sidebar("proj", undefined, recent)).toEqual(entries.slice(-30));
+    entries = entries.filter(item => item.path !== "upload99.csv");
+    const refreshed = await workspaceFiles.sidebar("proj", undefined, recent);
+    expect(refreshed).toHaveLength(30);
+    expect(refreshed.some(item => item.path === "upload99.csv")).toBe(false);
+  });
+
 });
