@@ -61,13 +61,15 @@ export const workspaceFiles = {
 
   async sidebar(cwd: string, signal?: AbortSignal, recentPaths: readonly string[] = []): Promise<FileListEntry[]> {
     const { entries } = await this.directory(cwd, "", signal);
-    // Keep the sidebar bounded, while reserving slots for recent root uploads
-    // that would otherwise sort past the limit. Reuse the same directory cache.
-    const recent = new Set(recentPaths.slice(-SIDEBAR_FILE_LIMIT));
+    // Reserve directory navigation first. Fill remaining slots with the newest
+    // root uploads, then ordinary files, without exceeding the sidebar limit.
+    const recent = new Map(recentPaths.slice(-SIDEBAR_FILE_LIMIT).map((path, index) => [path, index]));
     const visible = sortFileEntries(entries.filter((entry) => !entry.name.startsWith(".") || recent.has(entry.path)));
-    const uploaded = visible.filter((entry) => recent.has(entry.path));
-    const rest = visible.filter((entry) => !recent.has(entry.path));
-    return sortFileEntries([...uploaded, ...rest].slice(0, SIDEBAR_FILE_LIMIT));
+    const directories = visible.filter((entry) => entry.isDir);
+    const uploaded = visible.filter((entry) => !entry.isDir && recent.has(entry.path))
+      .sort((left, right) => recent.get(right.path)! - recent.get(left.path)!);
+    const rest = visible.filter((entry) => !entry.isDir && !recent.has(entry.path));
+    return sortFileEntries([...directories, ...uploaded, ...rest].slice(0, SIDEBAR_FILE_LIMIT));
   },
 
   async remove(cwd: string, path: string): Promise<void> {

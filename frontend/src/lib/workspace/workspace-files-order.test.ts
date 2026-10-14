@@ -56,4 +56,22 @@ describe("sortFileEntries", () => {
     expect(refreshed.some(item => item.path === "upload99.csv")).toBe(false);
   });
 
+  it.each([30, 50])("keeps root folders when %i recent uploads exceed the remaining slots", async (count) => {
+    const folders = [entry("work", true), entry("data", true), entry("reports", true)];
+    const uploads = Array.from({ length: count }, (_, i) => entry(`upload${i}.csv`, false));
+    vi.spyOn(workspaceFiles, "directory").mockResolvedValue({ entries: [...folders, ...uploads], breadcrumbs: [] });
+    const result = await workspaceFiles.sidebar("proj", undefined, uploads.map(item => item.path));
+    expect(result).toHaveLength(30);
+    expect(result.filter(item => item.isDir).map(item => item.path)).toEqual(["data", "reports", "work"]);
+    expect(result.filter(item => !item.isDir)).toEqual(uploads.slice(-27));
+  });
+
+  it("keeps the directory-first limit when folders alone fill the sidebar", async () => {
+    const folders = Array.from({ length: 35 }, (_, i) => entry(`dir${i}`, true));
+    const uploads = Array.from({ length: 30 }, (_, i) => entry(`upload${i}.csv`, false));
+    vi.spyOn(workspaceFiles, "directory").mockResolvedValue({ entries: [...uploads, ...folders], breadcrumbs: [] });
+    const result = await workspaceFiles.sidebar("proj", undefined, uploads.map(item => item.path));
+    expect(result).toEqual(folders.slice(0, 30));
+  });
+
 });

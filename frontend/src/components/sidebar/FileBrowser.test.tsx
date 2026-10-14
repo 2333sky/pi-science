@@ -400,14 +400,41 @@ describe("FileBrowser external file uploads", () => {
     expect(files.sidebar).toHaveBeenLastCalledWith("other", expect.anything(), []);
   });
 
-  it("bounds recent-root reservations for a batch larger than the sidebar", async () => {
+  it.each([30, 50])("keeps root folders visible and usable after a batch of %i uploads and polling", async (count) => {
+    const { workspaceFiles: realFiles } = await import("../../lib/workspace/workspace-files");
+    const rootEntries = [entry("work", true), entry("data", true), entry("reports", true)];
+    files.directory.mockImplementation(async (_cwd: string, subdir: string) => ({
+      entries: subdir ? [] : [...rootEntries], breadcrumbs: [],
+    }));
+    files.sidebar.mockImplementation(realFiles.sidebar.bind({ ...realFiles, directory: files.directory }));
+    request.mockImplementation(async (_url, options) => {
+      const file = (options!.body as FormData).get("file") as File;
+      rootEntries.push(entry(file.name));
+      return { ok: true };
+    });
     render(<FileBrowser cwd="proj" embedded />);
-    await screen.findByRole("button", { name: "reports" });
-    const names = Array.from({ length: 50 }, (_, i) => `upload${i}.csv`);
+    const work = await screen.findByRole("button", { name: "work" });
+    await vi.waitFor(() => expect(work).toHaveAttribute("aria-expanded", "true"));
+    const names = Array.from({ length: count }, (_, i) => `upload${i}.csv`);
     fireEvent.drop(rootZone(), { dataTransfer: transfer(names) });
-    await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Uploaded: 50; failed/skipped: 0."));
+    await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(`Uploaded: ${count}; failed/skipped: 0.`));
+    const assertRoot = () => {
+      expect(screen.getAllByRole("button")).toHaveLength(31); // 3 folders, 27 uploads, refresh
+      for (const name of ["work", "data", "reports"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
+      expect(work).toHaveAttribute("aria-expanded", "true");
+      expect(screen.getByRole("button", { name: names.at(-1)! })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: names[0] })).not.toBeInTheDocument();
+    };
+    assertRoot();
     expect(files.sidebar).toHaveBeenLastCalledWith("proj", expect.anything(), names.slice(-30));
     expect(files.invalidate).toHaveBeenCalledTimes(1);
+    vi.useFakeTimers();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    assertRoot();
+    fireEvent.click(screen.getByRole("button", { name: "reports" }));
+    await act(async () => {});
+    expect(screen.getByRole("button", { name: "reports" })).toHaveAttribute("aria-expanded", "true");
+    expect(files.directory).toHaveBeenLastCalledWith("proj", "reports");
   });
 
   it.each([false, true])("prevents file navigation on the header when embedded=%s", async (embedded) => {
