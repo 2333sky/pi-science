@@ -3,7 +3,7 @@
  *
  * Validates the real SKILL.md against the server skill catalog (frontmatter
  * schema, no hard MCP requirement, third-party disclosures) and asserts the
- * zero-configuration direct API commands and the mandatory citation output
+ * guarded local CLI and the mandatory citation output
  * convention are documented. Run from the server package:
  *
  *   pnpm --filter @pi-science/server exec vitest run --dir ../../skills/literature-review/tests
@@ -33,7 +33,7 @@ describe("literature-review skill content", () => {
     expect(validations[0]?.valid).toBe(true);
   });
 
-  it("does not require MCP tools and declares the direct API providers", async () => {
+  it("does not require MCP tools and declares the retrieval providers", async () => {
     const record = await parseSkill(SKILL_MD, "builtin", SKILLS_ROOT);
     expect(record.metadata.name).toBe("literature-review");
     expect(record.metadata.risk).toBe("low");
@@ -42,10 +42,10 @@ describe("literature-review skill content", () => {
 
     const requirementNames = record.metadata.requirements.map((r) => r.name);
     expect(requirementNames).toContain("network");
-    expect(requirementNames).toContain("curl");
-    const curl = record.metadata.requirements.find((r) => r.name === "curl");
-    expect(curl?.kind).toBe("command");
-    expect(curl?.optional).toBe(true);
+    expect(requirementNames).toContain("pnpm");
+    const command = record.metadata.requirements.find((r) => r.name === "pnpm");
+    expect(command?.kind).toBe("command");
+    expect(command?.optional).toBe(true);
 
     const services = record.metadata.third_party.map((t) => t.name);
     expect(services).toContain("Crossref REST API");
@@ -56,40 +56,22 @@ describe("literature-review skill content", () => {
     }
   });
 
-  it("documents the retrieval strategy and exact direct API commands", async () => {
+  it("documents guarded retrieval and complete provider coverage", async () => {
     const body = await readFile(SKILL_MD, "utf8");
-
-    // MCP preferred, direct APIs as the zero-config fallback, no memory answers.
     expect(body).toContain("literature.search");
     expect(body).toContain("Never answer from memory");
     expect(body).toContain("never invent a DOI");
     expect(body).toContain("Never silently substitute memory");
-
-    // Literature retrieval now uses MCP tools or direct public APIs, not a local HTTP gateway.
     expect(body).not.toContain("/api/literature/");
-    expect(body).toContain("Direct `curl` requests leave the machine");
+    expect(body).not.toMatch(/curl -s/);
+    expect(body).toContain("pnpm --silent literature:search");
+    expect(body).toContain('"blocked": true');
+    expect(body).toContain("no request leaves the machine");
     expect(body).toContain("explicit user approval");
-    expect(body).toContain("rest.uniprot.org");
-    expect(body).toContain("pubchem.ncbi.nlm.nih.gov");
-
-    // Crossref command shape and polite-pool convention.
-    expect(body).toContain(
-      'curl -s "https://api.crossref.org/works?query=<terms>&rows=10&select=DOI,title,author,issued,container-title,is-referenced-by-count"',
-    );
-    expect(body).toContain("mailto");
-
-    // arXiv command shape and sort options.
-    expect(body).toContain('curl -s "https://export.arxiv.org/api/query?search_query=all:<terms>&max_results=10"');
-    expect(body).toContain("sortBy=relevance");
-    expect(body).toContain("sortBy=submittedDate");
-
-    // PubMed E-utilities two-step flow and no-key rate limit.
-    expect(body).toContain(
-      'curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=<terms>&retmode=json&retmax=10"',
-    );
-    expect(body).toContain("esummary.fcgi");
-    expect(body).toContain("efetch.fcgi");
-    expect(body).toContain("3 requests/second");
+    expect(body).toContain("Crossref is unsupported");
+    for (const provider of ["pubmed", "genbank", "arxiv", "pubchem", "uniprot"]) {
+      expect(body).toContain(`\`${provider}\``);
+    }
 
     // Result handling rules.
     expect(body).toContain("Deduplicate across providers");

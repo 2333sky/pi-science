@@ -1,17 +1,17 @@
 ---
 name: literature-review
-description: Find, verify, and synthesize scientific literature with traceable citations. Prefer configured literature MCP connectors; otherwise query public Crossref, arXiv, and PubMed APIs directly via curl with appropriate data-sharing safeguards. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
-version: 0.2.2
+description: Find, verify, and synthesize scientific literature with traceable citations. Prefer configured literature MCP connectors; otherwise use the guarded local literature CLI for PubMed, GenBank, arXiv, PubChem, and UniProt. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
+version: 0.2.3
 license: Apache-2.0
 category: research
 requirements:
   - name: network
     kind: service
     description: Outbound HTTPS access to public literature APIs (api.crossref.org, export.arxiv.org, eutils.ncbi.nlm.nih.gov, rest.uniprot.org, pubchem.ncbi.nlm.nih.gov), or a configured literature MCP connector that performs retrieval.
-  - name: curl
+  - name: pnpm
     kind: command
     optional: true
-    description: Used for the zero-configuration direct API path. Not needed when a literature MCP connector handles retrieval.
+    description: Runs the guarded literature CLI from a Pi-Science checkout with dependencies installed. Not needed when an authorized literature MCP connector handles retrieval.
 risk: low
 third_party:
   - kind: service
@@ -51,37 +51,36 @@ Ground every claim in retrieval results from a live provider. Never answer from 
 ## Retrieval strategy
 
 1. Preferred path: if literature MCP tools are configured in this session (for example `literature.search` / `literature.fetch`, or another literature connector), use them first. Follow the connector's approval and data-egress policies.
-2. Zero-configuration fallback: otherwise, query the public HTTP APIs below directly with `curl` from the shell. No provider credentials or local gateway are required.
+2. Guarded fallback: otherwise run the local CLI below. It reuses `LiteratureService` for sensitive-term screening, provider throttling, SSRF protection, and egress audit. No local HTTP gateway or provider credentials are required.
 3. Failure handling: if a provider fails (non-2xx status, timeout, malformed payload), report that provider's failure explicitly and continue with the remaining providers. Never silently substitute memory for a failed or missing provider; if all providers fail, say so and stop.
 
-Direct `curl` requests leave the machine and do **not** inherit MCP tool approvals, Pi-Science egress audit, sensitive-term screening, caching, or request throttling. Do not transmit private project information, patient identifiers, unpublished sequences, or other sensitive material without explicit user approval and an appropriate authorized retrieval path. Respect each provider's rate limits.
+## Guarded local CLI
 
-## Direct API cheatsheet (curl)
+From a Pi-Science checkout with dependencies installed, pass a JSON object on stdin:
 
-URL-encode query terms (spaces as `+` or `%20`). Replace `<terms>` with the encoded query.
+```sh
+pnpm --silent literature:search <<'JSON'
+{"query":"perovskite solar cells","providers":["pubmed","arxiv"]}
+JSON
+```
 
-Crossref (DOI-registered articles, books, preprints; JSON, records under `message.items`):
+Use a JSON serializer for dynamic input; never interpolate query text into shell code. Omit `providers` to search all five providers, or select a non-empty subset:
 
-    curl -s "https://api.crossref.org/works?query=<terms>&rows=10&select=DOI,title,author,issued,container-title,is-referenced-by-count"
+| Provider | Coverage |
+| --- | --- |
+| `pubmed` | Biomedical literature via NCBI E-utilities |
+| `genbank` | Nucleotide records via NCBI nuccore (GenBank) |
+| `arxiv` | Preprints via arXiv |
+| `pubchem` | Compound records via PubChem |
+| `uniprot` | Protein records via UniProtKB |
 
-Append `&mailto=<contact-email>` to join Crossref's polite pool (the conventional way to get more reliable service), e.g. `&mailto=you@example.org`.
+For example, `{"query":"insulin","providers":["genbank","pubchem","uniprot"]}` retrieves the previously supported scientific records without enabling MCP connectors.
 
-arXiv (preprints; response is Atom XML — parse `<entry>` elements for `id`, `title`, `author`, `published`):
+The CLI returns JSON with `blocked`, `results`, and `failures`. Each result includes provider, query, hit count, records, retrieval time, and response hash. A sensitive query returns `"blocked": true` with categories and terms, exits with code 2, and **no request leaves the machine**. The CLI deliberately has no approval command and rejects `approvedToken` or other extra fields. Do not retry blocked queries using direct HTTP tools. Use an authorized MCP connector with explicit user approval, or stop and report that retrieval is blocked. A missing CLI or dependencies also requires stopping or using an authorized connector; never bypass the guard with raw HTTP requests.
 
-    curl -s "https://export.arxiv.org/api/query?search_query=all:<terms>&max_results=10"
+Crossref is unsupported by this CLI. For Crossref/DOI-specific retrieval, use a configured authorized MCP connector; if unavailable, report the coverage gap explicitly. Do not silently substitute another provider. For private project terms not recognized by built-in patterns, configure `PI_SCIENCE_SENSITIVE_TERMS` before searching. Screening cannot identify all confidential material: send only information authorized for the selected provider.
 
-Use `https://` (or add `-L`): plain `http://export.arxiv.org` answers with an empty 301 redirect body. Sorting: `&sortBy=relevance` (default) or `&sortBy=submittedDate&sortOrder=descending` for the newest work. Field prefixes narrow the search: `ti:`, `au:`, `abs:`, `cat:` (e.g. `search_query=ti:<terms>+AND+cat:cs.LG`).
-
-PubMed E-utilities (biomedical literature; two-step — search for ids, then fetch metadata):
-
-    curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=<terms>&retmode=json&retmax=10"
-
-then, with the returned `idlist`:
-
-    curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=<id1>,<id2>&retmode=json"
-    curl -s "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id=<id1>&rettype=abstract&retmode=text"
-
-Rate limit: without an API key NCBI allows about 3 requests/second — space out calls; with `&api_key=...` the limit rises to 10/second.
+Outbound requests use the existing provider egress audit and throttling. The CLI cache and throttle state last only for one invocation; run searches sequentially and respect provider limits across invocations.
 
 ## Result handling
 
