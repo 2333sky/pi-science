@@ -1,17 +1,16 @@
 ---
 name: literature-review
-description: Find, verify, and synthesize scientific literature with traceable citations. Prefer configured literature MCP connectors; otherwise use the local literature CLI for PubMed, GenBank, arXiv, PubChem, and UniProt. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
-version: 0.2.4
+description: Find, verify, and synthesize scientific literature with traceable citations. Use configured MCP tools for literature and scientific data retrieval, including Crossref, PubMed, arXiv, GenBank, PubChem, and UniProt. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
+version: 0.3.0
 license: Apache-2.0
 category: research
 requirements:
+  - name: literature-mcp
+    kind: service
+    description: An enabled MCP connector providing the requested literature or scientific data tools. The built-in Paper Search connector is enabled by default; specialized scientific data connectors must be enabled as needed.
   - name: network
     kind: service
-    description: Outbound HTTPS access to public literature APIs (api.crossref.org, export.arxiv.org, eutils.ncbi.nlm.nih.gov, rest.uniprot.org, pubchem.ncbi.nlm.nih.gov), or a configured literature MCP connector that performs retrieval.
-  - name: pnpm
-    kind: command
-    optional: true
-    description: Runs the literature CLI from a Pi-Science checkout with dependencies installed. Not needed when an authorized literature MCP connector handles retrieval.
+    description: Outbound HTTPS access from the MCP service to the selected public provider API.
 risk: low
 third_party:
   - kind: service
@@ -33,6 +32,21 @@ third_party:
     info_url: https://www.ncbi.nlm.nih.gov/books/NBK25501/
     privacy_url: https://www.nlm.nih.gov/web_policies.html
   - kind: service
+    name: bioRxiv / medRxiv API
+    provider: Cold Spring Harbor Laboratory
+    license: provider-terms
+    info_url: https://api.biorxiv.org/
+  - kind: service
+    name: Europe PMC API
+    provider: Europe PMC
+    license: provider-terms
+    info_url: https://europepmc.org/RestfulWebService
+  - kind: service
+    name: ENA Browser API
+    provider: EMBL-EBI
+    license: provider-terms
+    info_url: https://www.ebi.ac.uk/ena/browser/api/
+  - kind: service
     name: UniProtKB REST API
     provider: UniProt Consortium
     license: provider-terms
@@ -50,37 +64,24 @@ Ground every claim in retrieval results from a live provider. Never answer from 
 
 ## Retrieval strategy
 
-1. Preferred path: if literature MCP tools are configured in this session (for example `literature.search` / `literature.fetch`, or another literature connector), use them first. Follow the connector's approval and data-egress policies.
-2. Local fallback: otherwise run the local CLI below. It reuses `LiteratureService` for provider throttling, SSRF protection, and egress audit. No local HTTP gateway or provider credentials are required.
-3. Failure handling: if a provider fails (non-2xx status, timeout, malformed payload), report that provider's failure explicitly and continue with the remaining providers. Never silently substitute memory for a failed or missing provider; if all providers fail, say so and stop.
+1. Use MCP tools available in this session for all retrieval. The built-in Paper Search connector is enabled by default and covers Crossref, PubMed, arXiv, bioRxiv/medRxiv, and Europe PMC open-access text. Other configured MCP connectors can provide equivalent capabilities. Follow the connector's tool permissions and data-egress settings.
+2. Choose the provider and tool for the requested task. Scientific data connectors are disabled by default; enable the relevant connector in Pi-Science MCP settings when needed, then make its tools available to the session.
+3. If a required tool is unavailable or its connector is disabled, report the missing capability and identify the connector to enable. Do not silently substitute another provider, use a shell command or direct HTTP request as a fallback, or invent results. If no suitable retrieval tool is available, stop and explain what must be configured.
+4. If a provider fails (non-2xx status, timeout, malformed payload), report that provider's failure explicitly and continue with other suitable available MCP tools. Never silently substitute memory for a failed or missing provider; if all suitable providers fail, say so and stop.
 
-## Local CLI
+## MCP tools and provider coverage
 
-From a Pi-Science checkout with dependencies installed, pass a JSON object on stdin:
+Use the actual tool names exposed by the session; the runtime may add a connector prefix. The built-in connectors provide:
 
-```sh
-pnpm --silent literature:search <<'JSON'
-{"query":"perovskite solar cells","providers":["pubmed","arxiv"]}
-JSON
-```
+| Connector | Tools | Coverage |
+| --- | --- | --- |
+| Paper Search | `search_crossref`, `search_pubmed`, `search_arxiv` | Crossref DOI and publication metadata, PubMed articles, arXiv preprints |
+| Paper Search | `search_biorxiv_preprints`, `get_europe_pmc_full_text` | bioRxiv/medRxiv preprints and bounded Europe PMC open-access full text |
+| Protein Records | `search_uniprot_proteins`, `get_uniprot_entry`, `get_uniprot_sequence` | UniProtKB protein records and sequences |
+| Nucleotide Archives | `search_genbank_sequences`, `get_genbank_sequence`, `get_ena_sequence` | GenBank nucleotide records and GenBank/ENA sequences |
+| Chemistry | `search_pubchem_compounds`, `get_pubchem_compound` | PubChem compound properties and synonyms |
 
-Use a JSON serializer for dynamic input; never interpolate query text into shell code. Omit `providers` to search all five providers, or select a non-empty subset:
-
-| Provider | Coverage |
-| --- | --- |
-| `pubmed` | Biomedical literature via NCBI E-utilities |
-| `genbank` | Nucleotide records via NCBI nuccore (GenBank) |
-| `arxiv` | Preprints via arXiv |
-| `pubchem` | Compound records via PubChem |
-| `uniprot` | Protein records via UniProtKB |
-
-For example, `{"query":"insulin","providers":["genbank","pubchem","uniprot"]}` retrieves the previously supported scientific records without enabling MCP connectors.
-
-The CLI returns JSON with `results` and `failures`. Each result includes provider, query, hit count, records, retrieval time, and response hash. Queries are sent directly to the selected providers without sensitive-term screening or approval tokens, including sequences, compound identifiers, and custom terms. Only `query` and `providers` are accepted as input. If the CLI or dependencies are missing, use a configured MCP connector or report retrieval as unavailable.
-
-Crossref is unsupported by this CLI. For Crossref/DOI-specific retrieval, use a configured authorized MCP connector; if unavailable, report the coverage gap explicitly. Do not silently substitute another provider.
-
-Outbound requests use the existing provider egress audit and throttling. The CLI cache and throttle state last only for one invocation; run searches sequentially and respect provider limits across invocations.
+Crossref retrieval uses `search_crossref`, including DOI-oriented searches. For an exact UniProt accession, prefer `get_uniprot_entry`; use `search_uniprot_proteins` when an accession is unknown. Request sequence output only when needed. Keep pagination and output bounds appropriate to the task, and retain provider identifiers and retrieval metadata from the MCP response.
 
 ## Result handling
 

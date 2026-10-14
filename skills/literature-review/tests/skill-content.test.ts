@@ -2,8 +2,8 @@
  * Content and metadata tests for the builtin literature-review skill.
  *
  * Validates the real SKILL.md against the server skill catalog (frontmatter
- * schema, no hard MCP requirement, third-party disclosures) and asserts the
- * local CLI and the mandatory citation output
+ * schema, provider-specific MCP guidance, third-party disclosures) and asserts the
+ * MCP retrieval and the mandatory citation output
  * convention are documented. Run from the server package:
  *
  *   pnpm --filter @pi-science/server exec vitest run --dir ../../skills/literature-review/tests
@@ -33,19 +33,17 @@ describe("literature-review skill content", () => {
     expect(validations[0]?.valid).toBe(true);
   });
 
-  it("does not require MCP tools and declares the retrieval providers", async () => {
+  it("declares MCP retrieval requirements and provider disclosures", async () => {
     const record = await parseSkill(SKILL_MD, "builtin", SKILLS_ROOT);
     expect(record.metadata.name).toBe("literature-review");
     expect(record.metadata.risk).toBe("low");
-    // MCP connectors are preferred when present but must not be required.
+    // Tool alternatives depend on the task; do not require every provider tool.
     expect(record.metadata.required_mcp_tools).toEqual([]);
 
     const requirementNames = record.metadata.requirements.map((r) => r.name);
     expect(requirementNames).toContain("network");
-    expect(requirementNames).toContain("pnpm");
-    const command = record.metadata.requirements.find((r) => r.name === "pnpm");
-    expect(command?.kind).toBe("command");
-    expect(command?.optional).toBe(true);
+    expect(requirementNames).toContain("literature-mcp");
+    expect(record.metadata.requirements.some((r) => r.kind === "command")).toBe(false);
 
     const services = record.metadata.third_party.map((t) => t.name);
     expect(services).toContain("Crossref REST API");
@@ -56,20 +54,19 @@ describe("literature-review skill content", () => {
     }
   });
 
-  it("documents local retrieval and complete provider coverage", async () => {
+  it("documents MCP retrieval and complete provider coverage", async () => {
     const body = await readFile(SKILL_MD, "utf8");
-    expect(body).toContain("literature.search");
     expect(body).toContain("Never answer from memory");
     expect(body).toContain("never invent a DOI");
     expect(body).toContain("Never silently substitute memory");
     expect(body).not.toContain("/api/literature/");
+    expect(body).not.toContain("literature:search");
+    expect(body).not.toContain("LiteratureService");
     expect(body).not.toMatch(/curl -s/);
-    expect(body).toContain("pnpm --silent literature:search");
-    expect(body).toContain("without sensitive-term screening or approval tokens");
-    expect(body).not.toContain("PI_SCIENCE_SENSITIVE_TERMS");
-    expect(body).toContain("Crossref is unsupported");
-    for (const provider of ["pubmed", "genbank", "arxiv", "pubchem", "uniprot"]) {
-      expect(body).toContain(`\`${provider}\``);
+    expect(body).toContain("If no suitable retrieval tool is available, stop");
+    expect(body).toContain("Scientific data connectors are disabled by default");
+    for (const tool of ["search_crossref", "search_pubmed", "search_arxiv", "search_biorxiv_preprints", "get_europe_pmc_full_text", "search_genbank_sequences", "search_pubchem_compounds", "search_uniprot_proteins"]) {
+      expect(body).toContain(`\`${tool}\``);
     }
 
     // Result handling rules.
@@ -154,6 +151,6 @@ describe("literature-review skill content", () => {
     const allRequired = new Set(fixtures.flatMap((f) => f.required_outputs ?? []));
     expect(allRequired.has("references_section")).toBe(true);
     expect(allRequired.has("inline_identifier_citations")).toBe(true);
-    expect(allRequired.has("direct_api_search_record")).toBe(true);
+    expect(allRequired.has("missing_connector_guidance")).toBe(true);
   });
 });

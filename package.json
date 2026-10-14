@@ -15,7 +15,6 @@
     "smoke:native-readonly": "bash scripts/smoke-control-plane.sh --native-readonly",
     "smoke:agent-core": "bash scripts/smoke-control-plane.sh --agent-core",
     "uat:conversation": "pnpm --filter frontend test:uat:conversation",
-    "literature:search": "pnpm --filter @pi-science/server exec tsx src/cli/literature-search.ts",
     "migrate:sessions": "pnpm --filter @pi-science/server exec tsx src/cli/migrate-sessions.ts"
   }
 }
