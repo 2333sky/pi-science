@@ -31,3 +31,17 @@ it("does not follow project agent or skill-agent symlinks outside the workspace"
   await symlink(join(outside, "agents"), join(cwd, ".pi/skills/safe/agents"));
   expect((await discoverAgentDefinitions(cwd)).some((agent) => agent.name === "safe/foreign")).toBe(false);
 });
+
+it("skips malformed project and skill definitions while resolving valid neighbors", async () => {
+  const cwd = await workspace();
+  await put(cwd, ".pi/agents/broken.md", "---\nname: [unfinished\n---\nBad");
+  await put(cwd, ".pi/agents/bad-tools.md", "---\ntools: [read, 42]\n---\nBad");
+  await put(cwd, ".pi/agents/valid.md", "---\nname: valid\n---\nGood");
+  await put(cwd, ".pi/skills/lab/SKILL.md", "---\nname: lab\ndescription: Lab\nlicense: Apache-2.0\n---\nLab");
+  await put(cwd, ".pi/skills/lab/agents/broken.md", "---\ntools: [read\n---\nBad");
+  await put(cwd, ".pi/skills/lab/agents/valid.md", "---\ntools: [read]\n---\nSkill good");
+  expect(await resolveAgentDefinition(cwd, "valid")).toMatchObject({ prompt: "Good" });
+  expect(await resolveAgentDefinition(cwd, "lab/valid")).toMatchObject({ prompt: "Skill good" });
+  const names = (await discoverAgentDefinitions(cwd)).map((agent) => agent.name);
+  expect(names).not.toContain("broken"); expect(names).not.toContain("bad-tools"); expect(names).not.toContain("lab/broken");
+});

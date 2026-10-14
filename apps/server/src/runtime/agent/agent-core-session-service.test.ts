@@ -44,6 +44,26 @@ describe("agent-core session configuration", () => {
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 
+  it("protects workspace lifecycle across live, queued, admission and recovery operations", async () => {
+    const cwd = resolve("workspace-lifecycle-test"); const key = `${workspaceIdentity(cwd)}\0session`;
+    const service = new AgentCoreSessionService({} as never, {} as never);
+    const internals = service as unknown as { live: Map<string, unknown>; opening: Map<string, unknown>; mutations: Map<string, unknown>; recovering: Map<string, unknown>; recoveryTimers: Map<string, unknown> };
+    const sendCommand = vi.fn().mockResolvedValue({ success: true, data: { busy: false, queues: [] } });
+    const item = { runtime: { cwd, isClosed: false, sendCommand }, busy: false, expectedOperationId: undefined as string | undefined };
+    internals.live.set(key, item);
+    expect(await service.hasActiveOperations(cwd)).toBe(false);
+    item.busy = true; expect(await service.hasActiveOperations(cwd)).toBe(true); item.busy = false;
+    item.expectedOperationId = "recoverable"; expect(await service.hasActiveOperations(cwd)).toBe(true); item.expectedOperationId = undefined;
+    for (const data of [{ busy: true }, { queues: [{}] }, { pendingInteraction: {} }]) {
+      sendCommand.mockResolvedValueOnce({ success: true, data }); expect(await service.hasActiveOperations(cwd)).toBe(true);
+    }
+    sendCommand.mockRejectedValueOnce(new Error("unavailable")); expect(await service.hasActiveOperations(cwd)).toBe(true);
+    for (const entries of [internals.opening, internals.mutations, internals.recovering, internals.recoveryTimers]) {
+      entries.set(key, {}); expect(await service.hasActiveOperations(cwd)).toBe(true); entries.delete(key);
+    }
+    expect(await service.hasActiveOperations(resolve("unrelated-workspace"))).toBe(false);
+  });
+
   it("rejects model changes while the session is busy without touching the worker", async () => {
     const cwd = resolve(join(tmpdir(), "pi-science-core-busy-test"));
     const sessionId = "busy-session";

@@ -198,6 +198,21 @@ export class AgentCoreSessionService {
       .map((item) => ({ id: item.runtime.sessionId, cwd }));
   }
 
+  /** Include admission/recovery windows and queued or interaction-blocked operations. */
+  async hasActiveOperations(cwd: string): Promise<boolean> {
+    const workspace = workspaceIdentity(cwd); const prefix = `${workspace}\0`;
+    const pending = () => [this.opening, this.mutations, this.recovering, this.recoveryTimers].some((entries) => [...entries.keys()].some((key) => key.startsWith(prefix)));
+    if (pending()) return true;
+    for (const item of this.live.values()) {
+      if (workspaceIdentity(item.runtime.cwd) !== workspace || item.runtime.isClosed) continue;
+      if (item.busy || item.expectedOperationId) return true;
+      const snapshot = await item.runtime.sendCommand("get_state").catch(failed);
+      const data = snapshot.data;
+      if (!snapshot.success || !data || data.busy || data.pendingInteraction || Array.isArray(data.queues) && data.queues.length > 0) return true;
+    }
+    return pending() || [...this.live.values()].some((item) => workspaceIdentity(item.runtime.cwd) === workspace && !item.runtime.isClosed && (item.busy || Boolean(item.expectedOperationId)));
+  }
+
   liveRuntime(cwd: string, expectedModel?: string): AgentCoreRuntimeClient | null {
     return [...this.live.values()].find((item) => workspaceIdentity(item.runtime.cwd) === workspaceIdentity(cwd) && !item.runtime.isClosed
       && (!expectedModel || item.model === expectedModel))?.runtime ?? null;

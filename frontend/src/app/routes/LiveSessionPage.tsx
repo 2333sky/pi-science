@@ -239,7 +239,7 @@ export function LiveSessionPage() {
     configuringModel: model.configuringModel,
     reviewingProject,
     setReviewNotice,
-    research: { mode: research.mode },
+    research: { mode: research.mode, setMode: research.setMode },
     onSend: () => {
       // Follow-ups belong to the completed turn. Once the user continues the
       // conversation they should not linger beneath the previous answer.

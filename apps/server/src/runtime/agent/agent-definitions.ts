@@ -32,13 +32,13 @@ export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkill
         if (!pathIsInside(root, await realpath(path)) || (await stat(path)).size > 512 * 1024) continue;
         const text = (await readFile(path, "utf8")).replaceAll("\r\n", "\n");
         const front = text.match(/^---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/);
-        const meta = front ? parse(front[1]!) : {};
+        let meta; try { meta = front ? parse(front[1]!) : {}; } catch { continue; /* malformed definitions do not disable the catalog */ }
         if (!meta || typeof meta !== "object" || Array.isArray(meta)) continue;
         const local = namespace ? entry.name.slice(0, -3) : String(meta.name ?? entry.name.slice(0, -3));
         const name = namespace ? `${namespace}/${local}` : meta.package ? `${meta.package}.${local}` : local;
         if (!AGENT_NAME_PATTERN.test(name) || !namespace && name.includes("/")) continue;
         const tools = Array.isArray(meta.tools) ? meta.tools : typeof meta.tools === "string" ? meta.tools.split(",").map((v: string) => v.trim()) : ["read"];
-        if (!tools.every((v: unknown) => typeof v === "string")) throw new Error(`Invalid tools for agent ${name}`);
+        if (!tools.every((v: unknown) => typeof v === "string")) continue;
         agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, path: relative(cwd, path).replaceAll("\\", "/") });
       }
     };

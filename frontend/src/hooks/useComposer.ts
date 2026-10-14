@@ -22,6 +22,7 @@ export function useComposer(params: {
   setReviewNotice: (notice: string) => void;
   research: {
     mode: ResearchStarter | null;
+    setMode: (mode: ResearchStarter | null) => void;
   };
   /** Fired right before a real message is dispatched. */
   onSend?: () => void;
@@ -133,12 +134,14 @@ export function useComposer(params: {
     message = injectSubagentMentions(message, mentions);
     message = injectWorkspaceReferences(message, workspaceReferences);
 
-    if (research.mode) message = `/skill:auto-research [Workflow: ${research.mode}]\n${message}`;
+    const sentResearchMode = research.mode;
+    if (sentResearchMode) message = `/skill:auto-research [Workflow: ${sentResearchMode}]\n${message}`;
 
     const sentFiles = files;
     const sentReferences = workspaceReferences;
     const sentMentions = mentions;
     setInput("");
+    research.setMode(null);
     setMentions([]);
     setFiles([]);
     clearWorkspaceReferences(cwd);
@@ -163,7 +166,7 @@ export function useComposer(params: {
         // original draft/attachments so retrying does not require retyping.
         const composer = composerContextRef.current;
         if (composer?.cwd !== cwd || composer.conversationKey !== sentFrom) return;
-        if (!useRuntimeStore.getState().draft) setInput(originalDraft);
+        if (!useRuntimeStore.getState().draft) { setInput(originalDraft); research.setMode(sentResearchMode); }
         setMentions((current) => current.length > 0 ? current : sentMentions);
         setFiles((current) => current.length > 0 ? current : sentFiles);
         sentReferences.forEach((reference) => useUiStore.getState().addWorkspaceReference(reference));

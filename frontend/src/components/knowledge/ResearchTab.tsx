@@ -1,11 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ArrowRight, FlaskConical, MessageSquareText } from "lucide-react";
 import { useNewWorkspaceConversation } from "../sidebar/workspace-navigation";
 import { fileInspectorForPath } from "../../lib/artifacts";
 import { useUiStore } from "../../lib/ui";
 import { useTranslation } from "react-i18next";
 
-import { useMemoryArchives } from "../../lib/knowledge";
+import { projectMemoryApi, useMemoryArchives } from "../../lib/knowledge";
 import { EmptyState } from "./EmptyState";
 
 /** Knowledge only summarizes research. New workflows start in conversation and
@@ -17,6 +17,7 @@ export function ResearchTab({ cwd, onError }: { cwd: string; onError: (message: 
   const archivesRead = useMemoryArchives(cwd);
   const archives = archivesRead.data?.archives ?? [];
   const loadError = archivesRead.error;
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (loadError) onError(loadError instanceof Error ? loadError.message : t("research.loadError"));
@@ -24,6 +25,16 @@ export function ResearchTab({ cwd, onError }: { cwd: string; onError: (message: 
 
   const openConversation = () => newConversation({ draft: "/skill:auto-research " });
   const continueArchive = (path: string) => newConversation({ draft: `/skill:auto-research Resume from the historical archive ${path}. Inspect saved results and original run/artifact references before creating a new evaluation protocol. Reuse valid completed experiments.` });
+
+  const accessArchive = async (id: string, continueResearch: boolean) => {
+    setExporting(true); onError(null);
+    try {
+      const { archive } = await projectMemoryApi.exportArchive(cwd, id);
+      if (continueResearch) continueArchive(archive.path);
+      else openInspector(fileInspectorForPath(archive.path, "history.json", undefined, cwd));
+    } catch (error) { onError(error instanceof Error ? error.message : t("research.loadError")); }
+    finally { setExporting(false); }
+  };
 
   return (
     <div className="space-y-4">
@@ -45,7 +56,7 @@ export function ResearchTab({ cwd, onError }: { cwd: string; onError: (message: 
       ) : (
         <div className="space-y-3">
           {archives.map((archive) => (
-            <div key={archive.id}><button type="button" onClick={() => openInspector(fileInspectorForPath(archive.path, "history.json", undefined, cwd))} className="text-xs text-accent hover:underline">{archive.path}</button><button type="button" onClick={() => continueArchive(archive.path)} className="ui-card-flat block w-full rounded-card p-5 text-left transition-colors hover:border-accent/40">
+            <div key={archive.id}><button type="button" disabled={exporting} onClick={() => void accessArchive(archive.id, false)} className="text-xs text-accent hover:underline">{archive.path}</button><button type="button" disabled={exporting} onClick={() => void accessArchive(archive.id, true)} className="ui-card-flat block w-full rounded-card p-5 text-left transition-colors hover:border-accent/40">
               <div className="flex flex-wrap items-center gap-2">
                 <h3 className="font-semibold text-text">{archive.title}</h3>
                 <span className="rounded-full bg-surface-2 px-2 py-0.5 font-mono text-[10px] text-muted">{t(`research.status.${archive.status}`, { defaultValue: archive.status })}</span>

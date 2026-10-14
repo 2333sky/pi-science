@@ -10,6 +10,7 @@ import { egressAuditEnabled, recordEgress } from "../../security/egress-audit.js
 import { sessionRepository } from "../../runtime/node/session-repository.js";
 import { catalog as skillCatalog, getSkillContent, getSkillInfo, validateDirectory as validateSkillDir } from "../../catalog/skill-catalog.js";
 import { probeRequirements } from "../../catalog/skill-requirements.js";
+import type { NodeSessionService } from "../../runtime/node/node-session-service.js";
 import type { JobCoordinator } from "../../runtime/jobs/job-coordinator.js";
 import type { WorkspaceRepository } from "../../storage/sqlite/repositories/workspace-repository.js";
 import type { McpConnectorService } from "../../mcp/connector-service.js";
@@ -245,7 +246,7 @@ const DEMOS: Record<string, { source: string; workspace: string }> = {
   climate: { source: "demos/climate-trends", workspace: "Climate Trends" },
 };
 
-export function registerCatalogRoutes(app: FastifyInstance, jobs?: JobCoordinator, workspaceRepository?: WorkspaceRepository, mcp?: McpConnectorService): void {
+export function registerCatalogRoutes(app: FastifyInstance, jobs?: JobCoordinator, workspaceRepository?: WorkspaceRepository, mcp?: McpConnectorService, sessions?: Pick<NodeSessionService, "hasActiveOperations">): void {
   const activity = new WorkspaceActivityCache((workspace, err) => app.log.warn({ err, workspace }, "Workspace file activity refresh failed or was limited"));
   app.addHook("onClose", async () => { activity.close(); });
   // ── Skills (delegated to skill-catalog service) ──
@@ -414,6 +415,7 @@ async function mcpEnabledSet(definitions: Record<string, unknown>): Promise<Set<
     const name = String(body.name ?? "").trim().replace(/[\\/]/g, "-").slice(0, 100);
     if (!name) return reply.code(400).send({ error: "Invalid workspace name" });
     if (await jobs?.hasActive(source)) return reply.code(409).send({ error: "Pause or cancel active jobs before renaming this workspace" });
+    if (await sessions?.hasActiveOperations(source)) return reply.code(409).send({ error: "Stop active conversations before renaming this workspace" });
     const destination = join(root, name);
     try { await stat(destination); return reply.code(409).send({ error: "Workspace already exists" }); } catch { /* available */ }
     const sourceProject = await ensureProject(source);
@@ -469,6 +471,7 @@ async function mcpEnabledSet(definitions: Record<string, unknown>): Promise<Set<
       return reply.code(403).send({ error: error instanceof Error ? error.message : String(error) });
     }
     if (await jobs?.hasActive(path)) return reply.code(409).send({ error: "Cancel active jobs before deleting this workspace" });
+    if (await sessions?.hasActiveOperations(path)) return reply.code(409).send({ error: "Stop active conversations before deleting this workspace" });
     try { await rm(path, { recursive: true }); await removeWorkspaceMetadata(path); return { ok: true }; } catch { return reply.code(404).send({ error: "Workspace not found" }); }
   });
 

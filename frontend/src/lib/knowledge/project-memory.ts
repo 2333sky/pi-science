@@ -45,6 +45,9 @@ export const projectMemoryApi = {
   overview(cwd: string) {
     return get<ProjectMemoryOverview>(projectMemoryKey("overview", cwd), `/api/project-memory/overview?${query(cwd)}`);
   },
+  exportArchive(cwd: string, id: string) {
+    return apiRequest<{ archive: MemoryArchive }>(`/api/project-memory/archives/${encodeURIComponent(id)}/export?${query(cwd)}`, { method: "POST" });
+  },
   archives(cwd: string) {
     return get<{ archives: MemoryArchive[] }>(projectMemoryKey("archives", cwd), `/api/project-memory/archives?${query(cwd)}`);
   },

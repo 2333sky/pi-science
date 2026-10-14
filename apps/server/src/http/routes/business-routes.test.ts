@@ -842,6 +842,21 @@ describe("native control-plane business routes", () => {
     await expect(stat(unmarked)).resolves.toBeDefined();
   });
 
+  it.each(["rename", "delete"])("rejects workspace %s during active Conversation operations without a Job", async (operation) => {
+    const sandbox = join(tmpdir(), `pi-science-conversation-lifecycle-${Date.now()}-${Math.random()}`); tempDirs.push(sandbox);
+    const managed = join(sandbox, "managed"); const cwd = join(managed, "project");
+    await mkdir(join(cwd, ".pi-science"), { recursive: true }); process.env.PI_SCIENCE_WORKSPACES = managed;
+    const modules = createServerModules(config());
+    vi.spyOn(modules.jobs, "hasActive").mockResolvedValue(false);
+    const active = vi.spyOn(modules.sessions, "hasActiveOperations").mockResolvedValue(true);
+    const app = buildApp(config(), modules); apps.push(app);
+    const request = { method: operation === "rename" ? "POST" as const : "DELETE" as const, url: `/api/workspaces/${operation}`, payload: { path: cwd, name: "renamed" } };
+    expect((await app.inject(request)).statusCode).toBe(409);
+    expect(active).toHaveBeenCalledWith(await realpath(cwd)); await expect(stat(cwd)).resolves.toBeDefined();
+    active.mockResolvedValue(false);
+    expect((await app.inject(request)).statusCode).toBe(200);
+  });
+
   it("updates a pin stored through a symlinked managed root after rename", async () => {
     const sandbox = join(tmpdir(), `pi-science-pinned-link-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     const managed = join(sandbox, "managed");
@@ -1026,6 +1041,9 @@ describe("native control-plane business routes", () => {
     const response = await app.inject({ method: "GET", url: `/api/project-memory/archives?cwd=${encodeURIComponent(cwd)}` });
     expect(response.statusCode).toBe(200); expect(response.json().archives[0]).toMatchObject({ id: "legacy", title: "Historical study", status: "running" });
     const exportedPath = response.json().archives[0].path;
+    await expect(stat(join(cwd, exportedPath))).rejects.toMatchObject({ code: "ENOENT" });
+    expect((await app.inject({ method: "POST", url: `/api/project-memory/archives/legacy/export?cwd=${encodeURIComponent(cwd)}` })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/api/project-memory/archives/missing/export?cwd=${encodeURIComponent(cwd)}` })).statusCode).toBe(404);
     const file = await app.inject({ method: "GET", url: `/api/files/serve/${exportedPath}?cwd=${encodeURIComponent(cwd)}` });
     expect(file.statusCode).toBe(200); expect(JSON.parse(file.body).records).toHaveLength(1);
     expect(await readFile(path, "utf8")).toBe(original);

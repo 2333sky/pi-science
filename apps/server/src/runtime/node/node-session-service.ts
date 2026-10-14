@@ -146,6 +146,7 @@ export class NodeSessionService {
     if ("success" in prepared) return prepared.code === "not_found" ? { success: true } : prepared;
     return this.agentCore.delete(prepared.cwd, sessionId);
   }
+  hasActiveOperations(cwdValue: string): Promise<boolean> { return this.agentCore.hasActiveOperations(cwdValue); }
   liveSessions(cwdValue: string): Array<{ id: string; cwd: string }> {
     try { return this.agentCore.liveSessions(resolve(cwdValue)); } catch { return []; }
   }
