@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { buildApp } from "../../app/app.js";
 import type { ServerConfig } from "../../config/config.js";
 import { nodeSessionService } from "../../runtime/node/node-session-service.js";
-import { ResearchRepository } from "../../research-loop/repository.js";
 import { createServerModules } from "../../app/server-modules.js";
 // Full runtime-only cases need a configured pi-ai catalog. Unit tests inject
 // their own catalog fixtures; these integration cases remain opt-in locally.
@@ -1001,7 +1000,7 @@ describe("native control-plane business routes", () => {
     ]));
   });
 
-  it("supports atomic file writes and research-loop state transitions", async () => {
+  it("supports atomic file writes after retiring research-loop routes", async () => {
     const cwd = await workspace(); const app = buildApp(config()); apps.push(app);
     const upload = await app.inject({ method: "POST", url: `/api/files/upload?cwd=${encodeURIComponent(cwd)}`, payload: { filename: "uploaded.txt", content: "hello" } });
     expect(upload.statusCode).toBe(200);
@@ -1012,80 +1011,26 @@ describe("native control-plane business routes", () => {
     expect(remove.statusCode).toBe(200);
     await expect(stat(join(cwd, "renamed.txt"))).rejects.toThrow();
 
-    const loop = await app.inject({ method: "POST", url: `/api/project-memory/research-loops?cwd=${encodeURIComponent(cwd)}`, payload: { title: "Smoke loop", objective: "Verify state", task_type: "optimize" } });
-    expect(loop.statusCode).toBe(200);
-    const loopId = loop.json().loop_id as string;
-    expect((await app.inject({ method: "POST", url: `/api/project-memory/research-loops/${loopId}/start?cwd=${encodeURIComponent(cwd)}` })).statusCode).toBe(409);
-    expect((await app.inject({ method: "POST", url: `/api/project-memory/research-loops/${loopId}/cancel?cwd=${encodeURIComponent(cwd)}` })).statusCode).toBe(200);
-    const listed = await app.inject({ method: "GET", url: `/api/project-memory/research-loops?cwd=${encodeURIComponent(cwd)}` });
-    expect(listed.json().loops[0]).toMatchObject({ loop_id: loopId, status: "cancelled", task_type: "optimize" });
-  });
-
-  it("compiles conversation research modes into distinct execution plans", async () => {
-    const cwd = await workspace(); const app = buildApp(config()); apps.push(app);
-
-    const optimize = await app.inject({ method: "POST", url: `/api/project-memory/research-loop-intents?cwd=${encodeURIComponent(cwd)}`, payload: { mode: "optimize", objective: "Minimize model latency" } });
-    expect(optimize.statusCode).toBe(200);
-    expect(optimize.json()).toMatchObject({
-      requires_confirmation: true,
-      missing_fields: [],
-      draft: { task_type: "optimize", execution_kind: "iterative", metric: "latency", direction: "minimize", conversation_prompt: null },
-    });
-
-    const naturalLanguage = await app.inject({ method: "POST", url: `/api/project-memory/research-loop-intents?cwd=${encodeURIComponent(cwd)}`, payload: { mode: "optimize", objective: "降低模型首 token 时间，同时保持回答质量" } });
-    expect(naturalLanguage.statusCode).toBe(200);
-    expect(naturalLanguage.json()).toMatchObject({
-      requires_confirmation: true,
-      missing_fields: [],
-      draft: { metric: "time_to_first_token", direction: "minimize" },
-    });
-    expect(naturalLanguage.json().draft.success_criterion).toContain("降低");
-    expect(naturalLanguage.json().draft.plan_steps).toHaveLength(3);
-
-    const exploratory = await app.inject({ method: "POST", url: `/api/project-memory/research-loop-intents?cwd=${encodeURIComponent(cwd)}`, payload: { mode: "research_loop", objective: "探索这种材料为什么在潮湿环境中失效" } });
-    expect(exploratory.statusCode).toBe(200);
-    expect(exploratory.json()).toMatchObject({
-      requires_confirmation: true,
-      missing_fields: [],
-      draft: { metric: "evidence_quality", direction: "maximize" },
-    });
-
-    const compare = await app.inject({ method: "POST", url: `/api/project-memory/research-loop-intents?cwd=${encodeURIComponent(cwd)}`, payload: { mode: "compare", objective: "Compare method A with method B" } });
-    expect(compare.statusCode).toBe(200);
-    expect(compare.json()).toMatchObject({ requires_confirmation: false, draft: { task_type: "compare", execution_kind: "conversation" } });
-    expect(compare.json().draft.conversation_prompt).toContain("[Workflow: compare]");
-    expect(compare.json().draft.conversation_prompt).toContain("comparison table");
-
-    const invalid = await app.inject({ method: "POST", url: `/api/project-memory/research-loop-intents?cwd=${encodeURIComponent(cwd)}`, payload: { mode: "unknown", objective: "Anything" } });
-    expect(invalid.statusCode).toBe(400);
-  });
-
-  it("streams research record invalidation events over SSE", async () => {
-    const cwd = await workspace(); const app = buildApp(config()); apps.push(app);
-    const response = await app.inject({ method: "GET", url: `/api/project-memory/research-events?cwd=${encodeURIComponent(cwd)}`, payloadAsStream: true });
-    try {
-      expect(response.statusCode).toBe(200);
-      expect(response.headers["content-type"]).toBe("text/event-stream");
-      let text = ""; let notify: (() => void) | null = null;
-      response.stream().on("data", (chunk: Buffer) => { text += String(chunk); notify?.(); });
-      const readUntil = async (marker: string) => {
-        const deadline = Date.now() + 8_000;
-        while (!text.includes(marker)) {
-          if (Date.now() > deadline) throw new Error(`timed out waiting for ${JSON.stringify(marker)}; received: ${JSON.stringify(text)}`);
-          await new Promise<void>((resolve) => { notify = resolve; setTimeout(resolve, 50); });
-        }
-        return text;
-      };
-      await readUntil(": connected\n\n");
-      // The route subscribes under the realpath'd workspace (validateWorkspaceCwd),
-      // so emit through a repository keyed the same way.
-      await new ResearchRepository(await realpath(cwd)).append("loop.created", { title: "SSE smoke" }, { loop_id: "loop-sse" });
-      const received = await readUntil("research.record");
-      expect(received).toContain(`data: ${JSON.stringify({ type: "research.record", loop_id: "loop-sse", record_type: "loop.created" })}\n\n`);
-    } finally {
-      response.raw.res.destroy();
+    for (const path of ["research-loops", "research-loop-intents", "research-events", "evaluators"]) {
+      expect((await app.inject({ method: "POST", url: `/api/project-memory/${path}?cwd=${encodeURIComponent(cwd)}`, payload: {} })).statusCode).toBe(404);
+      expect((await app.inject({ method: "GET", url: `/api/project-memory/${path}?cwd=${encodeURIComponent(cwd)}` })).statusCode).toBe(404);
     }
-  }, 15_000);
+  });
+
+  it("serves historical archives through generic memory/file routes without modifying legacy records", async () => {
+    const cwd = await workspace(); const app = buildApp(config()); apps.push(app);
+    const { appendJsonLine, workspaceFile } = await import("../../storage/persistence.js");
+    const path = workspaceFile(cwd, "research-records-v2.jsonl");
+    await appendJsonLine(path, { record_type: "loop.created", loop_id: "legacy", payload: { title: "Historical study", status: "running" } });
+    const original = await readFile(path, "utf8");
+    const response = await app.inject({ method: "GET", url: `/api/project-memory/archives?cwd=${encodeURIComponent(cwd)}` });
+    expect(response.statusCode).toBe(200); expect(response.json().archives[0]).toMatchObject({ id: "legacy", title: "Historical study", status: "running" });
+    const exportedPath = response.json().archives[0].path;
+    const file = await app.inject({ method: "GET", url: `/api/files/serve/${exportedPath}?cwd=${encodeURIComponent(cwd)}` });
+    expect(file.statusCode).toBe(200); expect(JSON.parse(file.body).records).toHaveLength(1);
+    expect(await readFile(path, "utf8")).toBe(original);
+    expect((await app.inject({ method: "GET", url: "/api/project-memory/archives?cwd=/tmp" })).statusCode).toBe(403);
+  });
 
   it("preserves exact multipart upload bytes and supports nested destination paths", async () => {
     const cwd = await workspace(); const app = buildApp(config()); apps.push(app);

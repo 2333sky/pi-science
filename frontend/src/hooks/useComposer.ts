@@ -6,12 +6,12 @@ import { useUiStore } from "../lib/ui";
 import { apiRequest } from "../lib/client/api";
 import { injectWorkspaceReferences } from "../lib/files";
 import { useFeedback } from "../components/feedback/feedback-context";
-import type { ResearchLoopDraft, ResearchStarter } from "../components/conversation/ResearchLoopControls";
+import type { ResearchStarter } from "../components/conversation/ResearchModePicker";
 import { injectSubagentMentions, type SubagentMention } from "../lib/conversation";
 
 /**
  * Composer state and send pipeline: attachments, drag-and-drop, IME guards,
- * slash-command dispatch, and the research-intent detour before a normal send.
+ * slash-command dispatch, and conversation-native research skill invocation.
  */
 export function useComposer(params: {
   cwd: string;
@@ -22,12 +22,8 @@ export function useComposer(params: {
   setReviewNotice: (notice: string) => void;
   research: {
     mode: ResearchStarter | null;
-    draft: ResearchLoopDraft | null;
-    intent: (text: string) => Promise<{ kind: "draft" } | { kind: "conversation"; message: string } | null>;
   };
-  /** Fired right before a real message is dispatched (after slash-command and
-   *  research-draft branches, so /compact, /export and draft detours never
-   *  trigger it). */
+  /** Fired right before a real message is dispatched. */
   onSend?: () => void;
 }) {
   const { cwd, conversationKey = null, selectedModel, configuringModel = false, reviewingProject, setReviewNotice, research, onSend } = params;
@@ -121,20 +117,12 @@ export function useComposer(params: {
     const originalDraft = input;
     const text = input.trim();
     if (!selectedModel || (!text && files.length === 0 && workspaceReferences.length === 0) || working || reviewingProject || configuringModel) return;
-    let workflowMessage: string | null = null;
-    if (research.mode && !research.draft && text) {
-      const prepared = await research.intent(text);
-      if (!prepared) return;
-      if (prepared.kind === "draft") { setInput(""); setMentions([]); return; }
-      workflowMessage = prepared.message;
-    }
-
     if (text.startsWith("/") && mentions.length === 0 && files.length === 0 && workspaceReferences.length === 0 && await runSlashCommand(text)) {
       setInput("");
       return;
     }
 
-    let message = workflowMessage ?? text;
+    let message = text;
     if (files.length > 0) {
       const names = files.map((f) => f.name).join(", ");
       message = message
@@ -144,6 +132,8 @@ export function useComposer(params: {
 
     message = injectSubagentMentions(message, mentions);
     message = injectWorkspaceReferences(message, workspaceReferences);
+
+    if (research.mode) message = `/skill:auto-research [Workflow: ${research.mode}]\n${message}`;
 
     const sentFiles = files;
     const sentReferences = workspaceReferences;

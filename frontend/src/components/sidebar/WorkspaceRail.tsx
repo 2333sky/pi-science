@@ -1,7 +1,7 @@
 import type { Ref } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Activity, FlaskConical, FolderOpen, Inbox, MessageSquare, Settings, SquarePen, type LucideIcon } from "lucide-react";
+import { Activity, FolderOpen, Inbox, MessageSquare, Settings, SquarePen, type LucideIcon } from "lucide-react";
 import { cn, useUiStore } from "../../lib/ui";
 import { usePendingProposalCount } from "../../lib/knowledge";
 import { Icon, IconButton } from "../ui/Icon";
@@ -39,7 +39,7 @@ export function WorkspaceRail({ cwd, toggleRef, onExpand }: { cwd: string | null
     {cwd && !collapsed && <div className={brandBox}>{brandMark}</div>}
     {cwd && collapsed && <button key="context-toggle" ref={toggleRef} type="button" aria-label={t("shell.expandContextPanel")} title={t("shell.expandContextPanel")} aria-controls="workspace-context-panel" aria-expanded={false} onClick={event => onExpand ? onExpand(event.currentTarget) : setCollapsed(false)} className={cn(brandBox, railInteraction)}>{brandMark}</button>}
     <div className="flex min-h-0 w-full flex-1 flex-col items-center gap-1.5 overflow-y-auto overflow-x-hidden md:px-2">
-      {cwd && <><IconButton icon={SquarePen} iconSize="lg" label={t("conversation.newSession")} onClick={() => newConversation()} className="h-header w-header" /><RailLink to={root} icon={MessageSquare} label={t("sidebar.conversations")} current={section === "conversations"} onNavigate={() => useWorkspaceSidebar.getState().showConversations(cwd)} /><KnowledgeRailLink cwd={cwd} current={section === "knowledge"} /><RailLink to={`${root}/research`} icon={FlaskConical} label={t("nav.research")} current={section === "research"} /><RailLink to={`${root}/runs`} icon={Activity} label={t("sidebar.runs")} current={section === "runs"} /></>}
+      {cwd && <><IconButton icon={SquarePen} iconSize="lg" label={t("conversation.newSession")} onClick={() => newConversation()} className="h-header w-header" /><RailLink to={root} icon={MessageSquare} label={t("sidebar.conversations")} current={section === "conversations"} onNavigate={() => useWorkspaceSidebar.getState().showConversations(cwd)} /><KnowledgeRailLink cwd={cwd} current={section === "knowledge"} /><RailLink to={`${root}/runs`} icon={Activity} label={t("sidebar.runs")} current={section === "runs"} /></>}
     </div>
     {cwd && <RailLink to="/" icon={FolderOpen} label={t("nav.projects")} current={false} />}
     <IconButton icon={Settings} iconSize="lg" label={t("nav.settings")} aria-expanded={settingsOpen} onClick={() => { preloadSettingsContent(); useUiStore.getState().openSettings(cwd); closeSidebarOnNarrow(); }} onPointerEnter={preloadSettingsContent} onFocus={preloadSettingsContent} className={cn("h-header w-header", settingsOpen && "bg-surface-selected text-accent")} />

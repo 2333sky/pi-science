@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useComposer } from "./useComposer";
 import { useRuntimeStore } from "../lib/agent-runtime";
 import { apiRequest } from "../lib/client/api";
-import type { ResearchStarter } from "../components/conversation/ResearchLoopControls";
+import type { ResearchStarter } from "../components/conversation/ResearchModePicker";
 
 const { navigateMock } = vi.hoisted(() => ({ navigateMock: vi.fn() }));
 
@@ -21,14 +21,12 @@ vi.mock("../lib/files", () => ({ injectWorkspaceReferences: (message: string) =>
 
 function Harness({
   onSend,
-  intent,
   researchMode,
   conversationKey = null,
   configuringModel,
 }: {
   configuringModel?: boolean;
   onSend?: () => void;
-  intent?: (text: string) => Promise<{ kind: "draft" } | { kind: "conversation"; message: string } | null>;
   researchMode?: ResearchStarter | null;
   conversationKey?: string | null;
 }) {
@@ -41,8 +39,6 @@ function Harness({
     setReviewNotice: () => undefined,
     research: {
       mode: researchMode ?? null,
-      draft: null,
-      intent: intent ?? (async () => null),
     },
     onSend,
   });
@@ -132,17 +128,14 @@ describe("useComposer onSend", () => {
     expect(order).toEqual(["onSend", "sendPrompt"]);
   });
 
-  it("does not fire onSend when the research intent detours into a draft", async () => {
-    const onSend = vi.fn();
-    const sendPrompt = vi.fn(async (_message: string): Promise<string | null> => null);
-    useRuntimeStore.setState({ draft: "explore X", sendPrompt });
-    render(<Harness onSend={onSend} intent={async () => ({ kind: "draft" })} researchMode={{ id: "explore", label: "Explore", prompt: "p" } as unknown as ResearchStarter} />);
-
+  it("dispatches research through the skill in the normal conversation", async () => {
+    const onSend = vi.fn(); const sendPrompt = vi.fn(async () => null);
+    useRuntimeStore.setState({ draft: "Explore evidence", sendPrompt });
+    render(<Harness onSend={onSend} researchMode="research_loop" />);
     fireEvent.click(screen.getByRole("button", { name: "send" }));
-
-    await vi.waitFor(() => expect(useRuntimeStore.getState().draft).toBe(""));
-    expect(onSend).not.toHaveBeenCalled();
-    expect(sendPrompt).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(sendPrompt).toHaveBeenCalledWith("/skill:auto-research [Workflow: research_loop]\nExplore evidence"));
+    expect(onSend).toHaveBeenCalledOnce();
+    expect(apiRequest).not.toHaveBeenCalled();
   });
 
   it("does not refill the composer after the user moves to another conversation", async () => {

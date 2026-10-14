@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ComponentType, ReactNode, Ref } from "react";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Loader2 } from "lucide-react";
 import type { VirtuosoHandle, VirtuosoProps } from "react-virtuoso";
@@ -23,10 +23,10 @@ import { ConversationNavRail, type ConversationNavItem } from "../../components/
 import { ThinkingActivity } from "../../components/conversation/AgentActivity";
 import { visibleUserMessage } from "../../lib/files";
 import { useTranslation } from "react-i18next";
-import { ResearchLoopDraftCard, ResearchLoopStatusCard, ResearchModePicker } from "../../components/conversation/ResearchLoopControls";
+import { ResearchModePicker } from "../../components/conversation/ResearchModePicker";
 import { useTurnEffects } from "../../hooks/useTurnEffects";
 import { useModelConfig } from "../../hooks/useModelConfig";
-import { useResearchLoop } from "../../hooks/useResearchLoop";
+import { useAutoResearch } from "../../hooks/useAutoResearch";
 import { useComposer } from "../../hooks/useComposer";
 import { useConversationScroll } from "../../hooks/useConversationScroll";
 import type { ThreadBlock } from "../../types/thread";
@@ -89,7 +89,6 @@ export function LiveSessionPage() {
   const { t } = useTranslation();
   const { sessionId } = useParams<{ sessionId: string }>();
   const workspaceCwd = useRequiredWorkspaceCwd();
-  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const showRuns = searchParams.get("view") === "runs";
   const focusedBlockId = searchParams.get("focus");
@@ -232,7 +231,7 @@ export function LiveSessionPage() {
     workspaceCwd,
   ]);
 
-  const research = useResearchLoop(workspaceCwd);
+  const research = useAutoResearch(`${workspaceCwd}:${sessionId ?? "blank"}`);
   const composer = useComposer({
     cwd: workspaceCwd,
     conversationKey: sessionId ?? null,
@@ -240,7 +239,7 @@ export function LiveSessionPage() {
     configuringModel: model.configuringModel,
     reviewingProject,
     setReviewNotice,
-    research: { mode: research.mode, draft: research.draft, intent: research.intent },
+    research: { mode: research.mode },
     onSend: () => {
       // Follow-ups belong to the completed turn. Once the user continues the
       // conversation they should not linger beneath the previous answer.
@@ -288,7 +287,7 @@ export function LiveSessionPage() {
   };
 
   // Empty new conversation: welcome copy sits directly above a vertically centered composer.
-  const showWelcome = thread.blocks.length === 0 && !working && status !== "connecting" && !research.draft && !research.activeLoop;
+  const showWelcome = thread.blocks.length === 0 && !working && status !== "connecting";
   const activeSession = sessions.find((session) => session.id === activeSessionId);
   // A paged history can be loaded without its user messages. `thread.loaded`
   // only means that a page arrived; it does not mean this is a new session.
@@ -300,8 +299,8 @@ export function LiveSessionPage() {
   // Workflow starters are entry points for a blank conversation. Once the
   // first turn exists, the composer stays focused on the active conversation
   // instead of continuing to show the onboarding shortcuts.
-  const modePicker = thread.blocks.length === 0 && !research.draft && !research.activeLoop
-    ? <ResearchModePicker className={showWelcome ? "px-0 pb-0" : undefined} selected={research.mode} disabled={working || interactionPending || reviewingProject || research.busy} onSelect={(mode, prompt) => { const selected = research.mode === mode ? null : mode; research.setMode(selected); research.setPrompt(selected ? prompt : t("conversation.defaultPrompt")); composer.inputRef.current?.focus(); }} />
+  const modePicker = thread.blocks.length === 0
+    ? <ResearchModePicker className={showWelcome ? "px-0 pb-0" : undefined} selected={research.mode} disabled={working || interactionPending || reviewingProject} onSelect={(mode, prompt) => { const selected = research.mode === mode ? null : mode; research.setMode(selected); research.setPrompt(selected ? prompt : t("conversation.defaultPrompt")); composer.inputRef.current?.focus(); }} />
     : null;
   const suggestionAnchorBlockId = (() => {
     if (suggestions.length === 0) return null;
@@ -317,8 +316,6 @@ export function LiveSessionPage() {
   })();
   const showSuggestions = suggestions.length > 0
     && !working
-    && !research.draft
-    && !research.activeLoop
     && !composer.input.trim();
 
   return (
@@ -388,9 +385,6 @@ export function LiveSessionPage() {
                             {navigationLoading ? "Locating message…" : "Loading earlier messages…"}
                           </div>
                         )}
-                        {research.draft && <ResearchLoopDraftCard draft={research.draft} busy={research.busy} onCancel={() => { research.setDraft(null); research.setMode(null); research.setError(null); }} onConfirm={() => void research.confirm()} />}
-                        {research.activeLoop && <ResearchLoopStatusCard loop={research.activeLoop} candidates={research.activeLoop.candidates} busy={research.busy} onRefresh={() => void research.refresh(research.activeLoop!.loop_id)} onAction={(action) => void research.action(action)} onOpenDetails={() => navigate(`/workspace/${encodeURIComponent(workspaceCwd)}/research`)} />}
-                        {research.error && <div className="rounded-input border border-error/30 bg-error/5 px-3 py-2 text-xs text-error-text">{research.error}</div>}
                       </div>
                     ),
                     Footer: ConversationFooter,
@@ -425,9 +419,6 @@ export function LiveSessionPage() {
               </Suspense>
             ) : (
               <>
-                {research.draft && <ResearchLoopDraftCard draft={research.draft} busy={research.busy} onCancel={() => { research.setDraft(null); research.setMode(null); research.setError(null); }} onConfirm={() => void research.confirm()} />}
-                {research.activeLoop && <ResearchLoopStatusCard loop={research.activeLoop} candidates={research.activeLoop.candidates} busy={research.busy} onRefresh={() => void research.refresh(research.activeLoop!.loop_id)} onAction={(action) => void research.action(action)} onOpenDetails={() => navigate(`/workspace/${encodeURIComponent(workspaceCwd)}/research`)} />}
-                {research.error && <div className="rounded-input border border-error/30 bg-error/5 px-3 py-2 text-xs text-error-text">{research.error}</div>}
                 {renderInteractionPrompt()}
                 {working && !pendingInteraction && <ThinkingActivity className="py-4" />}
               </>
