@@ -66,7 +66,7 @@ describe("literature-review skill content", () => {
     expect(body).toContain("Never silently substitute memory");
 
     // Literature retrieval now uses MCP tools or direct public APIs, not a local HTTP gateway.
-    expect(body).not.toMatch(/\\/api\\/literature\\//);
+    expect(body).not.toContain("/api/literature/");
     expect(body).toContain("Direct `curl` requests leave the machine");
     expect(body).toContain("explicit user approval");
     expect(body).toContain("rest.uniprot.org");
