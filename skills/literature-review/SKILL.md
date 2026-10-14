@@ -1,7 +1,7 @@
 ---
 name: literature-review
-description: Find, verify, and synthesize scientific literature with traceable citations. Works with zero configuration by querying the public Crossref, arXiv, and PubMed APIs directly via curl, prefers the pi-science control-plane literature gateway (/api/literature/search, which adds caching, rate limiting, egress audit and a sensitive-term gate over PubMed, GenBank, arXiv, PubChem and UniProt), and prefers configured literature MCP connectors when they are available. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
-version: 0.2.1
+description: Find, verify, and synthesize scientific literature with traceable citations. Prefer configured literature MCP connectors; otherwise query public Crossref, arXiv, and PubMed APIs directly via curl with appropriate data-sharing safeguards. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
+version: 0.2.2
 license: Apache-2.0
 category: research
 requirements:
@@ -50,33 +50,11 @@ Ground every claim in retrieval results from a live provider. Never answer from 
 
 ## Retrieval strategy
 
-1. Preferred path: if literature MCP tools are configured in this session (for example `literature.search` / `literature.fetch`, or another literature connector), use them first.
-2. Local gateway: otherwise, prefer the pi-science control-plane gateway (`POST /api/literature/search` on the control plane, port 8787 by default). It queries the same public APIs (NCBI E-utilities incl. GenBank, arXiv, PubChem, UniProt) through one audited, cached, rate-limited path, and it hard-blocks sensitive queries before anything leaves the machine.
-3. Zero-configuration fallback: if neither MCP tools nor the gateway are reachable, query the public HTTP APIs below directly with `curl` from the shell. No credentials or setup are required.
-4. Failure handling: if a provider fails (non-2xx status, timeout, malformed payload), report that provider's failure explicitly and continue with the remaining providers. Never silently substitute memory for a failed or missing provider; if all providers fail, say so and stop.
+1. Preferred path: if literature MCP tools are configured in this session (for example `literature.search` / `literature.fetch`, or another literature connector), use them first. Follow the connector's approval and data-egress policies.
+2. Zero-configuration fallback: otherwise, query the public HTTP APIs below directly with `curl` from the shell. No provider credentials or local gateway are required.
+3. Failure handling: if a provider fails (non-2xx status, timeout, malformed payload), report that provider's failure explicitly and continue with the remaining providers. Never silently substitute memory for a failed or missing provider; if all providers fail, say so and stop.
 
-## Local literature gateway (pi-science control plane)
-
-    curl -s -X POST http://127.0.0.1:8787/api/literature/search \
-      -H 'Content-Type: application/json' \
-      -d '{"query": "<terms>", "providers": ["pubmed", "genbank", "arxiv", "pubchem", "uniprot"]}'
-
-The response is JSON. `"blocked": false` means results came back:
-
-    {"blocked": false, "results": [{"provider": "pubmed", "query": "<terms>", "hitCount": 10, "records": [{"id": "...", "title": "...", "url": "..."}], "retrievedAt": "...", "responseHash": "...", "cached": false}], "failures": []}
-
-Sensitive queries are blocked by default — the gateway answers
-`{"blocked": true, "categories": [...], "terms": [...]}` and **no request leaves the machine**. Categories include DNA/protein sequences, compound identifiers and clinical identifiers. To proceed deliberately, first call the approval endpoint for the exact query and its matched categories, then re-run the search with the returned token:
-
-    curl -s -X POST http://127.0.0.1:8787/api/literature/approve \
-      -H 'Content-Type: application/json' \
-      -d '{"query": "<terms>", "categories": ["<matched-category>"]}'
-
-    → {"approvedToken": "...", "expiresAt": "..."}
-
-The token is single-use (consumed by the first search that uses it) and expires after 5 minutes; it only covers that exact query and those categories. Every outbound request is recorded in the egress audit regardless. When the gateway is unreachable (different port, standalone agent session), fall back to the direct API cheatsheet below.
-
-The gateway port follows `PI_SCIENCE_PORT` (default 8787). The gateway covers PubMed, GenBank, arXiv, PubChem, and UniProt — the same public APIs as the direct paths below (plus GenBank, PubChem and UniProt), except Crossref, which remains direct-curl-only. Results from the two paths are interchangeable for the providers they share.
+Direct `curl` requests leave the machine and do **not** inherit MCP tool approvals, Pi-Science egress audit, sensitive-term screening, caching, or request throttling. Do not transmit private project information, patient identifiers, unpublished sequences, or other sensitive material without explicit user approval and an appropriate authorized retrieval path. Respect each provider's rate limits.
 
 ## Direct API cheatsheet (curl)
 
