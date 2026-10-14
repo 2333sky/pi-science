@@ -65,20 +65,12 @@ describe("literature-review skill content", () => {
     expect(body).toContain("never invent a DOI");
     expect(body).toContain("Never silently substitute memory");
 
-    // Local control-plane gateway with the sensitive-term hard gate.
-    expect(body).toContain("/api/literature/search");
-    expect(body).toContain("/api/literature/approve");
-    expect(body).toContain("approvedToken");
-    expect(body).toContain("\"blocked\": true");
-    expect(body).toContain("no request leaves the machine");
-    expect(body).toContain("expires after 5 minutes");
-    expect(body).toContain("single-use");
-    expect(body).toContain("PI_SCIENCE_PORT");
-
-    // Gateway provider coverage and disclosed outbound domains.
+    // Literature retrieval now uses MCP tools or direct public APIs, not a local HTTP gateway.
+    expect(body).not.toMatch(/\\/api\\/literature\\//);
+    expect(body).toContain("Direct `curl` requests leave the machine");
+    expect(body).toContain("explicit user approval");
     expect(body).toContain("rest.uniprot.org");
     expect(body).toContain("pubchem.ncbi.nlm.nih.gov");
-    expect(body).toContain("Crossref, which remains direct-curl-only");
 
     // Crossref command shape and polite-pool convention.
     expect(body).toContain(
