@@ -1,7 +1,7 @@
 ---
 name: literature-review
-description: Find, verify, and synthesize scientific literature with traceable citations. Prefer configured literature MCP connectors; otherwise use the guarded local literature CLI for PubMed, GenBank, arXiv, PubChem, and UniProt. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
-version: 0.2.3
+description: Find, verify, and synthesize scientific literature with traceable citations. Prefer configured literature MCP connectors; otherwise use the local literature CLI for PubMed, GenBank, arXiv, PubChem, and UniProt. Use for literature searches, evidence tables, paper comparisons, and review-ready summaries.
+version: 0.2.4
 license: Apache-2.0
 category: research
 requirements:
@@ -11,7 +11,7 @@ requirements:
   - name: pnpm
     kind: command
     optional: true
-    description: Runs the guarded literature CLI from a Pi-Science checkout with dependencies installed. Not needed when an authorized literature MCP connector handles retrieval.
+    description: Runs the literature CLI from a Pi-Science checkout with dependencies installed. Not needed when an authorized literature MCP connector handles retrieval.
 risk: low
 third_party:
   - kind: service
@@ -51,10 +51,10 @@ Ground every claim in retrieval results from a live provider. Never answer from 
 ## Retrieval strategy
 
 1. Preferred path: if literature MCP tools are configured in this session (for example `literature.search` / `literature.fetch`, or another literature connector), use them first. Follow the connector's approval and data-egress policies.
-2. Guarded fallback: otherwise run the local CLI below. It reuses `LiteratureService` for sensitive-term screening, provider throttling, SSRF protection, and egress audit. No local HTTP gateway or provider credentials are required.
+2. Local fallback: otherwise run the local CLI below. It reuses `LiteratureService` for provider throttling, SSRF protection, and egress audit. No local HTTP gateway or provider credentials are required.
 3. Failure handling: if a provider fails (non-2xx status, timeout, malformed payload), report that provider's failure explicitly and continue with the remaining providers. Never silently substitute memory for a failed or missing provider; if all providers fail, say so and stop.
 
-## Guarded local CLI
+## Local CLI
 
 From a Pi-Science checkout with dependencies installed, pass a JSON object on stdin:
 
@@ -76,9 +76,9 @@ Use a JSON serializer for dynamic input; never interpolate query text into shell
 
 For example, `{"query":"insulin","providers":["genbank","pubchem","uniprot"]}` retrieves the previously supported scientific records without enabling MCP connectors.
 
-The CLI returns JSON with `blocked`, `results`, and `failures`. Each result includes provider, query, hit count, records, retrieval time, and response hash. A sensitive query returns `"blocked": true` with categories and terms, exits with code 2, and **no request leaves the machine**. The CLI deliberately has no approval command and rejects `approvedToken` or other extra fields. Do not retry blocked queries using direct HTTP tools. Use an authorized MCP connector with explicit user approval, or stop and report that retrieval is blocked. A missing CLI or dependencies also requires stopping or using an authorized connector; never bypass the guard with raw HTTP requests.
+The CLI returns JSON with `results` and `failures`. Each result includes provider, query, hit count, records, retrieval time, and response hash. Queries are sent directly to the selected providers without sensitive-term screening or approval tokens, including sequences, compound identifiers, and custom terms. Only `query` and `providers` are accepted as input. If the CLI or dependencies are missing, use a configured MCP connector or report retrieval as unavailable.
 
-Crossref is unsupported by this CLI. For Crossref/DOI-specific retrieval, use a configured authorized MCP connector; if unavailable, report the coverage gap explicitly. Do not silently substitute another provider. For private project terms not recognized by built-in patterns, configure `PI_SCIENCE_SENSITIVE_TERMS` before searching. Screening cannot identify all confidential material: send only information authorized for the selected provider.
+Crossref is unsupported by this CLI. For Crossref/DOI-specific retrieval, use a configured authorized MCP connector; if unavailable, report the coverage gap explicitly. Do not silently substitute another provider.
 
 Outbound requests use the existing provider egress audit and throttling. The CLI cache and throttle state last only for one invocation; run searches sequentially and respect provider limits across invocations.
 

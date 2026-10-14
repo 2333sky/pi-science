@@ -105,7 +105,7 @@ describe("searchPubMed", () => {
       { match: "esearch.fcgi", body: PUBMED_SEARCH },
       { match: "esummary.fcgi", body: PUBMED_SUMMARY },
     ]);
-    const { result, rawBodies } = await searchPubMed("crispr", { approved: false });
+    const { result, rawBodies } = await searchPubMed("crispr");
     expect(result.provider).toBe("pubmed");
     expect(result.records).toHaveLength(2);
     const first = result.records[0];
@@ -120,7 +120,7 @@ describe("searchPubMed", () => {
 
   it("returns an empty result when esearch finds nothing", async () => {
     stubFetch([{ match: "esearch.fcgi", body: JSON.stringify({ esearchresult: { idlist: [] } }) }]);
-    const { result } = await searchPubMed("no such thing", { approved: false });
+    const { result } = await searchPubMed("no such thing");
     expect(result.hitCount).toBe(0);
     expect(result.records).toEqual([]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -134,8 +134,8 @@ describe("searchPubMed", () => {
     ], () => startedAt.push(Date.now()));
 
     await Promise.all([
-      searchPubMed("crispr first", { approved: false }),
-      searchPubMed("crispr second", { approved: false }),
+      searchPubMed("crispr first"),
+      searchPubMed("crispr second"),
     ]);
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
@@ -150,7 +150,7 @@ describe("searchPubMed", () => {
     // the real call site uses { all: true }, so the mock returns an array.
     vi.mocked(lookup).mockImplementationOnce((async () => [{ address: "10.0.0.1", family: 4 }]) as never);
     stubFetch([{ match: "esearch.fcgi", body: PUBMED_SEARCH }]);
-    await expect(searchPubMed("crispr", { approved: false })).rejects.toThrow(/private or reserved/i);
+    await expect(searchPubMed("crispr")).rejects.toThrow(/private or reserved/i);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
@@ -173,7 +173,7 @@ describe("searchGenBank", () => {
       { match: "esearch.fcgi", body: GENBANK_SEARCH },
       { match: "esummary.fcgi", body: GENBANK_SUMMARY },
     ]);
-    const { result } = await searchGenBank("TP53", { approved: false });
+    const { result } = await searchGenBank("TP53");
     expect(currentUrl).toContain("db=nuccore");
     expect(result.records[0]).toMatchObject({ id: "AB123456.1", provider: "genbank", title: "Example gene", url: "https://www.ncbi.nlm.nih.gov/nuccore/AB123456.1" });
     expect(result.records[0]?.extra).toEqual({ database: "GenBank" });
@@ -183,7 +183,7 @@ describe("searchGenBank", () => {
 describe("searchArxiv", () => {
   it("parses Atom XML entries and canonicalizes arXiv ids", async () => {
     stubFetch([{ match: "export.arxiv.org", body: ARXIV_XML }]);
-    const { result } = await searchArxiv("perovskite solar cell", { approved: false });
+    const { result } = await searchArxiv("perovskite solar cell");
     expect(result.records).toHaveLength(2);
     expect(result.records[0]).toMatchObject({ id: "2301.01234", provider: "arxiv", title: "Example & title for the test", year: 2023, url: "https://arxiv.org/abs/2301.01234" });
     expect(result.records[0]?.authors).toEqual(["Alice Doe", "Bob Roe"]);
@@ -197,7 +197,7 @@ describe("searchPubChem", () => {
       { match: "cids/JSON", body: PUBCHEM_CIDS },
       { match: "property", body: PUBCHEM_PROPS },
     ]);
-    const { result } = await searchPubChem("glucose", { approved: false });
+    const { result } = await searchPubChem("glucose");
     expect(result.records).toHaveLength(2);
     expect(result.records[0]).toMatchObject({
       id: "1234",
@@ -212,7 +212,7 @@ describe("searchPubChem", () => {
 describe("searchUniProt", () => {
   it("parses the UniProtKB search response", async () => {
     stubFetch([{ match: "rest.uniprot.org", body: UNIPROT_JSON }]);
-    const { result } = await searchUniProt("TP53 human", { approved: false });
+    const { result } = await searchUniProt("TP53 human");
     expect(result.records).toHaveLength(1);
     expect(result.records[0]).toMatchObject({
       id: "P12345",

@@ -3,7 +3,7 @@
  *
  * Validates the real SKILL.md against the server skill catalog (frontmatter
  * schema, no hard MCP requirement, third-party disclosures) and asserts the
- * guarded local CLI and the mandatory citation output
+ * local CLI and the mandatory citation output
  * convention are documented. Run from the server package:
  *
  *   pnpm --filter @pi-science/server exec vitest run --dir ../../skills/literature-review/tests
@@ -56,7 +56,7 @@ describe("literature-review skill content", () => {
     }
   });
 
-  it("documents guarded retrieval and complete provider coverage", async () => {
+  it("documents local retrieval and complete provider coverage", async () => {
     const body = await readFile(SKILL_MD, "utf8");
     expect(body).toContain("literature.search");
     expect(body).toContain("Never answer from memory");
@@ -65,9 +65,8 @@ describe("literature-review skill content", () => {
     expect(body).not.toContain("/api/literature/");
     expect(body).not.toMatch(/curl -s/);
     expect(body).toContain("pnpm --silent literature:search");
-    expect(body).toContain('"blocked": true');
-    expect(body).toContain("no request leaves the machine");
-    expect(body).toContain("explicit user approval");
+    expect(body).toContain("without sensitive-term screening or approval tokens");
+    expect(body).not.toContain("PI_SCIENCE_SENSITIVE_TERMS");
     expect(body).toContain("Crossref is unsupported");
     for (const provider of ["pubmed", "genbank", "arxiv", "pubchem", "uniprot"]) {
       expect(body).toContain(`\`${provider}\``);

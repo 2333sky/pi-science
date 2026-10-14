@@ -22,7 +22,7 @@ const UNIPROT_JSON = JSON.stringify({
 });
 
 function stubFetch(): ReturnType<typeof vi.fn> {
-  const mock = vi.fn(async () => new Response(UNIPROT_JSON, { status: 200, headers: { "content-type": "application/json" } }));
+  const mock = vi.fn(async (_input: RequestInfo | URL) => new Response(UNIPROT_JSON, { status: 200, headers: { "content-type": "application/json" } }));
   vi.stubGlobal("fetch", mock);
   return mock;
 }
@@ -42,74 +42,13 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("LiteratureService.search — sensitive-term hard gate", () => {
-  it("blocks a DNA-sequence query with no outbound calls", async () => {
+describe("LiteratureService.search — query handling", () => {
+  it.each(["ACGTACGTACGTACGT", "MYKGHCFWYTPVQN", "CC(=O)O", "patient id: 123456"])("retrieves query text without approval: %s", async (query) => {
     const fetchMock = stubFetch();
-    const service = new LiteratureService();
-    const outcome = await service.search("sequence ACGTACGTACGTACGTACGT found in sample");
-    expect(outcome.blocked).toBe(true);
-    if (outcome.blocked) {
-      expect(outcome.categories).toContain("dna-sequence");
-      expect(outcome.terms.length).toBeGreaterThan(0);
-    }
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("passes a benign query straight through to the providers", async () => {
-    const fetchMock = stubFetch();
-    const service = new LiteratureService();
-    const outcome = await service.search("band structure of silicon carbide", { providers: ["uniprot"] });
-    expect(outcome.blocked).toBe(false);
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it("honours a valid approval token for the exact query and categories", async () => {
-    const fetchMock = stubFetch();
-    const service = new LiteratureService();
-    const query = "sequence ACGTACGTACGTACGTACGT found in sample";
-    const approval = await service.approve(query, ["dna-sequence"]);
-    const outcome = await service.search(query, { providers: ["uniprot"], approvedToken: approval.approvedToken });
-    expect(outcome.blocked).toBe(false);
-    expect(fetchMock).toHaveBeenCalled();
-  });
-
-  it("consumes an approval token after the first search that uses it", async () => {
-    const fetchMock = stubFetch();
-    const service = new LiteratureService();
-    const query = "sequence ACGTACGTACGTACGTACGT found in sample";
-    const approval = await service.approve(query, ["dna-sequence"]);
-    const first = await service.search(query, { providers: ["uniprot"], approvedToken: approval.approvedToken });
-    expect(first.blocked).toBe(false);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const second = await service.search(query, { providers: ["uniprot"], approvedToken: approval.approvedToken });
-    expect(second.blocked).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it("rejects a token for a different query or missing categories", async () => {
-    const fetchMock = stubFetch();
-    const service = new LiteratureService();
-    const approval = await service.approve("sequence ACGTACGTACGTACGTACGT found in sample", ["dna-sequence"]);
-    const otherQuery = await service.search("a different ACGTACGTACGTACGTACGT query", { providers: ["uniprot"], approvedToken: approval.approvedToken });
-    expect(otherQuery.blocked).toBe(true);
-    // Same query but the detection also surfaces protein-sequence, which the token does not cover.
-    const mixed = await service.search("sequence ACGTACGTACGTACGTACGT peptide MYKGHCFWYTPVQN", {
-      providers: ["uniprot"],
-      approvedToken: approval.approvedToken,
-    });
-    expect(mixed.blocked).toBe(true);
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("expires tokens after the configured TTL", async () => {
-    stubFetch();
-    let clock = 1_000;
-    const service = new LiteratureService({ now: () => clock, approvalTtlMs: 5 * 60_000 });
-    const query = "sequence ACGTACGTACGTACGTACGT found in sample";
-    const approval = await service.approve(query, ["dna-sequence"]);
-    clock += 5 * 60_000 + 1;
-    const outcome = await service.search(query, { providers: ["uniprot"], approvedToken: approval.approvedToken });
-    expect(outcome.blocked).toBe(true);
+    const outcome = await new LiteratureService().search(query, { providers: ["uniprot"] });
+    expect(outcome.failures).toEqual([]);
+    expect(outcome.results[0]?.records[0]?.id).toBe("P12345");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(encodeURIComponent(query));
   });
 });
 
@@ -120,11 +59,8 @@ describe("LiteratureService.search — caching, dedup, failure isolation", () =>
     await service.search("perovskite", { providers: ["uniprot"] });
     const callsAfterFirst = fetchMock.mock.calls.length;
     const second = await service.search("perovskite", { providers: ["uniprot"] });
-    expect(second.blocked).toBe(false);
-    if (!second.blocked) {
-      expect(second.results[0]?.cached).toBe(true);
-      expect(second.results[0]?.records).toHaveLength(1);
-    }
+    expect(second.results[0]?.cached).toBe(true);
+    expect(second.results[0]?.records).toHaveLength(1);
     expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
   });
 
@@ -144,11 +80,8 @@ describe("LiteratureService.search — caching, dedup, failure isolation", () =>
     vi.stubGlobal("fetch", fetchMock);
     const service = new LiteratureService();
     const outcome = await service.search("same paper", { providers: ["pubmed", "arxiv"] });
-    expect(outcome.blocked).toBe(false);
-    if (!outcome.blocked) {
-      const allRecords = outcome.results.flatMap((result) => result.records);
-      expect(allRecords.filter((record) => record.doi === "10.1000/same")).toHaveLength(1);
-    }
+    const allRecords = outcome.results.flatMap((result) => result.records);
+    expect(allRecords.filter((record) => record.doi === "10.1000/same")).toHaveLength(1);
   });
 
   it("deduplicates by DOI first, then provider:id (pure-function coverage)", () => {
@@ -181,28 +114,23 @@ describe("LiteratureService.search — caching, dedup, failure isolation", () =>
     vi.stubGlobal("fetch", fetchMock);
     const service = new LiteratureService();
     const outcome = await service.search("anything", { providers: ["uniprot", "arxiv"] });
-    expect(outcome.blocked).toBe(false);
-    if (!outcome.blocked) {
-      expect(outcome.results).toHaveLength(1);
-      expect(outcome.results[0]?.provider).toBe("uniprot");
-      expect(outcome.failures).toHaveLength(1);
-      expect(outcome.failures[0]?.provider).toBe("arxiv");
-    }
+    expect(outcome.results).toHaveLength(1);
+    expect(outcome.results[0]?.provider).toBe("uniprot");
+    expect(outcome.failures).toHaveLength(1);
+    expect(outcome.failures[0]?.provider).toBe("arxiv");
   });
 
-  it("records provider searches and approvals in the egress audit", async () => {
+  it("records provider searches in the egress audit", async () => {
     stubFetch();
     const service = new LiteratureService();
     await service.search("perovskite", { providers: ["uniprot"] });
-    await service.approve("sequence ACGTACGTACGTACGTACGT found in sample", ["dna-sequence"]);
     const lines = readFileSync(join(auditDir, "egress-audit.jsonl"), "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as { connector_type: string; connector_id: string; approved: boolean; note?: string });
     const search = lines.find((entry) => entry.note === "provider_search");
     expect(search).toMatchObject({ connector_type: "literature", connector_id: "uniprot", approved: false });
-    const approval = lines.find((entry) => entry.note?.startsWith("approval_granted"));
-    expect(approval).toMatchObject({ connector_type: "literature", connector_id: "sensitive-approval", approved: true });
+    expect(lines).toHaveLength(1);
   });
 
   it("throws for an empty or oversized query", async () => {

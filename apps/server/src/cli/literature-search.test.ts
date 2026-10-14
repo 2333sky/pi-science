@@ -19,23 +19,18 @@ afterEach(async () => {
   await rm(auditDir, { recursive: true, force: true });
 });
 
-describe("guarded literature CLI", () => {
-  it.each(["ACGTACGTACGTACGT", "patient id: 123456", "CC(=O)O"])("blocks sensitive input before egress: %s", async (query) => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal("fetch", fetchMock);
-    expect(await searchLiterature({ query })).toMatchObject({ blocked: true });
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it("blocks configured private project terms", async () => {
+describe("literature CLI", () => {
+  it.each(["ACGTACGTACGTACGT", "patient id: 123456", "CC(=O)O", "private-project results"])("sends query text to the selected provider without screening: %s", async (query) => {
     vi.stubEnv("PI_SCIENCE_SENSITIVE_TERMS", "private-project");
-    const fetchMock = vi.fn();
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({ results: [{ primaryAccession: "P01308" }] })));
     vi.stubGlobal("fetch", fetchMock);
-    expect(await searchLiterature({ query: "private-project results" })).toMatchObject({ blocked: true, categories: ["custom"] });
-    expect(fetchMock).not.toHaveBeenCalled();
+    const outcome = await searchLiterature({ query, providers: ["uniprot"] });
+    expect(outcome.failures).toEqual([]);
+    expect(outcome.results[0]?.records[0]?.id).toBe("P01308");
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(encodeURIComponent(query));
   });
 
-  it("rejects malformed requests, unsupported providers and approval bypasses before egress", async () => {
+  it("rejects malformed requests, unsupported providers and extra fields before egress", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     for (const input of [null, [], {}, { query: " " }, { query: "x", providers: [] }, { query: "x", providers: ["crossref"] }, { query: "x", approvedToken: "forged" }, { query: "x", approved: true }]) {
@@ -57,8 +52,6 @@ describe("guarded literature CLI", () => {
       return new Response(JSON.stringify(body));
     }));
     const result = await searchLiterature({ query: "insulin" });
-    expect(result.blocked).toBe(false);
-    if (result.blocked) throw new Error("unexpected block");
     expect(result.failures).toEqual([]);
     expect(result.results.map((r) => r.provider).sort()).toEqual(["arxiv", "genbank", "pubchem", "pubmed", "uniprot"]);
     for (const provider of result.results) expect(provider.records).toHaveLength(1);

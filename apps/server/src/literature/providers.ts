@@ -8,14 +8,9 @@ import { emptySearchResult, type LiteratureProviderId, type LiteratureRecord, ty
  * goes through safeConnectorFetch (SSRF guard, redirect re-validation, size
  * caps, timeout), is recorded in the egress audit, and is throttled per
  * outbound request to stay inside the official rate limits (NCBI ~3 req/s
- * without an API key). Providers are pure functions over (query, context);
- * the service layer owns caching, approvals and cross-provider dedup.
+ * without an API key). Providers accept query text;
+ * the service layer owns caching and cross-provider dedup.
  */
-
-export interface ProviderContext {
-  /** True when the caller holds a valid approval token for a sensitive query. */
-  approved: boolean;
-}
 
 export interface ProviderResult {
   result: LiteratureSearchResult;
@@ -107,12 +102,12 @@ function normalizeArxivId(raw: string): string {
   return match?.[1] ?? raw;
 }
 
-async function fetchProviderText(provider: LiteratureProviderId, url: string, context: ProviderContext): Promise<string> {
+async function fetchProviderText(provider: LiteratureProviderId, url: string): Promise<string> {
   await recordEgress({
     connector_type: "literature",
     connector_id: provider,
     target_domain: url,
-    approved: context.approved,
+    approved: false,
     note: "provider_search",
   });
   // Throttle at the actual connector boundary. A provider operation may issue
@@ -143,16 +138,16 @@ function withQuery(query: string, result: LiteratureSearchResult): LiteratureSea
 }
 
 /** NCBI E-utilities: esearch + esummary for pubmed or nuccore (GenBank) databases. */
-async function ncbiSearch(db: "pubmed" | "nuccore", provider: "pubmed" | "genbank", query: string, context: ProviderContext): Promise<ProviderResult> {
+async function ncbiSearch(db: "pubmed" | "nuccore", provider: "pubmed" | "genbank", query: string): Promise<ProviderResult> {
   const searchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=${db}&term=${encodeURIComponent(query)}&retmode=json&retmax=10`;
-  const searchBody = await fetchProviderText(provider, searchUrl, context);
+  const searchBody = await fetchProviderText(provider, searchUrl);
   const rawBodies = [searchBody];
   const searchParsed = JSON.parse(searchBody) as { esearchresult?: { idlist?: string[]; retmax?: string } };
   const ids = searchParsed.esearchresult?.idlist ?? [];
   if (ids.length === 0) return { result: withQuery(query, emptySearchResult(provider, query, combinedHash(rawBodies))), rawBodies };
 
   const summaryUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=${db}&id=${ids.join(",")}&retmode=json`;
-  rawBodies.push(await fetchProviderText(provider, summaryUrl, context));
+  rawBodies.push(await fetchProviderText(provider, summaryUrl));
   let records: LiteratureRecord[] = [];
   if (rawBodies.length > 1) {
     const summaryParsed = JSON.parse(rawBodies[1] ?? "{}") as {
@@ -187,18 +182,18 @@ async function ncbiSearch(db: "pubmed" | "nuccore", provider: "pubmed" | "genban
   return { result, rawBodies };
 }
 
-export async function searchPubMed(query: string, context: ProviderContext): Promise<ProviderResult> {
-  return ncbiSearch("pubmed", "pubmed", query, context);
+export async function searchPubMed(query: string): Promise<ProviderResult> {
+  return ncbiSearch("pubmed", "pubmed", query);
 }
 
-export async function searchGenBank(query: string, context: ProviderContext): Promise<ProviderResult> {
-  return ncbiSearch("nuccore", "genbank", query, context);
+export async function searchGenBank(query: string): Promise<ProviderResult> {
+  return ncbiSearch("nuccore", "genbank", query);
 }
 
 /** arXiv API (Atom XML). */
-export async function searchArxiv(query: string, context: ProviderContext): Promise<ProviderResult> {
+export async function searchArxiv(query: string): Promise<ProviderResult> {
   const url = `https://export.arxiv.org/api/query?search_query=all:${encodeURIComponent(query)}&max_results=10`;
-  const rawBodies = [await fetchProviderText("arxiv", url, context)];
+  const rawBodies = [await fetchProviderText("arxiv", url)];
   const body = rawBodies[0] ?? "";
   const records: LiteratureRecord[] = [];
   const entryPattern = /<entry>([\s\S]*?)<\/entry>/g;
@@ -226,16 +221,16 @@ export async function searchArxiv(query: string, context: ProviderContext): Prom
 }
 
 /** PubChem REST: name -> CIDs, then molecular properties. */
-export async function searchPubChem(query: string, context: ProviderContext): Promise<ProviderResult> {
+export async function searchPubChem(query: string): Promise<ProviderResult> {
   const cidUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/${encodeURIComponent(query)}/cids/JSON`;
-  const cidBody = await fetchProviderText("pubchem", cidUrl, context);
+  const cidBody = await fetchProviderText("pubchem", cidUrl);
   const rawBodies = [cidBody];
   const cidParsed = JSON.parse(cidBody) as { IdentifierList?: { CID?: Array<number | string> } };
   const cids = (cidParsed.IdentifierList?.CID ?? []).slice(0, 10);
   let records: LiteratureRecord[] = [];
   if (cids.length > 0) {
     const propUrl = `https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/${cids.join(",")}/property/MolecularFormula,MolecularWeight,IUPACName/JSON`;
-    rawBodies.push(await fetchProviderText("pubchem", propUrl, context));
+    rawBodies.push(await fetchProviderText("pubchem", propUrl));
     const propParsed = JSON.parse(rawBodies[1] ?? "{}") as {
       PropertyTable?: { Properties?: Array<{ CID?: number | string; MolecularFormula?: string; MolecularWeight?: number; IUPACName?: string }> };
     };
@@ -255,9 +250,9 @@ export async function searchPubChem(query: string, context: ProviderContext): Pr
 }
 
 /** UniProtKB REST search. */
-export async function searchUniProt(query: string, context: ProviderContext): Promise<ProviderResult> {
+export async function searchUniProt(query: string): Promise<ProviderResult> {
   const url = `https://rest.uniprot.org/uniprotkb/search?query=${encodeURIComponent(query)}&format=json&size=10`;
-  const rawBodies = [await fetchProviderText("uniprot", url, context)];
+  const rawBodies = [await fetchProviderText("uniprot", url)];
   const parsed = JSON.parse(rawBodies[0] ?? "{}") as {
     results?: Array<{
       primaryAccession?: string;
@@ -283,7 +278,7 @@ export async function searchUniProt(query: string, context: ProviderContext): Pr
   return { result, rawBodies };
 }
 
-export const PROVIDER_SEARCHERS: Record<LiteratureProviderId, (query: string, context: ProviderContext) => Promise<ProviderResult>> = {
+export const PROVIDER_SEARCHERS: Record<LiteratureProviderId, (query: string) => Promise<ProviderResult>> = {
   pubmed: searchPubMed,
   genbank: searchGenBank,
   arxiv: searchArxiv,

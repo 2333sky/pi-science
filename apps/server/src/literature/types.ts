@@ -1,5 +1,3 @@
-import type { SensitiveCategory } from "../security/sensitive-terms.js";
-
 /** Providers backed by official public APIs (no third-party MCP shims). */
 export type LiteratureProviderId = "pubmed" | "genbank" | "arxiv" | "pubchem" | "uniprot";
 
@@ -44,17 +42,10 @@ export interface ProviderFailure {
   error: string;
 }
 
-export type LiteratureSearchOutcome =
-  | {
-      blocked: true;
-      categories: SensitiveCategory[];
-      terms: string[];
-    }
-  | {
-      blocked: false;
-      results: LiteratureSearchResult[];
-      failures: ProviderFailure[];
-    };
+export interface LiteratureSearchOutcome {
+  results: LiteratureSearchResult[];
+  failures: ProviderFailure[];
+}
 
 export function emptySearchResult(provider: LiteratureProviderId, query: string, responseHash: string): LiteratureSearchResult {
   return {
