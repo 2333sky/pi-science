@@ -77,7 +77,7 @@ describe("V4 independent primary navigation and context", () => {
     const rail = slot?.querySelector("nav");
     expect(slot).toHaveClass("w-[var(--rail-width-mobile)]", "md:w-[var(--rail-width)]");
     expect(rail).toHaveClass("workspace-rail");
-    expect(screen.queryByRole("link", { name: "Research", exact: true })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Research" })).toBeNull();
     for (const [role, name] of [
       ["button", "New conversation"],
       ["link", "Conversations"],
