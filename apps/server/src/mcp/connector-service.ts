@@ -445,6 +445,7 @@ function clearCredentialBindings(config: McpRuntimeConfig, credentialRef?: strin
 function suggestedCredential(connector: StoredMcpConnector): { capability: "unsupported" | "optional" | "required"; delivery: "environment" | "header" | "bearer" | null; target: string | null } {
   const builtinTargets: Record<string, string> = {
     mcp_builtin_paper_search: "NCBI_API_KEY",
+    mcp_builtin_web_access: "BRAVE_API_KEY",
     mcp_builtin_literature_graph: "OPENALEX_API_KEY",
     mcp_builtin_omics_archives: "NCBI_API_KEY",
     mcp_builtin_nucleotide_archives: "NCBI_API_KEY",
