@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { McpConnectorCreate, McpToolSummary } from "@pi-science/contracts";
+import { configRoot } from "../storage/persistence.js";
 
 export interface BuiltinMcpConnector {
   connector_id: string;
@@ -55,7 +56,9 @@ function webAccessConnector(): BuiltinMcpConnector {
       transport: "stdio",
       endpoint_url: null,
       command: process.execPath,
-      args,
+      // Bind the control plane's resolved root to this connector alone. Worker
+      // tool environments intentionally do not forward PI_SCIENCE_HOME.
+      args: [...args, configRoot()],
       socket_path: null,
       runtime_config: { lifecycle: "lazy", expose_resources: false, include_tools: [], exclude_tools: [], environment: {}, headers: {}, auth: "none", allow_private: false },
       credential_ref: null,

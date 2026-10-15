@@ -12,13 +12,17 @@ const live = process.argv.includes("--live");
 const cwd = await mkdtemp(join(tmpdir(), "pi-science-web-smoke-"));
 const foreign = join(cwd, "foreign");
 const data = join(cwd, "data");
+const previousDataRoot = process.env.PI_SCIENCE_HOME;
+process.env.PI_SCIENCE_HOME = data;
 const builtin = builtinMcpConnectors().find((item) => item.connector_id === "mcp_builtin_web_access");
+if (previousDataRoot === undefined) delete process.env.PI_SCIENCE_HOME;
+else process.env.PI_SCIENCE_HOME = previousDataRoot;
 assert.ok(builtin);
 assert.equal(builtin.definition.command, process.execPath);
 const client = new Client({ name: "pi-science-web-smoke", version: "1" });
 const transport = new StdioClientTransport({
   command: builtin.definition.command, args: builtin.definition.args, cwd,
-  env: { ...mcpBaseEnvironment(), ...builtinNetworkEnvironment(), PI_SCIENCE_HOME: data, PI_CODING_AGENT_DIR: foreign, HOME: join(cwd, "home"), USERPROFILE: join(cwd, "home"), XDG_CONFIG_HOME: join(cwd, "xdg") }, stderr: "pipe",
+  env: { ...mcpBaseEnvironment(), ...builtinNetworkEnvironment(), PI_SCIENCE_HOME: join(cwd, "wrong-child-root"), PI_CODING_AGENT_DIR: foreign, HOME: join(cwd, "home"), USERPROFILE: join(cwd, "home"), XDG_CONFIG_HOME: join(cwd, "xdg") }, stderr: "pipe",
 });
 try {
   for (const directory of [foreign, join(cwd, "home", ".pi", "agent"), join(cwd, "xdg", "pi")]) {

@@ -200,14 +200,25 @@ describe("agent-core product turns", () => {
     await vi.waitFor(async () => expect(await service.state(id, cwd)).toMatchObject({ is_streaming: false }), { timeout: 15000 });
   }, 45000);
 
-  it("detects a lost settled event and completes the persisted product lifecycle after reopening", async () => {
+  it("reconciles a lost settled event and completes the persisted product lifecycle once", async () => {
     const { cwd, id, service, core, events, review } = await fixture();
     const original = core.liveRuntime(cwd)!;
     const emit = original.emit.bind(original);
-    vi.spyOn(original, "emit").mockImplementation((type, ...args) => type === "event" && args[0]?.type === "operation.settled" ? false : emit(type, ...args));
+    let droppedSettled = false;
+    vi.spyOn(original, "emit").mockImplementation((type, ...args) => {
+      // Lose the worker's terminal event, not a supervisor's synthetic repair.
+      // Depending on the last observed sequence, the watchdog can reconcile a
+      // snapshot in this worker or reopen it after detecting a sequence gap.
+      if (type === "event" && args[0]?.type === "operation.settled" && !args[0]?.recovery) {
+        droppedSettled = true;
+        return false;
+      }
+      return emit(type, ...args);
+    });
     expect(await service.command(id, cwd, "prompt", { message: "write and recover", client_message_id: "lost-settle" })).toMatchObject({ success: true });
     await vi.waitFor(() => expect(events.some((event) => event.type === "turn.artifacts")).toBe(true), { timeout: 15000 });
-    expect(core.liveRuntime(cwd)).not.toBe(original);
+    expect(droppedSettled).toBe(true);
+    expect(events.filter((event) => event.type === "turn.artifacts")).toHaveLength(1);
     expect(await turnArtifactRepository.forSession(cwd, id)).toHaveLength(1);
     await vi.waitFor(() => expect(review.run).toHaveBeenCalledOnce(), { timeout: 15000 });
     expect((await new SessionRepository().messages(cwd, id)).filter((message) => message.client_message_id === "lost-settle")).toHaveLength(1);

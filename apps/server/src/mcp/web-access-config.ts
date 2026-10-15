@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { configPath, writeJsonAtomic } from "../storage/persistence.js";
+import { writeJsonAtomic } from "../storage/persistence.js";
 
 /** The operator file is separate from the upstream file generated for workers.
  * Never discover configuration in another Pi agent's HOME/XDG directories. */
-export async function prepareWebAccessConfig(): Promise<string> {
-  const root = configPath(join("mcp", "web-access"));
+export async function prepareWebAccessConfig(dataRoot: string): Promise<string> {
+  const root = join(dataRoot, "mcp", "web-access");
   const operatorPath = join(root, "config.json");
   let settings: Record<string, unknown> = {};
   try {

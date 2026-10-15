@@ -5,9 +5,17 @@ import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { builtinMcpConnectors } from "./builtin-connectors.js";
 import { mcpBaseEnvironment } from "./bindings.js";
+import { McpRepository } from "../storage/sqlite/repositories/mcp-repository.js";
+import { InMemorySqliteStateStore } from "../storage/sqlite/state-store.js";
+import { McpRuntimeProjection } from "./runtime-projection.js";
+import { AgentMcpTools } from "../runtime/agent/worker/mcp-tools.js";
+import { InteractionBridge } from "../runtime/agent/worker/interaction-bridge.js";
+import { toolEnvironment } from "../runtime/agent/agent-runtime-environment.js";
+
+afterEach(() => vi.unstubAllEnvs());
 
 const webAccess = () => builtinMcpConnectors().find((item) => item.connector_id === "mcp_builtin_web_access")!;
 const resultText = (result: CallToolResult) => result.content.flatMap((item) => item.type === "text" ? [item.text] : []).join("\n");
@@ -48,10 +56,11 @@ globalThis.fetch = async (input, init = {}) => {
   return new Response("Scientific evidence fixture. " + "Page content. ".repeat(100), { headers: { "content-type": "text/plain" } });
 };
 `);
+  vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "data"));
   const builtin = webAccess();
   const transport = new StdioClientTransport({
     command: builtin.definition.command!, args: ["--import", pathToFileURL(preload).href, ...builtin.definition.args],
-    cwd, env: { ...mcpBaseEnvironment(), PI_SCIENCE_HOME: join(cwd, "data"), PI_CODING_AGENT_DIR: foreign, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, ...environment }, stderr: "pipe",
+    cwd, env: { ...mcpBaseEnvironment(), PI_SCIENCE_HOME: join(cwd, "wrong-child-root"), PI_CODING_AGENT_DIR: foreign, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, ...environment }, stderr: "pipe",
   });
   const client = new Client({ name: "pi-science-web-access-test", version: "1" });
   try { await client.connect(transport); }
@@ -109,6 +118,41 @@ describe("published Web Access MCP", () => {
       expect(await readFile(join(f.cwd, "provider-called"), "utf8")).toBe("brave");
     } finally { await f.close(); }
   });
+
+  it("uses the control-plane data root through the real projection and Worker tool environment", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-science-web-worker-"));
+    const dataRoot = join(cwd, "control plane data");
+    vi.stubEnv("PI_SCIENCE_HOME", dataRoot);
+    const state = new InMemorySqliteStateStore();
+    let mcp: AgentMcpTools | undefined;
+    try {
+      await mkdir(join(cwd, ".pi-science"));
+      const configDirectory = join(dataRoot, "mcp", "web-access");
+      await mkdir(configDirectory, { recursive: true });
+      await writeFile(join(configDirectory, "config.json"), JSON.stringify({ provider: "brave", maxInlineContentChars: 12345 }));
+      await state.start();
+      const repository = new McpRepository(state);
+      const builtin = webAccess();
+      const connector = await repository.upsertBuiltin(builtin.connector_id, builtin.definition, true);
+      await repository.updateSettings(builtin.connector_id, { enabled: true, include_tools: [], exclude_tools: [], approval_mode: "allow_all", revision: connector.settings_revision });
+      await new McpRuntimeProjection(repository).materialize(cwd, "project_web_access");
+      const environment = { PATH: process.env.PATH ?? "", HOME: join(cwd, "worker-home"), PI_SCIENCE_HOME: dataRoot };
+      expect(toolEnvironment(environment)).not.toHaveProperty("PI_SCIENCE_HOME");
+      mcp = await AgentMcpTools.open(cwd, new InteractionBridge(() => undefined), environment);
+      expect(mcp.diagnostics).toEqual([]);
+      expect(mcp.tools.map((tool) => tool.name).sort()).toEqual(builtin.tools.map((tool) => `mcp__web-access__${tool.name}`).sort());
+      const generated = JSON.parse(await readFile(join(configDirectory, "runtime", "web-search.json"), "utf8"));
+      expect(generated).toMatchObject({ provider: "brave", maxInlineContentChars: 12345 });
+      await expect(readFile(join(cwd, "worker-home", ".pi-science", "mcp", "web-access", "runtime", "web-search.json"))).rejects.toMatchObject({ code: "ENOENT" });
+      const tool = mcp.tools.find((tool) => tool.name.endsWith("__get_search_content"))!;
+      const result = await tool.execute("missing-cache", { responseId: "unknown" }, () => undefined, {} as never, {} as never, {} as never);
+      expect(result).toMatchObject({ isError: true });
+    } finally {
+      await mcp?.close();
+      await state.close();
+      await rm(cwd, { recursive: true, force: true });
+    }
+  }, 20000);
 
   it("searches, fetches and pages cached content in the same CLI process", async () => {
     const f = await fixture();

@@ -23,7 +23,7 @@ Paper Search 适合 PubMed、arXiv 等结构化学术数据库检索；Web Acces
 
 第一版沿用上游 Provider 自动选择；无 Key 时可以使用 Exa MCP 路径，实际可用性取决于网络与上游服务。没有新增 Provider 选择界面。
 
-内置启动器在 Pi-Science 数据目录下生成独立的上游配置，不读取 `~/.pi/agent/web-search.json`、XDG 或其他 Pi Agent 的配置，即使父环境 / 连接器绑定了 `PI_CODING_AGENT_DIR` 也会覆盖为内置目录。
+控制面将解析后的 Pi-Science 数据根目录作为该连接器独有的绝对路径参数写入启动命令。Worker 无需向普通工具开放 `PI_SCIENCE_HOME`，内置启动器也不依赖子进程环境变量来重新寻找数据根目录。内置启动器在该目录下生成独立的上游配置，不读取 `~/.pi/agent/web-search.json`、XDG 或其他 Pi Agent 的配置，即使父环境 / 连接器绑定了 `PI_CODING_AGENT_DIR` 也会覆盖为内置目录。
 
 - 操作者配置：`<PI_SCIENCE_HOME>/mcp/web-access/config.json`（可选）。未设置 `PI_SCIENCE_HOME` 时使用 Pi-Science 的常规数据目录，通常为 `~/.pi-science`。
 - 生成配置：同目录下 `runtime/web-search.json`，每次 MCP 子进程启动时重新生成，以仅当前用户可读写的文件权限保存（支持 POSIX 权限的平台）。不要直接编辑生成文件。
@@ -92,7 +92,8 @@ node apps/server/scripts/smoke-web-access.mjs --live
 
 | 检查 | 结果 |
 | --- | --- |
-| Web Access、MCP 路由、连接器服务及 Worker MCP 回归 | 5 个文件、24 项测试通过（含 review 修复） |
+| Web Access、MCP 路由、连接器服务及 Worker MCP 回归 | 5 个文件、25 项测试通过（含自定义数据根目录的真实 Worker 链路） |
+| Agent Core 终态恢复回归 | 8 项测试通过；故障注入仅丢弃原始事件，保留 watchdog 合成恢复事件 |
 | Contracts 测试 | 2 个文件、15 项通过 |
 | 服务端全量测试 | 109 个文件、921 项通过；1 个文件、15 项跳过 |
 | 前端全量测试 | 167 个文件、1637 项通过 |
