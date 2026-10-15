@@ -216,7 +216,8 @@ describe("agent-core operation progress watchdog", () => {
     vi.setSystemTime(100_000);
     vi.stubEnv("PI_SCIENCE_EVENT_WATCHDOG_MS", "100");
     vi.stubEnv("PI_SCIENCE_OPERATION_NO_PROGRESS_MS", "1000");
-    const snapshot = { busy: true, operation: { id: "run" }, eventSequence: 0, faulted: false, pendingInteraction: false };
+    const snapshot = { busy: true, operation: { id: "run" }, eventSequence: 0, faulted: false, pendingInteraction: false,
+      lastResult: undefined as { operationId: string; status: "completed" } | undefined };
     const runtime = Object.assign(new EventEmitter(), { cwd: process.cwd(), sessionId: "watchdog", isClosed: false,
       sendCommand: vi.fn(async () => ({ success: true, data: snapshot })) });
     const service = new AgentCoreSessionService({ bind: () => undefined } as never, {} as never);
@@ -273,5 +274,31 @@ describe("agent-core operation progress watchdog", () => {
     runtime.emit("event", { type: "operation.settled", runId: "run" });
     await vi.advanceTimersByTimeAsync(10_000);
     expect(recover).not.toHaveBeenCalled();
+  });
+
+  it("reopens the worker when the snapshot reveals a missing event sequence", async () => {
+    const { snapshot, recover } = await supervised();
+    snapshot.busy = false;
+    snapshot.lastResult = { operationId: "run", status: "completed" };
+    snapshot.eventSequence = 1;
+    await vi.advanceTimersByTimeAsync(100);
+    expect(recover).toHaveBeenCalledOnce();
+  });
+
+  it("reconciles a lost terminal event in place when later frames have closed the sequence gap", async () => {
+    const { runtime, snapshot, recover } = await supervised();
+    snapshot.busy = false;
+    snapshot.lastResult = { operationId: "run", status: "completed" };
+    snapshot.eventSequence = 2;
+    runtime.emit("event", { type: "model.turn.started", runId: "run", runtime_sequence: 2 });
+    const emit = vi.spyOn(runtime, "emit");
+    await vi.advanceTimersByTimeAsync(100);
+    expect(emit).toHaveBeenCalledExactlyOnceWith("event", {
+      type: "operation.settled", runId: "run", status: "completed", recovery: true,
+    });
+    expect(recover).not.toHaveBeenCalled();
+    const probes = runtime.sendCommand.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(runtime.sendCommand).toHaveBeenCalledTimes(probes);
   });
 });
