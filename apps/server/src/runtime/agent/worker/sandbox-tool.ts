@@ -17,6 +17,7 @@ const inputSchema = z.object({ candidate_id: z.string().regex(CANDIDATE_PATTERN)
 const MAX_LOG_BYTES = 64 * 1024;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 const producer = "sandbox_run";
+class InvalidSandboxOutput extends Error {}
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const inside = (root: string, path: string) => path !== root && !relative(root, path).startsWith("..") && !isAbsolute(relative(root, path));
 export interface SandboxIdentity { cwd: string; sessionId: string; budgetOperationId?: string; candidateId?: string; delegatedAgent?: string }
@@ -44,15 +45,15 @@ async function validateTree(root: string, limit = 4096): Promise<void> {
   let entries = 0;
   const visit = async (path: string): Promise<void> => {
     for (const item of await readdir(path, { withFileTypes: true })) {
-      if (++entries > limit) throw new Error("Sandbox candidate tree exceeds entry limit");
+      if (++entries > limit) throw new InvalidSandboxOutput("Sandbox candidate tree exceeds entry limit");
       const file = join(path, item.name); const info = await lstat(file);
-      if (info.isSymbolicLink() || !info.isDirectory() && (!info.isFile() || info.nlink !== 1)) throw new Error("Sandbox candidate contains links or special files");
+      if (info.isSymbolicLink() || !info.isDirectory() && (!info.isFile() || info.nlink !== 1)) throw new InvalidSandboxOutput("Sandbox candidate contains links or special files");
       if (info.isDirectory()) await visit(file);
     }
   };
   await visit(root);
 }
-export async function sandboxCandidate(identity: SandboxIdentity, operationId: string, candidateId: string) {
+async function boundCandidate(identity: SandboxIdentity, operationId: string, candidateId: string) {
   if (!CANDIDATE_PATTERN.test(candidateId)) throw new Error("Invalid candidate_id");
   if (identity.delegatedAgent && (identity.delegatedAgent !== "auto-research/experimenter" || identity.candidateId !== candidateId)) throw new Error("Candidate is not authorized for this child");
   const owner = identity.budgetOperationId ?? operationId;
@@ -64,14 +65,20 @@ export async function sandboxCandidate(identity: SandboxIdentity, operationId: s
   const directory = await canonicalDirectory(join(identity.cwd, "research", binding.researchId, "candidates", candidateId));
   const input = await canonicalDirectory(join(directory, "input"));
   const work = await canonicalDirectory(join(directory, "work"));
-  await validateTree(input); await validateTree(work);
+  await validateTree(input);
   return { directory, input, work, researchId: binding.researchId };
+}
+export async function sandboxCandidate(identity: SandboxIdentity, operationId: string, candidateId: string) {
+  const candidate = await boundCandidate(identity, operationId, candidateId);
+  await validateTree(candidate.work);
+  return candidate;
 }
 
 /** Keep the Experimenter's existing read capability inside its assigned candidate as well. */
 export function candidateReadTool(original: Tool, identity: SandboxIdentity): Tool {
-  if (!identity.delegatedAgent || !identity.candidateId) return original;
+  if (identity.delegatedAgent !== "auto-research/experimenter") return original;
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
+    if (!identity.candidateId) throw new Error("Experimenter read requires a bound candidate_id; use supplied task text for code generation");
     const candidate = await sandboxCandidate(identity, invocation.operationId, identity.candidateId!);
     const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(candidate.directory)}.json`);
     return withFileWriteLock(lock, async () => {
@@ -155,23 +162,23 @@ async function outputFiles(work: string): Promise<string[]> {
   for (const entry of (await readdir(work)).sort()) {
     if (!/\.(?:py|json|csv|tsv|txt|log|png|pdf|npy|npz)$/.test(entry)) continue;
     const path = join(work, entry); const info = await lstat(path);
-    if (!info.isFile() || info.nlink !== 1) throw new Error("Unsafe sandbox output");
+    if (!info.isFile() || info.nlink !== 1) throw new InvalidSandboxOutput("Unsafe sandbox output");
     bytes += info.size;
-    if (paths.length >= 16 || bytes > MAX_ARTIFACT_BYTES) throw new Error("Sandbox artifact limit exceeded");
+    if (paths.length >= 16 || bytes > MAX_ARTIFACT_BYTES) throw new InvalidSandboxOutput("Sandbox artifact limit exceeded");
     paths.push(path);
   }
   return paths;
 }
 
 export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxInstallation | undefined): Tool {
-  return { name: "sandbox_run", label: "Run sandboxed Python", description: "Run bounded Python in the assigned candidate input/work with no network. Requires operator-enabled srt, a bound research budget, and Parent-prepared directories. Process success is only a local debugging observation, never official evaluation.",
+  return { name: "sandbox_run", label: "Run sandboxed Python", description: "Run bounded Python in the assigned candidate input/work with no network. Requires operator-enabled srt, a bound research budget, and Parent-prepared directories. Invalid prior outputs cause all work files to be reset before execution; input is preserved and the reset is reported. Process success is only a local debugging observation, never official evaluation.",
     parameters: Type.Object({ candidate_id: Type.String({ pattern: CANDIDATE_PATTERN.source }), code: Type.String({ minLength: 1, maxLength: 64 * 1024 }), timeout_seconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })) }),
     async execute(_id, params, _update, _ctx, invocation, context) {
       const values = inputSchema.parse(params);
       if (Buffer.byteLength(values.code) > 64 * 1024) throw new Error("Sandbox code exceeds byte limit");
       if (!installation) throw new Error("Sandbox unavailable; return code-generation output. Never run Python on the host as fallback.");
       context.abortSignal?.throwIfAborted();
-      const candidate = await sandboxCandidate(identity, invocation.operationId, values.candidate_id);
+      const candidate = await boundCandidate(identity, invocation.operationId, values.candidate_id);
       const configured = await sandboxSettings(installation, identity.cwd, candidate.input, candidate.work);
       const executionId = executionIdFor(producer, identity.sessionId, invocation.operationId, invocation.invocationId);
       const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(candidate.directory)}.json`);
@@ -194,11 +201,22 @@ export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxI
         let temporary: string | undefined;
         let result: Record<string, unknown>;
         let processResult: SandboxProcessResult | undefined;
+        const limitations: string[] = [];
         try {
           // Revalidate under the candidate lock before touching code or launching a process.
-          await sandboxCandidate(identity, invocation.operationId, values.candidate_id);
+          await boundCandidate(identity, invocation.operationId, values.candidate_id);
+          let previousPaths: string[];
+          try { previousPaths = await outputFiles(candidate.work); } catch (error) {
+            if (!(error instanceof InvalidSandboxOutput)) throw error;
+            // No untrusted process is running under this lock. Reset only canonical work;
+            // rm unlinks symlinks without traversing their targets. Input is never cleaned.
+            await canonicalDirectory(candidate.work);
+            for (const entry of await readdir(candidate.work)) await rm(join(candidate.work, entry), { recursive: true, force: true });
+            previousPaths = await outputFiles(candidate.work);
+            limitations.push(`Invalid candidate work reset before execution; previous work outputs removed: ${error.message}`);
+          }
           const previousOutputs = new Map<string, string>();
-          for (const path of await outputFiles(candidate.work)) previousOutputs.set(path, createHash("sha256").update(await readFile(path)).digest("hex"));
+          for (const path of previousPaths) previousOutputs.set(path, createHash("sha256").update(await readFile(path)).digest("hex"));
           const runtime = join(candidate.work, ".runtime"); await mkdir(runtime, { recursive: true }); await canonicalDirectory(runtime);
           const code = await open(join(candidate.work, "main.py"), constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW, 0o600);
           try { await code.writeFile(values.code); } finally { await code.close(); }
@@ -206,6 +224,7 @@ export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxI
           temporary = await mkdtemp(join(await realpath(process.platform === "darwin" ? "/private/tmp" : "/tmp"), "ps-"));
           const settingsPath = join(temporary, "settings.json"); await writeFile(settingsPath, JSON.stringify(configured.settings), { mode: 0o600 });
           processResult = await runSandboxProcess(settingsPath, configured.python, candidate.work, values.timeout_seconds ?? 60, context.abortSignal);
+          processResult.limitations.unshift(...limitations);
           const artifact_refs = [];
           if (processResult.status === "succeeded" || processResult.status === "failed") {
             const changed: string[] = [];
@@ -219,7 +238,7 @@ export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxI
           result = { execution_id: executionId, candidate_id: values.candidate_id, ...processResult, duration_ms: Date.now() - started, artifact_refs };
         } catch (error) {
           result = { execution_id: executionId, candidate_id: values.candidate_id, status: context.abortSignal?.aborted ? "cancelled" : "failed", exit_code: processResult?.exit_code ?? null,
-            stdout: processResult?.stdout ?? "", stderr: [processResult?.stderr, String(error)].filter(Boolean).join("\n"), duration_ms: Date.now() - started, artifact_refs: [], limitations: [...(processResult?.limitations ?? []), "Execution or output publication failed; no host execution fallback"] };
+            stdout: processResult?.stdout ?? "", stderr: [processResult?.stderr, String(error)].filter(Boolean).join("\n"), duration_ms: Date.now() - started, artifact_refs: [], limitations: [...(processResult?.limitations ?? limitations), "Execution or output publication failed; no host execution fallback"] };
         } finally { if (temporary) await rm(temporary, { recursive: true, force: true }); }
         await executionRepository.finish(identity.cwd, executionId, { status: result.status as SandboxProcessResult["status"], producer, result,
           artifacts: result.artifact_refs as Array<{ artifact_id: string; version: number; relation: "output" }> });

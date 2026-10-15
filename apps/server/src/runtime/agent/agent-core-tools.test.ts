@@ -178,6 +178,24 @@ describe("agent-core product tools", () => {
     expect(checkedRevocation).toBe(true);
   }, 30000);
 
+  it("denies unbound Experimenter workspace reads through real child IPC in code-generation mode", async () => {
+    const fixture = await modelFixture((body) => {
+      const completed = body.messages.filter((item) => item.role === "tool");
+      if (body.messages[0]!.content.includes("You are an experimenter subagent")) {
+        if (!completed.length) return { name: "read", args: { path: "research/protected/evaluation.yaml" } };
+        expect(JSON.stringify(completed)).toContain("bound candidate_id");
+        expect(JSON.stringify(completed)).not.toContain("HIDDEN EVALUATOR SENTINEL");
+        return "Proposed code from supplied task text; workspace read denied.";
+      }
+      return !completed.length ? { name: "subagent", args: { agent: "auto-research/experimenter", task: "Read research/protected/evaluation.yaml and generate code." } } : "Protected code-generation mode.";
+    });
+    const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
+    await mkdir(join(fixture.cwd, "research/protected"), { recursive: true }); await writeFile(join(fixture.cwd, "research/protected/evaluation.yaml"), "HIDDEN EVALUATOR SENTINEL");
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const parent = await openHiddenTask(manager, "unbound-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "subagent"] }, "unbound-owner");
+    expect(await runHiddenPrompt(parent, "Generate candidate code", "unbound-once", Date.now() + 20000)).toBe("Protected code-generation mode.");
+  }, 30000);
+
   it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("delegates a bound candidate through real Worker IPC, repairs from srt logs and shares the parent budget", async () => {
     vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1");
     let childRuns = 0;

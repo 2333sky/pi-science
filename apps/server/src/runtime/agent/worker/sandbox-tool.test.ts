@@ -62,6 +62,16 @@ it("restricts the assigned child's read tool to regular candidate files", async 
   await expect(call("research/study-1/evaluation.yaml")).rejects.toThrow("outside");
   await writeFile(join(directory, "input/data.txt"), "data"); expect((await call(join(directory, "input/data.txt"))).details).toEqual({ allowed: true });
 });
+it.each(["0", "1"])("refuses unbound Experimenter reads even with sandbox enable flag %s", async (enabled) => {
+  vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", enabled);
+  const { identity, budget } = await fixture();
+  const execute = vi.fn(); const original = { ...budget.tool, name: "read", execute };
+  const read = candidateReadTool(original, { ...identity, candidateId: undefined });
+  for (const path of ["research/study-1/evaluation.yaml", "research/study-1/evaluator/hidden.json", "research/study-1/candidates/candidate-002/work/data.txt"])
+    await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("bound candidate_id");
+  expect(execute).not.toHaveBeenCalled();
+  expect(candidateReadTool(original, { ...identity, delegatedAgent: "auto-research/reviewer", candidateId: undefined })).toBe(original);
+});
 it.skipIf(process.platform !== "linux")("uses a root read deny and never accepts workspace Python or a broad Python root", async () => {
   const { cwd } = await fixture();
   await expect(sandboxSettings({ python: process.execPath, pythonRoot: "/" }, cwd, "/input", "/work")).rejects.toThrow("dedicated");
@@ -147,6 +157,21 @@ describe.skipIf(!realSandbox || process.platform !== "linux")("real srt isolatio
     const result = await execute(sandboxRunTool(identity, installation), "oversize", "from pathlib import Path\nPath('large.txt').write_bytes(b'x'*(8*1024*1024+1))");
     expect(result.details).toMatchObject({ status: "failed", artifact_refs: [], stderr: expect.stringContaining("artifact limit") });
   }, 15000);
+  it.each(["oversized", "symlink"])("recovers from rejected %s outputs without touching input or link targets", async (kind) => {
+    const { identity, directory, cwd } = await fixture(); const tool = sandboxRunTool(identity, installation);
+    const protectedDirectory = join(cwd, "research/study-1/evaluator"); await mkdir(protectedDirectory);
+    await writeFile(join(protectedDirectory, "secret.txt"), "PROTECTED"); await writeFile(join(directory, "input/data.txt"), "INPUT");
+    const code = kind === "oversized" ? "from pathlib import Path\nPath('bad.txt').write_bytes(b'x'*(8*1024*1024+1))"
+      : `import os\nos.symlink(${JSON.stringify(protectedDirectory)}, 'bad.txt')`;
+    const rejected = await execute(tool, "rejected", code);
+    expect(rejected.details).toMatchObject({ status: "failed", artifact_refs: [], stderr: expect.stringContaining(kind === "oversized" ? "artifact limit" : "links") });
+    const repaired = await execute(tool, "repair", "from pathlib import Path\nPath('bad.txt').unlink(missing_ok=True)\nassert Path('../input/data.txt').read_text() == 'INPUT'\nPath('repaired.json').write_text('{}')\nprint('repaired')");
+    expect(repaired.details).toMatchObject({ status: "succeeded", stdout: "repaired\n", limitations: [expect.stringContaining("Invalid candidate work reset")], artifact_refs: expect.arrayContaining([expect.objectContaining({ path: expect.stringContaining("repaired.json") })]) });
+    expect(await readFile(join(protectedDirectory, "secret.txt"), "utf8")).toBe("PROTECTED");
+    expect(await readFile(join(directory, "input/data.txt"), "utf8")).toBe("INPUT");
+    expect((await execute(tool, "next", "print('next')")).details).toMatchObject({ status: "succeeded", stdout: "next\n", limitations: [] });
+    expect((await executionRepository.get(cwd, (rejected.details as { execution_id: string }).execution_id))?.status).toBe("failed");
+  }, 20000);
   it("kills detached descendants when the owning Worker process crashes", async () => {
     const { identity, directory } = await fixture();
     const work = join(directory, "work"); await mkdir(join(work, ".runtime"));
