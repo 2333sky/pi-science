@@ -338,7 +338,7 @@ has not supplied a task description; the UI does not invent a task from a path.
 ### Live process disclosure
 
 Each active turn owns one status header, including the initial thinking state.
-The virtual list footer contains only interaction controls. The current answer
+Pending interaction controls live above the Composer, outside the virtual list. The current answer
 streams outside the process panel. Intermediate prose is available in the
 process panel; short prose used as the current subtitle is not repeated there.
 Execution details are a separate, initially collapsed disclosure. Completion,
@@ -390,3 +390,26 @@ parent menu using a negative offset equal to the measured trigger width.
 Adjacent menus cannot fit in a 375 px viewport; the previous submenu extended
 past its left edge. Existing menu widths, collision padding, surfaces and
 spacing stay in use. Above `sm`, the existing 4 px side offset applies.
+
+### Pi-Science proposal: compact Composer question mode
+
+Pending interactions replace the Composer in its existing seat. The ordinary
+Composer stays mounted but hidden to preserve unsent text, attachments and
+mentions. Structured questions share the Composer width and 22px radius, with
+16px mobile / 32px desktop gutters and 8px bottom spacing. The expanded card
+has one question heading, a text position indicator, a collapse control, quiet
+numbered option rows (36px minimum height, 12px horizontal padding) and one
+action row. Selected rows use the semantic selected surface. Short desktop
+questions target 220–280px; the card is capped at min(320px, 50dvh), with only
+the body scrolling. Unusually long question headings scroll within 80px. Mobile uses min(360px, 60dvh), wrapping labels and actions.
+Collapsed mode is a single 40px minimum row with completion count and resume.
+
+Descriptions appear through the option info button as a short hover/focus
+tooltip (280px max width, three-line excerpt). Clicking opens a nonmodal, collision-aware detail
+popover: 420px max width, 16px viewport gutters, max height min(360px, 50dvh,
+available space). Markdown scrolls within it. The detail popover uses existing
+popover surface/shadow tokens and does not change the question card height.
+The question, review, notes and custom editors use existing 12/16px spacing.
+No new animation is introduced. Escape closes details before collapsing;
+cancellation is a separate labeled action. Permission controls retain their
+existing allow/deny semantics within the same seat.
