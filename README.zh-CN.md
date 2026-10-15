@@ -160,7 +160,7 @@ Pi-Science 内置 19 个 MCP 连接器，覆盖公共科学数据服务和通用
 
 连接器认证可引用托管密钥/令牌或具名环境变量，作为进程变量、HTTP Header 或 Bearer Token 传递。策略快照只含凭据引用，获准使用的凭据在 Worker 内存中解析。目前不支持 OAuth 登录与刷新。
 
-Web Search & Fetch 固定使用 `pi-web-access@0.40.0` 独立 MCP，不打开 Curator 页面，无需 `pi install`。Paper Search 用于结构化学术数据库检索；Web Access 用于通用网页与来源核查。默认询问授权，可在 MCP 设置中设为 `allow_all`；已有的显式 `ask` 需改为 `allow`，`deny` 继续生效。Provider 配置、缓存生存期和出站安全验收见 [Web Access 使用与验收说明](docs/web-access-mcp.md)。
+Web Search & Fetch 固定使用 `pi-web-access@0.40.0` 独立 MCP，不打开 Curator 页面，无需 `pi install`。Paper Search 用于结构化学术数据库检索；Web Access 用于通用网页与来源核查。默认询问授权，可在 MCP 设置中设为 `allow_all`；已有的显式 `ask` 需改为 `allow`，`deny` 继续生效。内置连接器使用 Pi-Science 独立配置，关闭 GitHub Clone / PR Issue 特殊处理；配置 Brave Key 不会自动选择 Brave，需显式设置 Provider。Provider 配置、缓存生存期和出站安全验收见 [Web Access 使用与验收说明](docs/web-access-mcp.md)。
 
 ## 科学文件查看器
 

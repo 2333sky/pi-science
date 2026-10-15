@@ -146,7 +146,7 @@ jobs:
       - name: Verify Web Access development and compiled entries on macOS
         run: |
           pnpm --filter @pi-science/contracts build
-          pnpm --filter @pi-science/server exec vitest run src/mcp/web-access.test.ts
+          pnpm --filter @pi-science/server exec vitest run src/mcp/web-access.test.ts src/mcp/web-access-config.test.ts
           pnpm --filter @pi-science/server build
           node apps/server/scripts/smoke-web-access.mjs
 

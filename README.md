@@ -163,7 +163,7 @@ active agent runtimes without manually editing Pi configuration files.
 
 Connector authentication can reference a managed key/token or a named environment variable, delivered as a process variable, HTTP header or Bearer token. Policy snapshots contain only credential references; permitted credentials are resolved in Worker memory. OAuth login/refresh is not currently supported.
 
-Web Search & Fetch uses the pinned standalone `pi-web-access@0.40.0` MCP CLI, with no Curator page or `pi install`. Use Paper Search for structured scholarly databases and Web Access for general web sources. Approval defaults to `ask`; select `allow_all` in MCP settings and change any explicit `ask` overrides to `allow` to avoid repeated confirmations. Explicit `deny` remains effective. See [Web Access configuration and validation](docs/web-access-mcp.md) for providers, cache lifetime, and outbound security limits.
+Web Search & Fetch uses the pinned standalone `pi-web-access@0.40.0` MCP CLI, with no Curator page or `pi install`. Use Paper Search for structured scholarly databases and Web Access for general web sources. Approval defaults to `ask`; select `allow_all` in MCP settings and change any explicit `ask` overrides to `allow` to avoid repeated confirmations. Explicit `deny` remains effective. The connector uses isolated Pi-Science configuration and disables GitHub Clone / PR Issue handling. Adding a Brave key does not select Brave; choose the Provider explicitly. See [Web Access configuration and validation](docs/web-access-mcp.md) for providers, cache lifetime, and outbound security limits.
 
 ## Scientific Viewers
 

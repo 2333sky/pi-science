@@ -38,10 +38,13 @@ export function builtinMcpConnectors(): BuiltinMcpConnector[] {
 }
 
 function webAccessConnector(): BuiltinMcpConnector {
-  // Resolve through Node's package resolver in both tsx and compiled builds.
-  // Use this installation's Node rather than a shell shim or an on-demand npx.
+  // Check the pinned release while keeping configuration isolation in our
+  // launcher, before the upstream CLI initializes any configuration modules.
   const entry = fileURLToPath(import.meta.resolve("pi-web-access/dist/mcp-cli.js"));
   if (!existsSync(entry)) throw new Error(`pi-web-access MCP entry not found: ${entry}`);
+  const here = dirname(fileURLToPath(import.meta.url));
+  const compiled = resolve(here, "builtin", "web-access-server.js");
+  const args = existsSync(compiled) ? [compiled] : ["--import", import.meta.resolve("tsx"), resolve(here, "builtin", "web-access-server.ts")];
   return {
     connector_id: "mcp_builtin_web_access",
     enabled_by_default: true,
@@ -52,7 +55,7 @@ function webAccessConnector(): BuiltinMcpConnector {
       transport: "stdio",
       endpoint_url: null,
       command: process.execPath,
-      args: [entry],
+      args,
       socket_path: null,
       runtime_config: { lifecycle: "lazy", expose_resources: false, include_tools: [], exclude_tools: [], environment: {}, headers: {}, auth: "none", allow_private: false },
       credential_ref: null,

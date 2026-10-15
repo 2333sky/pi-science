@@ -1,6 +1,6 @@
 // Run after building the server. --live additionally needs public-web access.
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -10,22 +10,31 @@ import { builtinNetworkEnvironment, mcpBaseEnvironment } from "../dist/mcp/bindi
 
 const live = process.argv.includes("--live");
 const cwd = await mkdtemp(join(tmpdir(), "pi-science-web-smoke-"));
+const foreign = join(cwd, "foreign");
+const data = join(cwd, "data");
 const builtin = builtinMcpConnectors().find((item) => item.connector_id === "mcp_builtin_web_access");
 assert.ok(builtin);
 assert.equal(builtin.definition.command, process.execPath);
 const client = new Client({ name: "pi-science-web-smoke", version: "1" });
 const transport = new StdioClientTransport({
   command: builtin.definition.command, args: builtin.definition.args, cwd,
-  env: { ...mcpBaseEnvironment(), ...builtinNetworkEnvironment(), PI_CODING_AGENT_DIR: cwd }, stderr: "pipe",
+  env: { ...mcpBaseEnvironment(), ...builtinNetworkEnvironment(), PI_SCIENCE_HOME: data, PI_CODING_AGENT_DIR: foreign, HOME: join(cwd, "home"), USERPROFILE: join(cwd, "home"), XDG_CONFIG_HOME: join(cwd, "xdg") }, stderr: "pipe",
 });
 try {
-  await writeFile(join(cwd, "web-search.json"), JSON.stringify({
-    provider: "exa", githubClone: { enabled: false }, githubPrIssue: { enabled: false },
-  }));
+  for (const directory of [foreign, join(cwd, "home", ".pi", "agent"), join(cwd, "xdg", "pi")]) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "web-search.json"), JSON.stringify({ provider: "brave", braveApiKey: "foreign-key", tools: { webSearch: { enabled: false } }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
+  }
   await client.connect(transport, { timeout: 10_000 });
   const { tools } = await client.listTools();
   assert.deepEqual(tools.map((tool) => tool.name).sort(), builtin.tools.map((tool) => tool.name).sort());
-  console.log("Web Access compiled entry: handshake and four tools OK");
+  const generated = JSON.parse(await readFile(join(data, "mcp", "web-access", "runtime", "web-search.json"), "utf8"));
+  assert.equal(generated.provider, "auto");
+  assert.equal(generated.githubClone.enabled, false);
+  assert.equal(generated.githubPrIssue.enabled, false);
+  assert.deepEqual(generated.ssrf, { allowRanges: [], trustEnvProxy: false });
+  assert.equal(generated.braveApiKey, undefined);
+  console.log("Web Access compiled entry: isolated defaults, handshake and four tools OK");
   if (live) {
     const failures = [];
     const call = async (name, args) => {

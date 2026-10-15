@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,16 +14,27 @@ const resultText = (result: CallToolResult) => result.content.flatMap((item) => 
 
 // Exercise the published CLI and its real extraction/cache implementation. Only
 // outbound HTTP responses are fixtures; no internet or API key is needed in CI.
-async function fixture() {
+async function fixture(settings: Record<string, unknown> | null = { provider: "exa", exaApiKey: "fixture-key" }, environment: Record<string, string> = {}) {
   const cwd = await mkdtemp(join(tmpdir(), "pi-science-web-access-"));
-  await writeFile(join(cwd, "web-search.json"), JSON.stringify({
-    provider: "exa", exaApiKey: "fixture-key", githubClone: { enabled: false }, githubPrIssue: { enabled: false },
-  }));
+  const configRoot = join(cwd, "data", "mcp", "web-access");
+  await mkdir(configRoot, { recursive: true });
+  if (settings) await writeFile(join(configRoot, "config.json"), JSON.stringify(settings));
+  const foreign = join(cwd, "foreign");
+  const home = join(cwd, "home");
+  const xdg = join(cwd, "xdg");
+  for (const directory of [foreign, join(home, ".pi", "agent"), join(xdg, "pi")]) {
+    await mkdir(directory, { recursive: true });
+    await writeFile(join(directory, "web-search.json"), JSON.stringify({ provider: "brave", braveApiKey: "foreign-key", proxy: "http://foreign:8080", ssrf: { allowRanges: ["127.0.0.0/8"], trustEnvProxy: true }, tools: { fetchContent: { enabled: false } } }));
+  }
   const preload = join(cwd, "http-fixture.mjs");
   await writeFile(preload, `
 import { writeFileSync } from "node:fs";
 globalThis.fetch = async (input, init = {}) => {
   const url = new URL(String(input));
+  if (url.hostname === "api.search.brave.com") {
+    writeFileSync("provider-called", "brave");
+    return Response.json({ web: { results: [{ title: "Brave fixture", url: "https://93.184.216.34/page", description: "Configured Provider" }] } });
+  }
   if (url.hostname === "api.exa.ai") return Response.json({ results: [
     { title: "Research fixture", url: "https://93.184.216.34/page", text: "Scientific evidence fixture" }
   ] });
@@ -40,7 +51,7 @@ globalThis.fetch = async (input, init = {}) => {
   const builtin = webAccess();
   const transport = new StdioClientTransport({
     command: builtin.definition.command!, args: ["--import", pathToFileURL(preload).href, ...builtin.definition.args],
-    cwd, env: { ...mcpBaseEnvironment(), PI_CODING_AGENT_DIR: cwd }, stderr: "pipe",
+    cwd, env: { ...mcpBaseEnvironment(), PI_SCIENCE_HOME: join(cwd, "data"), PI_CODING_AGENT_DIR: foreign, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, ...environment }, stderr: "pipe",
   });
   const client = new Client({ name: "pi-science-web-access-test", version: "1" });
   try { await client.connect(transport); }
@@ -63,6 +74,40 @@ describe("published Web Access MCP", () => {
       }
     } finally { await f.close(); }
     expect(f.transport.pid).toBeNull();
+  });
+
+  it("generates isolated production defaults without inheriting HOME, XDG or a bound Pi directory", async () => {
+    const f = await fixture(null);
+    try {
+      const { tools } = await f.client.listTools();
+      expect(tools.map((tool) => tool.name).sort()).toEqual(webAccess().tools.map((tool) => tool.name).sort());
+      const config = JSON.parse(await readFile(join(f.cwd, "data", "mcp", "web-access", "runtime", "web-search.json"), "utf8"));
+      expect(config).toEqual({
+        provider: "auto", githubClone: { enabled: false }, githubPrIssue: { enabled: false },
+        ssrf: { allowRanges: [], trustEnvProxy: false },
+        tools: Object.fromEntries(["webSearch", "fetchContent", "getSearchContent", "sourceCheck"].map((name) => [name, { enabled: true }])),
+      });
+      const result = await f.client.callTool({ name: "fetch_content", arguments: { url: "http://127.0.0.1/", mode: "raw" } });
+      expect(result.isError).toBe(true);
+      expect(resultText(result as CallToolResult)).toMatch(/blocked/i);
+    } finally { await f.close(); }
+  });
+
+  it("preserves explicit Provider settings while keeping the managed tool directory and guards", async () => {
+    const settings = { provider: "brave", githubClone: { enabled: true }, githubPrIssue: { enabled: true },
+      ssrf: { allowRanges: ["127.0.0.0/8"], trustEnvProxy: true },
+      tools: { webSearch: { enabled: false }, fetchContent: { enabled: false }, getSearchContent: { enabled: false }, sourceCheck: { enabled: false } } };
+    const f = await fixture(settings, { BRAVE_API_KEY: "fixture-brave-key" });
+    try {
+      expect((await f.client.listTools()).tools.map((tool) => tool.name).sort()).toEqual(webAccess().tools.map((tool) => tool.name).sort());
+      const config = JSON.parse(await readFile(join(f.cwd, "data", "mcp", "web-access", "runtime", "web-search.json"), "utf8"));
+      expect(config).toMatchObject({ provider: "brave", githubClone: { enabled: false }, githubPrIssue: { enabled: false }, ssrf: { allowRanges: [], trustEnvProxy: false } });
+      expect(JSON.parse(await readFile(join(f.cwd, "data", "mcp", "web-access", "config.json"), "utf8"))).toEqual(settings);
+      const result = await f.client.callTool({ name: "web_search", arguments: { query: "configured Provider" } });
+      expect(result.isError).not.toBe(true);
+      expect(resultText(result as CallToolResult)).toContain("Brave fixture");
+      expect(await readFile(join(f.cwd, "provider-called"), "utf8")).toBe("brave");
+    } finally { await f.close(); }
   });
 
   it("searches, fetches and pages cached content in the same CLI process", async () => {
