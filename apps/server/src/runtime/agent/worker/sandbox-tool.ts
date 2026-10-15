@@ -25,7 +25,7 @@ export interface SandboxProcessResult { status: "succeeded" | "failed" | "cancel
 
 /** Only server operator configuration, never workspace settings, task text or child environment. */
 export function sandboxInstallation(): SandboxInstallation | undefined {
-  if (process.env.PI_SCIENCE_SANDBOX_ENABLED !== "1") return undefined;
+  if (process.env.PI_SCIENCE_SANDBOX_ENABLED !== "1" || process.platform !== "linux") return undefined;
   if (!process.env.PI_SCIENCE_SANDBOX_PYTHON || !process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT) throw new Error("Sandbox requires a trusted preinstalled Python and Python root");
   return { python: process.env.PI_SCIENCE_SANDBOX_PYTHON, pythonRoot: process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT,
     ...(process.env.PI_SCIENCE_SANDBOX_RIPGREP ? { ripgrep: process.env.PI_SCIENCE_SANDBOX_RIPGREP } : {}),
@@ -89,13 +89,14 @@ export function candidateReadTool(original: Tool, identity: SandboxIdentity): To
 
 const srtCli = fileURLToPath(import.meta.resolve("@anthropic-ai/sandbox-runtime")).replace(/index\.js$/, "cli.js");
 export async function sandboxSettings(installation: SandboxInstallation, cwd: string, input: string, work: string) {
-  if (process.platform !== "linux" && process.platform !== "darwin") throw new Error("Sandbox is unavailable on this platform");
+  if (process.platform !== "linux") throw new Error("Sandbox execution is disabled on this platform: macOS descendant cleanup has not passed acceptance; use code-generation mode");
   if (!isAbsolute(installation.python) || !isAbsolute(installation.pythonRoot)) throw new Error("Trusted Python paths must be absolute");
   const manifest = JSON.parse(await readFile(join(dirname(dirname(srtCli)), "package.json"), "utf8")) as { version?: string };
   if (manifest.version !== "0.0.79") throw new Error("Sandbox runtime version has not been validated");
   const python = await realpath(installation.python); const pythonRoot = await realpath(installation.pythonRoot);
   if (!inside(pythonRoot, python) || pythonRoot === "/" || ["/usr", "/opt", "/home", "/Users", "/usr/local"].includes(pythonRoot) || inside(cwd, pythonRoot) || inside(pythonRoot, cwd)) throw new Error("Python root must be a dedicated trusted environment outside the workspace");
   await access(python, constants.X_OK);
+  for (const binary of [installation.socat, installation.ripgrep]) if (binary) await access(binary, constants.X_OK);
   if (process.platform === "linux") {
     if (!["x64", "arm64"].includes(process.arch)) throw new Error("Sandbox requires the supported Unix socket seccomp filter");
     await access(join(dirname(dirname(srtCli)), "vendor/seccomp", process.arch, "apply-seccomp"), constants.X_OK);
@@ -119,6 +120,7 @@ export async function sandboxSettings(installation: SandboxInstallation, cwd: st
 
 /** Fixed argv, no shell input. The srt CLI quotes argv before its internal OS wrapper. */
 export function runSandboxProcess(settings: string, python: string, work: string, timeoutSeconds: number, signal?: AbortSignal): Promise<SandboxProcessResult> {
+  if (process.platform !== "linux") throw new Error("Sandbox execution is disabled on this platform");
   signal?.throwIfAborted();
   return new Promise((resolveRun, reject) => {
     const launcher = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./sandbox-launcher.ts" : "./sandbox-launcher.js", import.meta.url));

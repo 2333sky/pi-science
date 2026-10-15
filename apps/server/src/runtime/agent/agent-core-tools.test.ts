@@ -178,7 +178,7 @@ describe("agent-core product tools", () => {
     expect(checkedRevocation).toBe(true);
   }, 30000);
 
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1")("delegates a bound candidate through real Worker IPC, repairs from srt logs and shares the parent budget", async () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("delegates a bound candidate through real Worker IPC, repairs from srt logs and shares the parent budget", async () => {
     vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1");
     let childRuns = 0;
     const fixture = await modelFixture((body) => {

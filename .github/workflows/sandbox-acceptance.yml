@@ -11,6 +11,7 @@ permissions:
   contents: read
 jobs:
   sandbox:
+    name: ${{ matrix.os == 'macos-latest' && 'macOS fail-closed fallback' || 'Linux real srt acceptance' }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -40,7 +41,7 @@ jobs:
           fi
           python -m pip install numpy==2.3.5
           pnpm install --frozen-lockfile
-      - name: Run real srt acceptance (never mocks or weak isolation)
+      - name: Validate Linux real srt or the blocked macOS fallback
         shell: bash
         run: |
           export PI_SCIENCE_SANDBOX_TEST=1

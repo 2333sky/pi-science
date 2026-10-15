@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT, type AgentHarnessToolInvocation, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import { sandboxCandidate, sandboxRunTool, sandboxSettings, candidateReadTool, type SandboxInstallation, type SandboxIdentity } from "./sandbox-tool.js";
+import { sandboxCandidate, sandboxRunTool, sandboxSettings, candidateReadTool, sandboxInstallation, type SandboxInstallation, type SandboxIdentity } from "./sandbox-tool.js";
 import { executionBudgetTools } from "./execution-budget.js";
 import { executionIdFor, executionRepository } from "../../executions/execution-repository.js";
 import { workspaceFile } from "../../../storage/persistence.js";
@@ -62,15 +62,25 @@ it("restricts the assigned child's read tool to regular candidate files", async 
   await expect(call("research/study-1/evaluation.yaml")).rejects.toThrow("outside");
   await writeFile(join(directory, "input/data.txt"), "data"); expect((await call(join(directory, "input/data.txt"))).details).toEqual({ allowed: true });
 });
-it.skipIf(process.platform === "win32")("uses a root read deny and never accepts workspace Python or a broad Python root", async () => {
+it.skipIf(process.platform !== "linux")("uses a root read deny and never accepts workspace Python or a broad Python root", async () => {
   const { cwd } = await fixture();
   await expect(sandboxSettings({ python: process.execPath, pythonRoot: "/" }, cwd, "/input", "/work")).rejects.toThrow("dedicated");
   await mkdir(join(cwd, "python")); await writeFile(join(cwd, "python/python"), "bad");
   await expect(sandboxSettings({ python: join(cwd, "python/python"), pythonRoot: join(cwd, "python") }, cwd, "/input", "/work")).rejects.toThrow("dedicated");
 });
 
+it.skipIf(process.platform === "linux")("keeps macOS and Windows in code-generation mode even when an operator enables execution", async () => {
+  vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1"); vi.stubEnv("PI_SCIENCE_SANDBOX_PYTHON", "/trusted/python"); vi.stubEnv("PI_SCIENCE_SANDBOX_PYTHON_ROOT", "/trusted");
+  expect(sandboxInstallation()).toBeUndefined();
+  const { identity, cwd } = await fixture();
+  await expect(execute(sandboxRunTool(identity, undefined), "blocked", "print('unsafe')")).rejects.toThrow("Sandbox unavailable");
+  // A direct caller cannot bypass the installation gate by supplying its own configuration.
+  await expect(execute(sandboxRunTool(identity, { python: "/trusted/python", pythonRoot: "/trusted" }), "bypass", "print('unsafe')")).rejects.toThrow("disabled on this platform");
+  expect(await executionRepository.list(cwd)).toEqual([]);
+});
+
 const realSandbox = process.env.PI_SCIENCE_SANDBOX_TEST === "1";
-describe.skipIf(!realSandbox)("real srt isolation (no mocks)", () => {
+describe.skipIf(!realSandbox || process.platform !== "linux")("real srt isolation (no mocks)", () => {
   const installation: SandboxInstallation = { python: process.env.PI_SCIENCE_SANDBOX_PYTHON!, pythonRoot: process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT!, socat: process.env.PI_SCIENCE_SANDBOX_SOCAT, ripgrep: process.env.PI_SCIENCE_SANDBOX_RIPGREP };
   it("runs NumPy, publishes real artifacts, repairs errors, and replays without executing again", async () => {
     const { identity, cwd, directory } = await fixture(); const tool = sandboxRunTool(identity, installation);
@@ -165,6 +175,6 @@ describe.skipIf(!realSandbox)("real srt isolation (no mocks)", () => {
   });
   it("fails closed when the configured sandbox dependency is missing", async () => {
     const { identity } = await fixture();
-    const result = await execute(sandboxRunTool(identity, { ...installation, socat: "/nonexistent/socat" }), "missing", "print('unsafe')"); expect(result.details).toMatchObject({ status: "failed", stdout: "" });
+    await expect(execute(sandboxRunTool(identity, { ...installation, socat: "/nonexistent/socat" }), "missing", "print('unsafe')")).rejects.toThrow("ENOENT");
   }, 15000);
 });
