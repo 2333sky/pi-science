@@ -427,3 +427,12 @@ Every failed validation explicitly requests heading focus and resets body scroll
 even when the current question does not change. On question completion, Composer
 focus is restored only from body, a detached node or hidden/inert content; another
 visible editor or control keeps focus.
+
+Single-select questions follow the WAI-ARIA APG radio group keyboard pattern:
+Right/Down select and focus the next radio, Left/Up the previous, wrapping at
+both ends. The selected radio alone has tabIndex 0, or the first radio when
+none is selected; other radios have tabIndex -1. Space selects the focused
+radio. The custom answer button is outside the radiogroup and its arrow cycle,
+with its own Tab stop. Option detail buttons remain separately keyboard
+accessible. Multi-select checkboxes keep independent Tab stops and their
+existing focus-only arrow navigation; Space toggles each checkbox independently.

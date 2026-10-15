@@ -21,7 +21,7 @@ async function emit(page: Page, events: Array<Record<string, unknown>>) {
     for (const event of events) source.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ sessionId: session, ...event }) }));
   }, { events, session: VISUAL_SESSION });
 }
-async function openQuestion(page: Page) {
+async function openQuestion(page: Page, questionData = questions) {
   await page.addInitScript(() => {
     const Native = window.EventSource;
     (window as unknown as PreviewWindow).questionSources = [];
@@ -32,7 +32,7 @@ async function openQuestion(page: Page) {
   await page.goto(workspaceRoute(VISUAL_CWD, `/session/${VISUAL_SESSION}`));
   await expect(page.getByRole("heading", { name: "Shikimate pathway analysis" })).toBeVisible();
   await page.getByRole("combobox", { name: "Message", exact: true }).fill("Keep my unsent research question");
-  await emit(page, [{ type: "questionnaire.asked", toolCallId: callId, questions }, { type: "interaction.requested", requestId, toolCallId: callId, questionnaire: true, method: "input", title: "Analysis" }]);
+  await emit(page, [{ type: "questionnaire.asked", toolCallId: callId, questions: questionData }, { type: "interaction.requested", requestId, toolCallId: callId, questionnaire: true, method: "input", title: "Analysis" }]);
   await expect(page.getByRole("region", { name: "Answer a few questions" })).toBeVisible();
 }
 
@@ -126,4 +126,63 @@ test("review regressions preserve saved choices and respect the user's focus", a
   const composer = page.getByRole("combobox", { name: "Message", exact: true });
   await expect(composer).toBeVisible();
   await expect(composer).toHaveText("Keep my unsent research question");
+});
+
+
+test("radio keyboard selection uses a single Tab stop and leaves custom and checkboxes independent", async ({ page }) => {
+  // No detail actions here: isolate the radio group's own Tab entry/exit.
+  await openQuestion(page, questions.map((question) => ({ ...question, options: question.options.map((option) => ({ label: option.label, description: "" })) })));
+  const radios = page.getByRole("radio");
+  const collapse = page.getByRole("button", { name: "Collapse", exact: true });
+  const custom = page.getByRole("button", { name: /Type something/ });
+  await collapse.focus();
+  await page.keyboard.press("Tab");
+  await expect(radios.nth(0)).toBeFocused();
+  await expect(radios.nth(0)).not.toBeChecked();
+  await page.keyboard.press("Tab");
+  await expect(custom).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(radios.nth(0)).toBeFocused();
+  for (const [key, index] of [["ArrowRight", 1], ["ArrowDown", 2], ["ArrowDown", 0], ["ArrowUp", 2], ["ArrowLeft", 1]] as const) {
+    await page.keyboard.press(key);
+    await expect(radios.nth(index)).toBeFocused();
+    await expect(radios.nth(index)).toBeChecked();
+    expect(await radios.evaluateAll((items) => items.filter((item) => (item as HTMLElement).tabIndex === 0).length)).toBe(1);
+  }
+  await radios.nth(2).click();
+  await collapse.focus();
+  await page.keyboard.press("Tab");
+  await expect(radios.nth(2)).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(collapse).toBeFocused();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await expect(custom).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(custom).toBeFocused();
+  await expect(radios.nth(2)).toBeChecked();
+  await page.keyboard.press("Space");
+  await page.getByRole("textbox", { name: "Your answer" }).fill("Custom analysis");
+  await page.getByRole("button", { name: "Save answer" }).click();
+  await collapse.focus();
+  await page.keyboard.press("Tab");
+  await expect(radios.nth(0)).toBeFocused();
+  await expect(radios.nth(0)).not.toBeChecked();
+  await page.keyboard.press("Space");
+  await expect(radios.nth(0)).toBeChecked();
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  const boxes = page.getByRole("checkbox");
+  await boxes.nth(0).focus();
+  await page.keyboard.press("Tab");
+  await expect(boxes.nth(1)).toBeFocused();
+  await page.keyboard.press("ArrowUp");
+  await expect(boxes.nth(0)).toBeFocused();
+  await expect(boxes.nth(0)).not.toBeChecked();
+  await page.keyboard.press("Space");
+  await expect(boxes.nth(0)).toBeChecked();
+  await page.keyboard.press("ArrowDown");
+  await expect(boxes.nth(1)).not.toBeChecked();
+  await page.keyboard.press("Space");
+  await expect(boxes.nth(1)).toBeChecked();
+  expect(await boxes.evaluateAll((items) => items.every((item) => (item as HTMLElement).tabIndex === 0))).toBe(true);
 });

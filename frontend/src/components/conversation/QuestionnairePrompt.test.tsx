@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import "../../i18n";
@@ -35,6 +35,11 @@ const questionnaire: PendingQuestionnaire = {
     },
   ],
 };
+
+const keyboardQuestionnaire: PendingQuestionnaire = { ...questionnaire, questions: [{
+  question: "Choose a mode", header: "Mode", multiSelect: false,
+  options: [{ label: "Fast", description: "" }, { label: "Safe", description: "" }, { label: "Balanced", description: "" }],
+}] };
 
 describe("compact QuestionnairePrompt", () => {
   it("shows one question and quiet options; selection never opens details or advances", () => {
@@ -133,18 +138,105 @@ describe("compact QuestionnairePrompt", () => {
     expect(screen.getByRole("radio", { name: "Fast" })).toHaveAttribute("aria-checked", "true");
   });
 
-  it("moves focus with arrow keys without choosing, and supports the submit shortcut", async () => {
+  it("moves and selects with arrow keys, and supports the submit shortcut", async () => {
     const user = userEvent.setup();
     const onRespond = vi.fn();
     render(<QuestionnairePrompt questionnaire={{ ...questionnaire, questions: [questionnaire.questions[0]!] }} interaction={interaction} onRespond={onRespond} />);
     screen.getByRole("radio", { name: "Fast" }).focus();
     await user.keyboard("{ArrowDown}");
     expect(screen.getByRole("radio", { name: "Safe" })).toHaveFocus();
-    expect(screen.getByRole("radio", { name: "Safe" })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("radio", { name: "Safe" })).toHaveAttribute("aria-checked", "true");
     await user.keyboard(" ");
     expect(screen.getByRole("radio", { name: "Safe" })).toHaveAttribute("aria-checked", "true");
     await user.keyboard("{Control>}{Enter}{/Control}");
     expect(onRespond).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft"])("cycles and selects only radios with %s", async (key) => {
+    const user = userEvent.setup();
+    render(<QuestionnairePrompt questionnaire={keyboardQuestionnaire} interaction={interaction} onRespond={vi.fn()} />);
+    const labels = key === "ArrowDown" || key === "ArrowRight" ? ["Safe", "Balanced", "Fast"] : ["Balanced", "Safe", "Fast"];
+    screen.getByRole("radio", { name: "Fast" }).focus();
+    for (const label of labels) {
+      await user.keyboard(`{${key}}`);
+      const selected = screen.getByRole("radio", { name: label });
+      expect(selected).toHaveFocus();
+      expect(selected).toBeChecked();
+      expect(selected).toHaveAttribute("tabindex", "0");
+      for (const radio of screen.getAllByRole("radio").filter((item) => item !== selected)) {
+        expect(radio).not.toBeChecked();
+        expect(radio).toHaveAttribute("tabindex", "-1");
+      }
+    }
+    expect(screen.getByRole("button", { name: /Type something/ })).not.toHaveFocus();
+    expect(screen.getByRole("heading")).toHaveTextContent("Choose a mode");
+  });
+
+  it.each([null, "Balanced"])("uses a single radio Tab entry and exit (selected: %s)", async (selection) => {
+    const user = userEvent.setup();
+    render(<><button type="button">Before group</button><QuestionnairePrompt questionnaire={keyboardQuestionnaire} interaction={interaction} onRespond={vi.fn()} /></>);
+    if (selection) await user.click(screen.getByRole("radio", { name: selection }));
+    const entry = screen.getByRole("radio", { name: selection ?? "Fast" });
+    const before = screen.getByRole("button", { name: "Before group" });
+    const custom = screen.getByRole("button", { name: /Type something/ });
+    expect(within(screen.getByRole("radiogroup")).queryByRole("button", { name: /Type something/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("radio").filter((item) => item.tabIndex === 0)).toEqual([entry]);
+    before.focus();
+    await user.tab();
+    expect(entry).toHaveFocus();
+    await user.tab();
+    expect(custom).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(entry).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(before).toHaveFocus();
+    expect(entry).toHaveAttribute("aria-checked", selection ? "true" : "false");
+  });
+
+  it("keeps custom entry independent and resets the radio entry after a custom answer", async () => {
+    const user = userEvent.setup();
+    render(<QuestionnairePrompt questionnaire={keyboardQuestionnaire} interaction={interaction} onRespond={vi.fn()} />);
+    await user.click(screen.getByRole("radio", { name: "Balanced" }));
+    const custom = screen.getByRole("button", { name: /Type something/ });
+    custom.focus();
+    await user.keyboard("{ArrowLeft}{ArrowDown}");
+    expect(custom).toHaveFocus();
+    expect(screen.getByRole("radio", { name: "Balanced" })).toBeChecked();
+    await user.keyboard(" ");
+    await user.type(screen.getByRole("textbox", { name: "Your answer" }), "My own mode");
+    await user.click(screen.getByRole("button", { name: "Save answer" }));
+    expect(screen.getAllByRole("radio").every((item) => item.getAttribute("aria-checked") === "false")).toBe(true);
+    expect(screen.getAllByRole("radio").filter((item) => item.tabIndex === 0)).toEqual([screen.getByRole("radio", { name: "Fast" })]);
+  });
+
+  it("selects an unchecked focused radio with Space", async () => {
+    const user = userEvent.setup();
+    render(<QuestionnairePrompt questionnaire={keyboardQuestionnaire} interaction={interaction} onRespond={vi.fn()} />);
+    const first = screen.getByRole("radio", { name: "Fast" });
+    first.focus();
+    await user.keyboard(" ");
+    expect(first).toBeChecked();
+    expect(first).toHaveFocus();
+  });
+
+  it("retains independent checkbox Tab stops and focus-only arrow navigation", async () => {
+    const user = userEvent.setup();
+    render(<QuestionnairePrompt questionnaire={{ ...keyboardQuestionnaire, questions: [{ ...keyboardQuestionnaire.questions[0]!, multiSelect: true }] }} interaction={interaction} onRespond={vi.fn()} />);
+    screen.getByRole("checkbox", { name: "Fast" }).focus();
+    await user.tab();
+    expect(screen.getByRole("checkbox", { name: "Safe" })).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    const last = screen.getByRole("checkbox", { name: "Balanced" });
+    expect(last).toHaveFocus();
+    expect(last).not.toBeChecked();
+    await user.keyboard(" ");
+    expect(last).toBeChecked();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("button", { name: /Type something/ })).toHaveFocus();
+    await user.keyboard("{ArrowDown}");
+    expect(screen.getByRole("checkbox", { name: "Fast" })).toHaveFocus();
+    expect(last).toBeChecked();
+    expect(screen.getAllByRole("checkbox").every((item) => item.tabIndex === 0)).toBe(true);
   });
 
   it("saves a custom answer on shortcut, but does not submit plain Enter or composing Enter", () => {

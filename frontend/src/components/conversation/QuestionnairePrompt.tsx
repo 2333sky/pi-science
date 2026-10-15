@@ -118,9 +118,14 @@ function QuestionnaireForm({ questionnaire, interaction, onRespond, onProgress, 
     if (!customOpen[index] && answer?.kind === "custom") setDrafts((previous) => replaceAt(previous, index, answer.answer ?? ""));
     setCustomOpen((previous) => replaceAt(previous, index, !previous[index]));
   };
+  const selectedRadioIndex = !customOpen[index] && answer?.kind === "option" ? question.options.findIndex((option) => option.label === answer.answer) : -1;
+  const radioEntryIndex = Math.max(0, selectedRadioIndex);
   const focusOption = (from: number, key: string) => {
-    const total = question.options.length + 1;
+    if (submittingRef.current) return;
+    const total = question.options.length + (question.multiSelect ? 1 : 0);
+    if (!total) return;
     const next = key === "Home" ? 0 : key === "End" ? total - 1 : (from + (key === "ArrowDown" || key === "ArrowRight" ? 1 : -1) + total) % total;
+    if (!question.multiSelect) choose(next);
     optionRefs.current[next]?.focus();
   };
 
@@ -149,7 +154,7 @@ function QuestionnaireForm({ questionnaire, interaction, onRespond, onProgress, 
                 {question.options.map((option, optionIndex) => {
                   const selected = !customOpen[index] && (question.multiSelect ? answer?.kind === "multi" && answer.selected?.includes(option.label) : answer?.kind === "option" && answer.answer === option.label);
                   return <div key={`${index}-${optionIndex}`} className={cn("flex min-w-0 items-center rounded-input", selected ? "bg-surface-selected" : "hover:bg-surface-2")}>
-                    <button ref={(node) => { optionRefs.current[optionIndex] = node; }} type="button" role={question.multiSelect ? "checkbox" : "radio"} aria-checked={Boolean(selected)} onClick={() => choose(optionIndex)} onKeyDown={(event) => {
+                    <button ref={(node) => { optionRefs.current[optionIndex] = node; }} type="button" role={question.multiSelect ? "checkbox" : "radio"} tabIndex={question.multiSelect || optionIndex === radioEntryIndex ? 0 : -1} aria-checked={Boolean(selected)} onClick={() => choose(optionIndex)} onKeyDown={(event) => {
                       if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); focusOption(optionIndex, event.key); }
                     }} className="flex min-h-9 min-w-0 flex-1 items-start gap-3 rounded-input px-3 py-2 text-left text-sm text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent">
                       <span className="w-4 shrink-0 text-muted" aria-hidden="true">{selected ? <Check size={14} className="mt-0.5 text-accent" /> : `${optionIndex + 1}.`}</span><span className="min-w-0 flex-1 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{option.label}</span>
@@ -157,10 +162,10 @@ function QuestionnaireForm({ questionnaire, interaction, onRespond, onProgress, 
                     <QuestionnaireOptionDetails option={option} active={active} disabled={submitting} />
                   </div>;
                 })}
-                <button ref={(node) => { optionRefs.current[question.options.length] = node; }} type="button" aria-expanded={Boolean(customOpen[index])} aria-controls={`${id}-custom`} onClick={toggleCustom} onKeyDown={(event) => {
-                  if (["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); focusOption(question.options.length, event.key); }
-                }} className={cn("flex min-h-9 w-full items-center gap-3 rounded-input px-3 py-2 text-left text-sm hover:bg-surface-2", customOpen[index] || answer?.kind === "custom" ? "bg-surface-selected text-text" : "text-muted")}><PenLine size={14} className="shrink-0" />{t("questionnaire.custom")}</button>
               </div>
+              <button ref={(node) => { optionRefs.current[question.options.length] = node; }} type="button" aria-expanded={Boolean(customOpen[index])} aria-controls={`${id}-custom`} onClick={toggleCustom} onKeyDown={(event) => {
+                  if (question.multiSelect && ["ArrowDown", "ArrowUp", "ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) { event.preventDefault(); focusOption(question.options.length, event.key); }
+                }} className={cn("flex min-h-9 w-full items-center gap-3 rounded-input px-3 py-2 text-left text-sm hover:bg-surface-2", customOpen[index] || answer?.kind === "custom" ? "bg-surface-selected text-text" : "text-muted")}><PenLine size={14} className="shrink-0" />{t("questionnaire.custom")}</button>
               {customOpen[index] && <div id={`${id}-custom`} className="px-3 pb-2 pt-1">
                 <label htmlFor={`${id}-answer`} className="sr-only">{t("questionnaire.customLabel")}</label>
                 <textarea id={`${id}-answer`} autoFocus rows={2} value={drafts[index] ?? ""} onChange={(event) => setDrafts((previous) => replaceAt(previous, index, event.target.value))} placeholder={t("questionnaire.customPlaceholder")} className="w-full resize-none rounded-input border border-border bg-surface px-3 py-2 text-sm text-text outline-none focus:border-accent" />
