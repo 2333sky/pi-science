@@ -117,6 +117,7 @@ jobs:
           name: workspace-sidebar-interactions
           path: frontend/tests/visual/.artifacts
           if-no-files-found: ignore
+          include-hidden-files: true
 
       - name: Enforce Settings browser performance budgets
         if: runner.os == 'Linux'
@@ -129,6 +130,7 @@ jobs:
           name: settings-browser-performance
           path: frontend/tests/visual/.artifacts
           if-no-files-found: ignore
+          include-hidden-files: true
 
       - name: Run control-plane smoke test
         if: runner.os != 'Windows'
