@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NodeKernelManager, type KernelResult } from "./node-kernel-manager.js";
 import type { WorkspaceEnvironmentStatus } from "../workspace/workspace-environment.js";
 
@@ -36,7 +36,11 @@ function systemRscript(): string | null {
 const rscript = systemRscript();
 const cleanup: string[] = [];
 
+// These characterize explicitly authorized native execution. Required-mode tests live in sandbox/.
+beforeEach(() => vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host"));
+
 afterEach(async () => {
+  vi.unstubAllEnvs();
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
 });
 

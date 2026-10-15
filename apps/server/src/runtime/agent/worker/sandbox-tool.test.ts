@@ -62,6 +62,19 @@ it("restricts the assigned child's read tool to regular candidate files", async 
   await expect(call("research/study-1/evaluation.yaml")).rejects.toThrow("outside");
   await writeFile(join(directory, "input/data.txt"), "data"); expect((await call(join(directory, "input/data.txt"))).details).toEqual({ allowed: true });
 });
+it.skipIf(process.platform !== "linux")("keeps an authorized read pinned when an idle kernel swaps its path for an evaluator link", async () => {
+  const { identity, directory, budget, cwd } = await fixture();
+  const path = join(directory, "work/read.txt"); const secret = join(cwd, "research/study-1/secret.txt");
+  await writeFile(path, "approved"); await writeFile(secret, "EVALUATOR SECRET");
+  const original = { ...budget.tool, name: "read", async execute(_id: string, _params: unknown, _update: unknown, ctx: { env: NodeExecutionEnv }) {
+    await rm(path); await symlink(secret, path);
+    const read = await ctx.env.readBinaryFile(path, BACKGROUND_CONTEXT);
+    if (!read.ok) throw read.error;
+    return { content: [{ type: "text" as const, text: Buffer.from(read.value).toString("utf8") }], details: {} };
+  } };
+  const result = await candidateReadTool(original, identity).execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT);
+  expect(result.content).toEqual([{ type: "text", text: "approved" }]);
+});
 it.each(["0", "1"])("refuses unbound Experimenter reads even with sandbox enable flag %s", async (enabled) => {
   vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", enabled);
   const { identity, budget } = await fixture();

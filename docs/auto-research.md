@@ -1,3 +1,5 @@
+> Bash 与持久 Python Notebook 已接入共享 Sandbox；服务端默认 required，Candidate 始终强制隔离。通用工具配置、限制及验收见 [Universal Sandbox](universal-sandbox.md)。下文的 opt-in 设置与限额仅针对兼容工具 sandbox_run。
+
 # Conversation-native Auto Research
 
 Auto Research runs in the current conversation Agent through `skills/auto-research`. Start from a blank conversation's Research/Optimize/Compare/Evaluate/Reproduce button, invoke `/skill:auto-research <objective>`, or ask for research in ordinary language. The buttons send a normal prompt; they neither create a second task nor call a Research API. Objectives, protocols and material missing assumptions are confirmed through the existing questionnaire/reply UI. Stop uses the Conversation abort button. Continue in the same conversation by asking to resume the saved checkpoint.
