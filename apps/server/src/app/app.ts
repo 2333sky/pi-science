@@ -20,7 +20,6 @@ import { registerKernelExecutionRoutes } from "../http/routes/kernel-execution-r
 import { registerNotebookRoutes } from "../http/routes/notebook-routes.js";
 import { registerCatalogRoutes, rootDir } from "../http/routes/catalog-routes.js";
 import { registerProjectRoutes } from "../http/routes/project-routes.js";
-import { registerLiteratureRoutes } from "../http/routes/literature-routes.js";
 import { registerMcpRoutes } from "../http/routes/mcp-routes.js";
 import { createServerModules, type ServerModules } from "./server-modules.js";
 import { registerEnvironmentRoutes } from "../http/routes/environment-routes.js";
@@ -177,7 +176,6 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
   registerNotebookRoutes(app, notebooks);
   if (config.nodeCatalog !== false) registerCatalogRoutes(app, jobs, sqliteEnabled ? workspaces : undefined, sqliteEnabled ? mcp : undefined, nodeSessionService);
   if (config.nodeProject !== false) registerProjectRoutes(app, projectReview);
-  if (config.nodeLiterature !== false) registerLiteratureRoutes(app);
   app.addHook("onReady", async () => {
     if (sqliteEnabled) {
       try {

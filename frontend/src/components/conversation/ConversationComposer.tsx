@@ -60,7 +60,7 @@ export function ConversationComposer({ workspaceCwd, status, activeSessionId, se
     ? findLocalPromptRequest(workspaceCwd, activeSessionId, promptContentDigest(input.trim()))
     : null;
   return (
-    <div className={cn("px-8 shrink-0", showWelcome ? "py-0" : "pb-1 pt-1")}>
+    <div className={cn("px-4 sm:px-8 shrink-0", showWelcome ? "py-0" : "pb-1 pt-1")}>
       {!showWelcome && (
         <div className="relative mx-auto max-w-[var(--conversation-composer-width)]">
           {modePicker}
@@ -86,7 +86,7 @@ export function ConversationComposer({ workspaceCwd, status, activeSessionId, se
             ConversationRoot composer seat gradient). The card sits at the
             bottom of the column, so the band softens the transcript edge
             scrolling into it. */}
-        {!modePicker && (
+        {!modePicker && !interactionPending && (
           <div
             aria-hidden
             className="pointer-events-none absolute inset-x-0 bottom-full h-[var(--composer-fade-height)] bg-gradient-to-t from-[var(--bg)] to-transparent"
@@ -131,8 +131,8 @@ export function ConversationComposer({ workspaceCwd, status, activeSessionId, se
           <MentionComposer
             cwd={workspaceCwd}
             value={input}
-            mentions={composer.mentions}
-            onChange={(value, mentions) => { setInput(value); composer.setMentions(mentions); }}
+            entities={composer.entities}
+            onChange={(value, _mentions, entities) => { setInput(value); composer.setEntities(entities); }}
             onKeyDown={composer.handleKeyDown}
             onCompositionStart={() => { composer.composingRef.current = true; setComposing(true); }}
             onCompositionEnd={() => { setTimeout(() => { composer.composingRef.current = false; setComposing(false); }, 0); }}
