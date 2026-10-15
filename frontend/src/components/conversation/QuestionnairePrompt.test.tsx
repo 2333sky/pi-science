@@ -193,6 +193,42 @@ describe("compact QuestionnairePrompt", () => {
     expect(entry).toHaveAttribute("aria-checked", selection ? "true" : "false");
   });
 
+  it.each([null, "Safe", "Balanced"])("tabs through radios before all details with real descriptions (selected: %s)", async (selection) => {
+    const user = userEvent.setup();
+    const withDetails: PendingQuestionnaire = { ...keyboardQuestionnaire, questions: [{
+      ...keyboardQuestionnaire.questions[0]!, options: keyboardQuestionnaire.questions[0]!.options.map((option) => ({ ...option, description: `Description for ${option.label}`, preview: `**${option.label} details**` })),
+    }] };
+    render(<><button type="button">Before group</button><QuestionnairePrompt questionnaire={withDetails} interaction={interaction} onRespond={vi.fn()} /></>);
+    if (selection) await user.click(screen.getByRole("radio", { name: selection }));
+    const entry = screen.getByRole("radio", { name: selection ?? "Fast" });
+    const before = screen.getByRole("button", { name: "Before group" });
+    const custom = screen.getByRole("button", { name: /Type something/ });
+    expect(within(screen.getByRole("radiogroup")).queryAllByRole("button")).toHaveLength(0);
+    before.focus();
+    await user.tab();
+    expect(entry).toHaveFocus();
+    for (const label of ["Fast", "Safe", "Balanced"]) {
+      await user.tab();
+      const info = screen.getByRole("button", { name: `Preview ${label}` });
+      expect(info).toHaveFocus();
+      await user.keyboard("{Enter}");
+      expect(screen.getByRole("dialog", { name: `Preview ${label}` })).toHaveTextContent(`${label} details`);
+      await user.keyboard("{Escape}");
+      await waitFor(() => expect(info).toHaveFocus());
+      expect(entry).toHaveAttribute("aria-checked", selection ? "true" : "false");
+    }
+    await user.tab();
+    expect(custom).toHaveFocus();
+    for (const label of ["Balanced", "Safe", "Fast"]) {
+      await user.tab({ shift: true });
+      expect(screen.getByRole("button", { name: `Preview ${label}` })).toHaveFocus();
+    }
+    await user.tab({ shift: true });
+    expect(entry).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(before).toHaveFocus();
+  });
+
   it("keeps custom entry independent and resets the radio entry after a custom answer", async () => {
     const user = userEvent.setup();
     render(<QuestionnairePrompt questionnaire={keyboardQuestionnaire} interaction={interaction} onRespond={vi.fn()} />);

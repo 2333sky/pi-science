@@ -186,3 +186,50 @@ test("radio keyboard selection uses a single Tab stop and leaves custom and chec
   await expect(boxes.nth(1)).toBeChecked();
   expect(await boxes.evaluateAll((items) => items.every((item) => (item as HTMLElement).tabIndex === 0))).toBe(true);
 });
+
+for (const selectedIndex of [1, 2]) {
+  test(`real option details follow the radio Tab entry (selected option ${selectedIndex + 1})`, async ({ page }) => {
+    await openQuestion(page);
+    const radios = page.getByRole("radio");
+    const selected = radios.nth(selectedIndex);
+    const collapse = page.getByRole("button", { name: "Collapse", exact: true });
+    const custom = page.getByRole("button", { name: /Type something/ });
+    await selected.click();
+    await collapse.focus();
+    await page.keyboard.press("Tab");
+    await expect(selected).toBeFocused();
+    await expect(selected).toBeChecked();
+    await page.keyboard.press("Shift+Tab");
+    await expect(collapse).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(selected).toBeFocused();
+    for (const [index, option] of questions[0]!.options.entries()) {
+      await page.keyboard.press("Tab");
+      const info = page.getByRole("button", { name: `Preview ${option.label}`, exact: true });
+      await expect(info).toBeFocused();
+      // Subgrid keeps each detail trigger centered beside even a wrapped label.
+      const radioBox = (await radios.nth(index).boundingBox())!;
+      const infoBox = (await info.boundingBox())!;
+      expect(Math.abs(radioBox.y + radioBox.height / 2 - infoBox.y - infoBox.height / 2)).toBeLessThanOrEqual(1);
+      await page.keyboard.press("Enter");
+      const details = page.getByRole("dialog", { name: `Preview ${option.label}`, exact: true });
+      await expect(details).toBeVisible();
+      await expect(details).toContainText(option.description);
+      if (index === 0) await expect(details.getByRole("heading", { name: "Analysis plan" })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(details).toBeHidden();
+      await expect(info).toBeFocused();
+      await expect(selected).toBeChecked();
+    }
+    await page.keyboard.press("Tab");
+    await expect(custom).toBeFocused();
+    for (const option of [...questions[0]!.options].reverse()) {
+      await page.keyboard.press("Shift+Tab");
+      await expect(page.getByRole("button", { name: `Preview ${option.label}`, exact: true })).toBeFocused();
+    }
+    await page.keyboard.press("Shift+Tab");
+    await expect(selected).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(collapse).toBeFocused();
+  });
+}

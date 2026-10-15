@@ -436,3 +436,12 @@ radio. The custom answer button is outside the radiogroup and its arrow cycle,
 with its own Tab stop. Option detail buttons remain separately keyboard
 accessible. Multi-select checkboxes keep independent Tab stops and their
 existing focus-only arrow navigation; Space toggles each checkbox independently.
+
+For single-select options, all radio buttons precede all detail buttons in DOM
+order. Two aligned CSS subgrids share the same option rows: radios in the main
+column and their information buttons in the existing 32px end column. Rows grow
+together when labels wrap, without measuring or writing absolute positions. Tab
+enters the checked radio (or first), then visits each available detail button in
+option order, then the custom entry; Shift+Tab reverses that order. Details stay
+visually beside their options and retain Enter/Space activation and Escape focus
+return. Checkbox rows keep their existing interleaved checkbox/detail DOM order.
