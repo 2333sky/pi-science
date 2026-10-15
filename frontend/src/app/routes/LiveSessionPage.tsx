@@ -186,7 +186,9 @@ export function LiveSessionPage() {
   useEffect(() => {
     const previous = previousInteraction.current;
     previousInteraction.current = { pending: interactionPending, session: activeSessionId, cwd: workspaceCwd };
-    if (previous.pending && !interactionPending && previous.session === activeSessionId && previous.cwd === workspaceCwd) composer.inputRef.current?.focus({ preventScroll: true });
+    const focused = document.activeElement;
+    const canRestoreFocus = !focused || focused === document.body || !focused.isConnected || Boolean(focused.closest("[hidden], [inert], [aria-hidden='true']"));
+    if (previous.pending && !interactionPending && previous.session === activeSessionId && previous.cwd === workspaceCwd && canRestoreFocus) composer.inputRef.current?.focus({ preventScroll: true });
   }, [interactionPending, activeSessionId, workspaceCwd, composer.inputRef]);
   const modelControlsDisabled = working || interactionPending || reviewingProject || model.configuringModel;
   // The reviewer already runs on every settled turn when the workspace opted in, so the manual

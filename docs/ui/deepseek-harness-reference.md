@@ -393,6 +393,12 @@ spacing stay in use. Above `sm`, the existing 4 px side offset applies.
 
 ### Pi-Science proposal: compact Composer question mode
 
+The final accepted interaction is Composer replacement, superseding the earlier
+proposal to place a separate Ask User card above a visible Composer. While a
+question is pending, both expanded and collapsed modes keep the ordinary input
+hidden; answering or cancelling restores it. Acceptance checks must cover this
+replacement behavior rather than requiring a visible input placeholder.
+
 Pending interactions replace the Composer in its existing seat. The ordinary
 Composer stays mounted but hidden to preserve unsent text, attachments and
 mentions. Structured questions share the Composer width and 22px radius, with
@@ -413,3 +419,11 @@ The question, review, notes and custom editors use existing 12/16px spacing.
 No new animation is introduced. Escape closes details before collapsing;
 cancellation is a separate labeled action. Permission controls retain their
 existing allow/deny semantics within the same seat.
+
+Blank custom drafts never clear a saved selection, multi-select answer or custom
+answer. Navigation and submission apply nonempty custom drafts; an empty editor
+falls back to the saved answer. An unanswered question still fails validation.
+Every failed validation explicitly requests heading focus and resets body scroll,
+even when the current question does not change. On question completion, Composer
+focus is restored only from body, a detached node or hidden/inert content; another
+visible editor or control keeps focus.

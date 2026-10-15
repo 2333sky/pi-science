@@ -47,35 +47,34 @@ function QuestionnaireForm({ questionnaire, interaction, onRespond, onProgress, 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const submittingRef = useRef(false);
-  const shouldFocus = useRef(false);
+  const [focusRequest, setFocusRequest] = useState(0);
   const headingRef = useRef<HTMLHeadingElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const answeredCount = answers.filter(Boolean).length;
   useEffect(() => { onProgress?.(answeredCount); }, [answeredCount, onProgress]);
   useEffect(() => {
-    if (!shouldFocus.current) return;
-    shouldFocus.current = false;
+    if (!focusRequest) return;
     headingRef.current?.focus({ preventScroll: true });
     if (bodyRef.current) bodyRef.current.scrollTop = 0;
-  }, [index, review]);
+  }, [focusRequest]);
 
   const question = questions[index];
   if (!question) return null;
   const answer = answers[index] ?? null;
   const effectiveAnswers = () => answers.map((current, questionIndex) => customOpen[questionIndex]
-    ? drafts[questionIndex]?.trim() ? { questionIndex, question: questions[questionIndex]!.question, kind: "custom" as const, answer: drafts[questionIndex]!.trim() } : null
+    ? drafts[questionIndex]?.trim() ? { questionIndex, question: questions[questionIndex]!.question, kind: "custom" as const, answer: drafts[questionIndex]!.trim() } : current
     : current);
   const commitCustom = () => {
     const next = effectiveAnswers();
     setAnswers(next);
-    if (customOpen[index] && drafts[index]?.trim()) setCustomOpen((previous) => replaceAt(previous, index, false));
+    if (customOpen[index] && next[index]) setCustomOpen((previous) => replaceAt(previous, index, false));
     return next;
   };
   const goTo = (next: number) => {
     commitCustom();
     setError(null);
-    shouldFocus.current = true;
+    setFocusRequest((previous) => previous + 1);
     setReview(false);
     setIndex(next);
   };
@@ -107,7 +106,7 @@ function QuestionnaireForm({ questionnaire, interaction, onRespond, onProgress, 
     const next = commitCustom();
     const missing = next.findIndex((value) => !value);
     if (missing >= 0) {
-      shouldFocus.current = true;
+      setFocusRequest((previous) => previous + 1);
       setReview(false);
       setIndex(missing);
       setError(t("questionnaire.answerRequired", { number: missing + 1 }));
@@ -184,7 +183,7 @@ function QuestionnaireForm({ questionnaire, interaction, onRespond, onProgress, 
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-1">
             {!review && <button type="button" disabled={submitting} aria-expanded={Boolean(notesOpen[index])} aria-label={t("questionnaire.notes")} onClick={() => setNotesOpen((previous) => replaceAt(previous, index, !previous[index]))} className="flex items-center gap-1 rounded-input px-1 py-1 text-xs text-muted hover:text-text"><MessageSquareText size={13} />{t(notes[index]?.trim() ? "questionnaire.editNotes" : "questionnaire.addNotes")}</button>}
-            {questions.length > 1 && <button type="button" disabled={submitting} aria-label={t(review ? "questionnaire.hideReview" : "questionnaire.review")} aria-expanded={review} onClick={() => { commitCustom(); shouldFocus.current = true; setReview(!review); }} className="flex items-center gap-1 rounded-input px-1 py-1 text-xs text-muted hover:text-text"><ListChecks size={13} />{t(review ? "questionnaire.hideReview" : "questionnaire.review")}</button>}
+            {questions.length > 1 && <button type="button" disabled={submitting} aria-label={t(review ? "questionnaire.hideReview" : "questionnaire.review")} aria-expanded={review} onClick={() => { commitCustom(); setFocusRequest((previous) => previous + 1); setReview(!review); }} className="flex items-center gap-1 rounded-input px-1 py-1 text-xs text-muted hover:text-text"><ListChecks size={13} />{t(review ? "questionnaire.hideReview" : "questionnaire.review")}</button>}
           </div>
           <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
             <button type="button" disabled={submitting} onClick={() => void respond({ cancelled: true })} className="rounded-input px-1 py-1 text-xs text-muted hover:text-text">{t("questionnaire.cancel")}</button>

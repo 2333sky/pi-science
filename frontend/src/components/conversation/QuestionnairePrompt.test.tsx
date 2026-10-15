@@ -175,10 +175,51 @@ describe("compact QuestionnairePrompt", () => {
     expect(onRespond.mock.calls[0]).toEqual(onRespond.mock.calls[1]);
   });
 
+  it.each(["", " \n "])("keeps a saved selection when an empty custom editor is left (%j)", (draft) => {
+    const onRespond = vi.fn();
+    render(<QuestionnairePrompt questionnaire={questionnaire} interaction={interaction} onRespond={onRespond} />);
+    fireEvent.click(screen.getByRole("radio", { name: "Fast" }));
+    fireEvent.click(screen.getByRole("button", { name: /Type something/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Your answer" }), { target: { value: draft } });
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tables" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("radio", { name: "Fast" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
+    expect(JSON.parse(onRespond.mock.calls[0]![0].value).answers[0]).toMatchObject({ kind: "option", answer: "Fast" });
+  });
+
+  it("keeps saved multi-select answers when submitting with an empty custom editor", () => {
+    const onRespond = vi.fn();
+    render(<QuestionnairePrompt questionnaire={{ ...questionnaire, questions: [questionnaire.questions[1]!] }} interaction={interaction} onRespond={onRespond} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Figures" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Tables" }));
+    fireEvent.click(screen.getByRole("button", { name: /Type something/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
+    expect(JSON.parse(onRespond.mock.calls[0]![0].value).answers[0]).toMatchObject({ kind: "multi", selected: ["Figures", "Tables"] });
+  });
+
+  it("focuses and scrolls to the current unanswered question on every failed submit", () => {
+    const onRespond = vi.fn();
+    render(<QuestionnairePrompt questionnaire={{ ...questionnaire, questions: [questionnaire.questions[0]!] }} interaction={interaction} onRespond={onRespond} />);
+    const heading = screen.getByRole("heading");
+    const body = heading.closest("section")!.querySelector<HTMLElement>("header + div")!;
+    const submit = screen.getByRole("button", { name: "Submit answers" });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      body.scrollTop = 100;
+      submit.focus();
+      fireEvent.click(submit);
+      expect(heading).toHaveFocus();
+      expect(body.scrollTop).toBe(0);
+      expect(screen.getByRole("alert")).toHaveTextContent("Please answer question 1");
+    }
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
   it("does not allow an empty custom answer and keeps cancellation explicit", () => {
     const onRespond = vi.fn();
     render(<QuestionnairePrompt questionnaire={{ ...questionnaire, questions: [questionnaire.questions[0]!] }} interaction={interaction} onRespond={onRespond} />);
-    fireEvent.click(screen.getByRole("radio", { name: "Safe" }));
     fireEvent.click(screen.getByRole("button", { name: /Type something/ }));
     fireEvent.click(screen.getByRole("button", { name: "Submit answers" }));
     expect(onRespond).not.toHaveBeenCalled();

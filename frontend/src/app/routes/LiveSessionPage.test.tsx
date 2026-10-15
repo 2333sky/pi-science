@@ -696,6 +696,20 @@ describe("Composer interaction dock", () => {
     expect(input).toHaveValue("Keep my chat draft");
     expect(input).toHaveFocus();
   });
+
+  it.each(["editor", "button"])("preserves another visible %s's focus when the question finishes", async (kind) => {
+    await renderReady();
+    const interaction: PendingInteraction = { requestId: "focus-request", method: "input", title: "Questionnaire", questionnaire: true, toolCallId: "focus-tool" };
+    const questionnaire: PendingQuestionnaire = { toolCallId: "focus-tool", questions: [{ question: "Which mode?", header: "Mode", multiSelect: false, options: [{ label: "Fast", description: "Run quickly." }] }] };
+    act(() => { useRuntimeStore.setState({ pendingInteraction: interaction, pendingQuestionnaire: questionnaire }); });
+    await screen.findByRole("region", { name: "Answer a few questions" });
+    render(kind === "editor" ? <div role="textbox" aria-label="File editor" contentEditable suppressContentEditableWarning /> : <button type="button">Open files</button>);
+    const other = kind === "editor" ? screen.getByRole("textbox", { name: "File editor" }) : screen.getByRole("button", { name: "Open files" });
+    other.focus();
+    act(() => { useRuntimeStore.setState({ pendingInteraction: null, pendingQuestionnaire: null }); });
+    expect(other).toHaveFocus();
+    expect(textarea()).toBeVisible();
+  });
 });
 
 describe("model change optimistic rollback", () => {

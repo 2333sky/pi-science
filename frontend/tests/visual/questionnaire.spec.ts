@@ -94,3 +94,36 @@ test("long question content scrolls above visible actions in a short viewport", 
   await expect(page.getByRole("button", { name: "Submit answers" })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("question-short-viewport.png") });
 });
+
+test("review regressions preserve saved choices and respect the user's focus", async ({ page }) => {
+  await openQuestion(page);
+  const heading = page.getByRole("heading", { name: questions[0]!.question });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await page.getByRole("radio", { name: /Differential expression/ }).focus();
+    await page.keyboard.press("Control+Enter");
+    await expect(page.getByRole("alert")).toContainText("Please answer question 1");
+    await expect(heading).toBeFocused();
+  }
+  await page.getByRole("radio", { name: /Differential expression/ }).click();
+  await page.getByRole("button", { name: /Type something/ }).click();
+  await page.getByRole("textbox", { name: "Your answer" }).fill("   ");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Tables", exact: true }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("radio", { name: /Differential expression/ })).toBeChecked();
+  // Model an independently focused inspector editor, outside the question seat.
+  await page.evaluate(() => {
+    const editor = document.createElement("textarea");
+    editor.setAttribute("aria-label", "Independent file editor");
+    document.body.append(editor);
+    editor.focus();
+  });
+  const other = page.getByRole("textbox", { name: "Independent file editor" });
+  await expect(other).toBeFocused();
+  await emit(page, [{ type: "questionnaire.finished", toolCallId: callId }]);
+  await expect(page.getByRole("region", { name: "Answer a few questions" })).toHaveCount(0);
+  await expect(other).toBeFocused();
+  const composer = page.getByRole("combobox", { name: "Message", exact: true });
+  await expect(composer).toBeVisible();
+  await expect(composer).toHaveText("Keep my unsent research question");
+});
