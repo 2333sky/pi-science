@@ -1,3 +1,4 @@
+import { WorkspaceLifecycleBusyError } from "../../runtime/workspace/workspace-lifecycle.js";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -35,7 +36,7 @@ export function registerProjectRoutes(app: FastifyInstance, review: ProjectRevie
     catch (error) { return reply.code(403).send({ error: String(error) }); }
     if (review.isRunning(cwd)) return reply.code(409).send({ error: "A project review is already running for this workspace" });
     try { return await review.run(cwd, { sessionId: typeof body.session_id === "string" ? body.session_id : null, forceFullSession: body.force_full_session === true, trigger: "manual" }); }
-    catch (error) { return reply.code(error instanceof ProjectReviewBusyError ? 409 : 500).send({ error: error instanceof Error ? error.message : String(error) }); }
+    catch (error) { return reply.code(error instanceof ProjectReviewBusyError || error instanceof WorkspaceLifecycleBusyError ? 409 : 500).send({ error: error instanceof Error ? error.message : String(error) }); }
   });
   app.get("/api/project-knowledge/summary", async (request, reply) => { const cwd = await ws(request, reply); if (!cwd) return; const current = await state(cwd); return { workspace: cwd, project_file: "PROJECT.md", pending_count: current.proposals.filter((item) => item.status === "pending").length, knowledge_count: current.items.filter((item) => item.status === "active").length, auto_review: current.policy.auto_review }; });
   app.post("/api/project-knowledge/initialize", async (request, reply) => { const cwd = await ws(request, reply); if (!cwd) return; const current = await mutateProjectState(cwd, (value) => value); return { workspace: cwd, project_file: "PROJECT.md", pending_count: 0, knowledge_count: current.items.length, auto_review: current.policy.auto_review }; });

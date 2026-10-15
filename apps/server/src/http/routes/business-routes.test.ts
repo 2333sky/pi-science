@@ -1,3 +1,5 @@
+import { AgentRuntimeManager } from "../../runtime/agent/agent-runtime-manager.js";
+import { WorkspaceLifecycleBusyError } from "../../runtime/workspace/workspace-lifecycle.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { access, mkdir, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -855,6 +857,53 @@ describe("native control-plane business routes", () => {
     expect(active).toHaveBeenCalledWith(await realpath(cwd)); await expect(stat(cwd)).resolves.toBeDefined();
     active.mockResolvedValue(false);
     expect((await app.inject(request)).statusCode).toBe(200);
+  });
+
+  it.each(["rename", "delete"])("rejects new Conversation admissions after the %s active check and before filesystem mutation", async (operation) => {
+    const sandbox = join(tmpdir(), `pi-science-lifecycle-race-${Date.now()}-${Math.random()}`); tempDirs.push(sandbox);
+    const managed = join(sandbox, "managed"); const cwd = join(managed, "project"); const alias = join(sandbox, "alias");
+    await mkdir(join(cwd, ".pi-science"), { recursive: true }); await symlink(managed, alias, process.platform === "win32" ? "junction" : "dir");
+    process.env.PI_SCIENCE_WORKSPACES = managed;
+    const modules = createServerModules(config()); const app = buildApp({ ...config(), nodePiManager: true }, modules); apps.push(app); await app.ready();
+    let checked!: () => void; const checkedPromise = new Promise<void>((resolve) => { checked = resolve; });
+    let finish!: () => void; const finishPromise = new Promise<void>((resolve) => { finish = resolve; });
+    vi.spyOn(modules.jobs, "hasActive").mockResolvedValue(false);
+    vi.spyOn(modules.sessions, "hasActiveOperations").mockImplementation(async () => { checked(); await finishPromise; return false; });
+    const command = vi.spyOn(modules.sessions, "command");
+    const mutation = app.inject({ method: operation === "rename" ? "POST" : "DELETE", url: `/api/workspaces/${operation}`, payload: { path: cwd, name: "renamed" } });
+    const resultPromise = Promise.resolve(mutation); await checkedPromise;
+    try {
+      const aliasedCwd = join(alias, "project");
+      const prompt = await app.inject({ method: "POST", url: `/api/sessions/old/prompt?cwd=${encodeURIComponent(aliasedCwd)}`, payload: { message: "Research now" } });
+      expect(prompt.statusCode).toBe(409); expect(prompt.json().code).toBe("busy"); expect(command).not.toHaveBeenCalled();
+      expect(await modules.sessions.create({ cwd: aliasedCwd, config: { skills: [], extensions: [] } })).toMatchObject({ code: "busy" });
+      const manager = new AgentRuntimeManager();
+      await expect(manager.start("racing", { cwd: aliasedCwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), model: { provider: "openai", modelId: "gpt-4.1-mini" } })).rejects.toBeInstanceOf(WorkspaceLifecycleBusyError);
+      expect(manager.processCount).toBe(0);
+      if (operation === "rename") expect(await modules.sessions.create({ cwd: join(managed, "renamed"), config: { skills: [], extensions: [] } })).toMatchObject({ code: "busy" });
+      await expect(stat(cwd)).resolves.toBeDefined();
+    } finally { finish(); }
+    expect((await resultPromise).statusCode).toBe(200);
+    expect(await modules.sessions.create({ cwd, config: { skills: [], extensions: [] } })).toMatchObject({ code: "workspace_invalid" });
+  });
+
+  it.each(["rename", "delete"])("rejects workspace %s when Conversation preparation has already been admitted", async (operation) => {
+    const sandbox = join(tmpdir(), `pi-science-lifecycle-admission-${Date.now()}-${Math.random()}`); tempDirs.push(sandbox);
+    const managed = join(sandbox, "managed"); const cwd = join(managed, "project"); await mkdir(join(cwd, ".pi-science"), { recursive: true }); process.env.PI_SCIENCE_WORKSPACES = managed;
+    const modules = createServerModules(config()); const app = buildApp(config(), modules); apps.push(app); await app.ready();
+    let entered!: () => void; const enteredPromise = new Promise<void>((resolve) => { entered = resolve; });
+    let finish!: () => void; const finishPromise = new Promise<void>((resolve) => { finish = resolve; });
+    const migrate = modules.modelResources.ensureMigrated.bind(modules.modelResources);
+    vi.spyOn(modules.modelResources, "ensureMigrated").mockImplementation(async () => { entered(); await finishPromise; return migrate(); });
+    const internals = modules.sessions as unknown as { agentCore: { create: () => Promise<{ id: string }> } };
+    vi.spyOn(internals.agentCore, "create").mockResolvedValue({ id: "new-session" });
+    const activeCheck = vi.spyOn(modules.sessions, "hasActiveOperations");
+    const admission = modules.sessions.create({ cwd, config: { skills: [], extensions: [] } }); await enteredPromise;
+    try {
+      const mutation = await app.inject({ method: operation === "rename" ? "POST" : "DELETE", url: `/api/workspaces/${operation}`, payload: { path: cwd, name: "renamed" } });
+      expect(mutation.statusCode).toBe(409); expect(activeCheck).not.toHaveBeenCalled(); await expect(stat(cwd)).resolves.toBeDefined();
+    } finally { finish(); await admission; }
+    expect((await app.inject({ method: operation === "rename" ? "POST" : "DELETE", url: `/api/workspaces/${operation}`, payload: { path: cwd, name: "renamed" } })).statusCode).toBe(200);
   });
 
   it("updates a pin stored through a symlinked managed root after rename", async () => {

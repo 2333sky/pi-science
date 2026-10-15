@@ -1,3 +1,4 @@
+import { withWorkspaceMutation } from "../workspace/workspace-lifecycle.js";
 import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -62,6 +63,24 @@ describe("agent-core session configuration", () => {
       entries.set(key, {}); expect(await service.hasActiveOperations(cwd)).toBe(true); entries.delete(key);
     }
     expect(await service.hasActiveOperations(resolve("unrelated-workspace"))).toBe(false);
+  });
+
+  it("blocks direct prompt/notification/start admission and drains idle workspace workers before mutation", async () => {
+    const cwd = resolve("workspace-lifecycle-worker-test"); const key = `${workspaceIdentity(cwd)}\0session`;
+    const events = { flush: vi.fn(async () => undefined) };
+    const service = new AgentCoreSessionService(events as never, {} as never);
+    const internals = service as unknown as { live: Map<string, unknown>; stopForReload: (item: unknown) => Promise<void> };
+    const sendCommand = vi.fn(); const runtime = { cwd, isClosed: false, sendCommand };
+    internals.live.set(key, { runtime, key: "idle", busy: false });
+    const stop = vi.spyOn(internals, "stopForReload").mockImplementation(async () => { internals.live.delete(key); });
+    await withWorkspaceMutation([cwd], async () => {
+      expect(await service.command(cwd, "session", "prompt", { message: "new" }, { skills: [], extensions: [] })).toMatchObject({ success: false, code: "busy" });
+      expect(await service.notify(cwd, "session", "extension_ui_response", {})).toMatchObject({ success: false, code: "busy" });
+      expect(await service.create(cwd, { skills: [], extensions: [] })).toMatchObject({ code: "busy" });
+      expect(sendCommand).not.toHaveBeenCalled();
+      await service.closeIdleWorkspace(cwd);
+      expect(stop).toHaveBeenCalledOnce(); expect(events.flush).toHaveBeenCalledOnce(); expect(service.liveSessions(cwd)).toEqual([]);
+    });
   });
 
   it("rejects model changes while the session is busy without touching the worker", async () => {
