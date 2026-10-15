@@ -18,6 +18,46 @@
 }
 
 .sidebar-tab-list { container-type: inline-size; }
+
+.workspace-brand {
+  @apply text-[18px] font-semibold leading-6 tracking-[-0.03em];
+}
+
+/* Match the context header's page coordinates: rail width + panel padding
+   + header padding horizontally, card padding + header padding vertically.
+   The containing brand box already starts at (8px, --space-panel). */
+.workspace-rail-brand {
+  position: absolute;
+  left: calc(var(--rail-width) + var(--space-panel));
+  top: calc(var(--space-card) + 0.25rem - var(--space-panel));
+  white-space: nowrap;
+  text-align: left;
+}
+
+/* Expand the desktop primary rail above the context/main panes without
+   changing the width reserved by its layout slot. Keyboard focus offers the
+   same labels; touch-sized rails keep their original compact presentation. */
+.workspace-rail {
+  transition: width var(--motion-normal) var(--ease-standard), box-shadow var(--motion-normal) var(--ease-standard);
+}
+.workspace-rail-label {
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard);
+}
+@media (min-width: 768px) {
+  .workspace-rail:has(:focus-visible) {
+    width: 220px;
+    box-shadow: var(--shadow-pop);
+  }
+  .workspace-rail:has(:focus-visible) .workspace-rail-label { opacity: 1; }
+}
+@media (min-width: 768px) and (hover: hover) {
+  .workspace-rail:hover {
+    width: 220px;
+    box-shadow: var(--shadow-pop);
+  }
+  .workspace-rail:hover .workspace-rail-label { opacity: 1; }
+}
 @container (max-width: 220px) {
   .sidebar-tab-icon { display: none; }
 }
@@ -439,9 +479,18 @@
   }
 
   .runs-workbench {
+    height: clamp(560px, calc(100dvh - 300px), 960px);
     background: linear-gradient(145deg, var(--surface-raised), var(--surface) 64%);
     border-color: color-mix(in srgb, var(--border-strong) 62%, var(--border));
     box-shadow: 0 1px 2px color-mix(in srgb, var(--text) 5%, transparent), 0 16px 42px color-mix(in srgb, var(--text) 5%, transparent);
+  }
+
+  .runs-page > div {
+    max-width: 1600px;
+  }
+
+  .runs-timeline-grid {
+    grid-template-columns: 210px minmax(320px, 1fr);
   }
 
   .runs-ledger-columns {
@@ -470,13 +519,19 @@
   }
 
   .runs-ledger-pane {
-    display: block;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
     border-bottom: 1px solid var(--border);
     border-right: 0;
   }
 
   .runs-detail-pane {
     display: none;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
   }
 
   .runs-ledger-layout[data-compact-detail="true"] .runs-ledger-pane {
@@ -484,7 +539,7 @@
   }
 
   .runs-ledger-layout[data-compact-detail="true"] .runs-detail-pane {
-    display: block;
+    display: flex;
     width: 100%;
   }
 
@@ -494,12 +549,12 @@
 
   @container runs-workbench (min-width: 840px) {
     .runs-ledger-layout {
-      grid-template-columns: minmax(340px, 0.9fr) minmax(420px, 1.1fr);
+      grid-template-columns: minmax(0, 1.5fr) minmax(340px, 1fr);
     }
 
     .runs-ledger-pane,
     .runs-detail-pane {
-      display: block !important;
+      display: flex !important;
     }
 
     .runs-ledger-pane {
