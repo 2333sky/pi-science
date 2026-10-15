@@ -29,11 +29,31 @@ test("desktop rail reveals labels above adjacent panes without shifting the layo
   });
   const mainX = (await main.boundingBox())!.x;
   const panelX = (await panel.boundingBox())!.x;
+  const headerBrand = panel.locator(".workspace-brand");
+  const brandBox = (await headerBrand.boundingBox())!;
+  const brandStyle = await headerBrand.evaluate(element => {
+    const style = getComputedStyle(element);
+    return {
+      fontFamily: style.fontFamily,
+      fontSize: style.fontSize,
+      fontWeight: style.fontWeight,
+      lineHeight: style.lineHeight,
+      letterSpacing: style.letterSpacing,
+    };
+  });
   await expect(railSlot).toHaveCSS("width", "60px");
   await expect(rail).toHaveCSS("width", "60px");
   const research = rail.getByRole("link", { name: "Research", exact: true });
   await research.hover();
   await expect(rail).toHaveCSS("width", "220px");
+  const railBrand = rail.locator(".workspace-rail-brand");
+  await expect(railBrand).toHaveCSS("opacity", "1");
+  const expandedBrandBox = (await railBrand.boundingBox())!;
+  expect(expandedBrandBox.x).toBeCloseTo(brandBox.x, 1);
+  expect(expandedBrandBox.y).toBeCloseTo(brandBox.y, 1);
+  for (const [property, value] of Object.entries(brandStyle)) {
+    expect(await railBrand.evaluate((element, key) => getComputedStyle(element)[key as keyof CSSStyleDeclaration], property)).toBe(value);
+  }
   await expect(research.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
   for (const label of await rail.locator(".workspace-rail-label").all()) {
     await expect(label).toHaveCSS("text-align", "left");
