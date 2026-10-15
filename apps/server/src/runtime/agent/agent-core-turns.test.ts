@@ -200,14 +200,15 @@ describe("agent-core product turns", () => {
     await vi.waitFor(async () => expect(await service.state(id, cwd)).toMatchObject({ is_streaming: false }), { timeout: 15000 });
   }, 45000);
 
-  it("detects a lost settled event and completes the persisted product lifecycle from durable state", async () => {
+  it("reconciles a lost settled event and completes the persisted product lifecycle once", async () => {
     const { cwd, id, service, core, events, review } = await fixture();
     const original = core.liveRuntime(cwd)!;
     const emit = original.emit.bind(original);
     let droppedSettled = false;
     vi.spyOn(original, "emit").mockImplementation((type, ...args) => {
-      // Lose the worker's terminal frame, while allowing the watchdog to
-      // reconcile it from get_state if subsequent frames close the sequence gap.
+      // Lose the worker's terminal event, not a supervisor's synthetic repair.
+      // Depending on the last observed sequence, the watchdog can reconcile a
+      // snapshot in this worker or reopen it after detecting a sequence gap.
       if (type === "event" && args[0]?.type === "operation.settled" && !args[0]?.recovery) {
         droppedSettled = true;
         return false;
@@ -217,6 +218,7 @@ describe("agent-core product turns", () => {
     expect(await service.command(id, cwd, "prompt", { message: "write and recover", client_message_id: "lost-settle" })).toMatchObject({ success: true });
     await vi.waitFor(() => expect(events.some((event) => event.type === "turn.artifacts")).toBe(true), { timeout: 15000 });
     expect(droppedSettled).toBe(true);
+    expect(events.filter((event) => event.type === "turn.artifacts")).toHaveLength(1);
     expect(await turnArtifactRepository.forSession(cwd, id)).toHaveLength(1);
     await vi.waitFor(() => expect(review.run).toHaveBeenCalledOnce(), { timeout: 15000 });
     expect((await new SessionRepository().messages(cwd, id)).filter((message) => message.client_message_id === "lost-settle")).toHaveLength(1);
