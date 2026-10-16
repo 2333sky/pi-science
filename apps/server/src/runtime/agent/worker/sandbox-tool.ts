@@ -156,15 +156,13 @@ async function outputFiles(work: string): Promise<string[]> {
 }
 
 export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxInstallation | undefined): Tool {
-  return { name: "sandbox_run", label: "Run sandboxed Python", description: "Run bounded Python in the assigned candidate input/work with no network. Requires operator-enabled srt, a bound research budget, and Parent-prepared directories. Invalid prior outputs cause all work files to be reset before execution; input is preserved and the reset is reported. Process success is only a local debugging observation, never official evaluation.",
+  return { name: "sandbox_run", label: "Legacy sandboxed Python", description: "Legacy compatibility for existing sandbox_run workflows and durable invocation recovery. For new work use bash for CLI/Python scripts or notebook_run for stateful Python; do not use this as a fallback after their isolation fails. All calls require a bound candidate/research budget and Parent-prepared input/work; new execution also requires operator-enabled srt. Invalid prior outputs reset all work files; input is preserved and the reset is reported. Process success is a local observation, never official evaluation.",
     parameters: Type.Object({ candidate_id: Type.String({ pattern: CANDIDATE_PATTERN.source }), code: Type.String({ minLength: 1, maxLength: 64 * 1024 }), timeout_seconds: Type.Optional(Type.Integer({ minimum: 1, maximum: 120 })) }),
     async execute(_id, params, _update, _ctx, invocation, context) {
       const values = inputSchema.parse(params);
       if (Buffer.byteLength(values.code) > 64 * 1024) throw new Error("Sandbox code exceeds byte limit");
-      if (!installation) throw new Error("Sandbox unavailable; return code-generation output. Never run Python on the host as fallback.");
       context.abortSignal?.throwIfAborted();
       const candidate = await boundCandidate(identity, invocation.operationId, values.candidate_id);
-      const configured = await sandboxSettings(installation, identity.cwd, candidate.input, candidate.work);
       const executionId = executionIdFor(producer, identity.sessionId, invocation.operationId, invocation.invocationId);
       const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(candidate.directory)}.json`);
       return withFileWriteLock(lock, async () => {
@@ -177,6 +175,10 @@ export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxI
           const record = (await executionRepository.get(identity.cwd, executionId))!;
           return { content: [{ type: "text", text: JSON.stringify(record.result) }], details: record.result };
         }
+        // Read-only recovery must not require an enabled/installed executor.
+        // Candidate authorization and invocation/input identity still apply.
+        if (!installation) throw new Error("Sandbox unavailable; return code-generation output. Never run Python on the host as fallback.");
+        const configured = await sandboxSettings(installation, identity.cwd, candidate.input, candidate.work);
         await invocation.setMemo("sandbox-execution-id", executionId);
         const started = Date.now();
         await executionRepository.start(identity.cwd, { execution_id: executionId, kind: "tool", surface: "python", producer,

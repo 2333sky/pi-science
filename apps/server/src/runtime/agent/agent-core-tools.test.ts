@@ -254,7 +254,7 @@ describe("agent-core product tools", () => {
     expect(await runHiddenPrompt(parent, "Generate candidate code", "unbound-once", Date.now() + 20000)).toBe("Protected code-generation mode.");
   }, 30000);
 
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("delegates a bound candidate through real Worker IPC, repairs from srt logs and shares the parent budget", async () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("keeps an explicit legacy role compatible through real Worker IPC, repair and the shared budget", async () => {
     vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1");
     let childRuns = 0;
     const fixture = await modelFixture((body) => {
@@ -276,6 +276,8 @@ describe("agent-core product tools", () => {
     });
     const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
     const directory = join(fixture.cwd, "research/ipc-study/candidates/candidate-001");
+    const role = join(fixture.cwd, ".pi/skills/auto-research/agents/experimenter.md");
+    await writeFile(role, (await readFile(role, "utf8")).replace("tools: [read, bash, notebook_read, notebook_run]", "tools: [read, sandbox_run]"));
     await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
     const parent = await openHiddenTask(manager, "sandbox-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"),

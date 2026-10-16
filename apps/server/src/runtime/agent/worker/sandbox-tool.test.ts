@@ -28,6 +28,32 @@ async function fixture() {
 }
 const execute = (tool: ReturnType<typeof sandboxRunTool>, id: string, code: string, context = BACKGROUND_CONTEXT, timeout_seconds = 10) => tool.execute(id, { candidate_id: "candidate-001", code, timeout_seconds }, () => {}, env, invocation(id), context);
 
+it.each(["succeeded", "failed", "cancelled", "timed_out", "lost"] as const)("recovers a historical %s result without an executor and refuses changed input or a new invocation", async (status) => {
+  const { identity, cwd } = await fixture(); const code = "raise RuntimeError('must not run')";
+  const executionId = executionIdFor("sandbox_run", "session", "owner", "historical");
+  await executionRepository.start(cwd, { execution_id: executionId, kind: "tool", surface: "python", producer: "sandbox_run", correlation: { candidate_id: "candidate-001" }, request: { code_sha256: createHash("sha256").update(code).digest("hex") } });
+  const result = { execution_id: executionId, status, stdout: "historical output", artifact_refs: [{ artifact_id: "historical-artifact", version: 2 }] };
+  await executionRepository.finish(cwd, executionId, { status, producer: "sandbox_run", result });
+  const tool = sandboxRunTool(identity, undefined);
+  expect((await execute(tool, "historical", code)).details).toEqual(result);
+  await expect(execute(tool, "historical", "print('changed')")).rejects.toThrow("different input");
+  await expect(execute(tool, "new", code)).rejects.toThrow("Sandbox unavailable");
+  await expect(execute(sandboxRunTool({ ...identity, candidateId: "other" }, undefined), "historical", code)).rejects.toThrow("not authorized");
+  expect(await executionRepository.list(cwd)).toHaveLength(1);
+});
+
+it("reconciles only the identical unfinished legacy invocation as lost with execution disabled", async () => {
+  const { identity, cwd } = await fixture(); const code = "print('must not replay')";
+  const id = executionIdFor("sandbox_run", "session", "owner", "unfinished");
+  await executionRepository.start(cwd, { execution_id: id, kind: "tool", surface: "python", producer: "sandbox_run", correlation: { candidate_id: "candidate-001" }, request: { code_sha256: createHash("sha256").update(code).digest("hex") } });
+  const tool = sandboxRunTool(identity, undefined);
+  await expect(execute(tool, "another-invocation", code)).rejects.toThrow("Sandbox unavailable");
+  expect((await executionRepository.get(cwd, id))?.status).toBe("running");
+  expect((await execute(tool, "unfinished", code)).details).toMatchObject({ status: "lost", stdout: "" });
+  expect((await executionRepository.get(cwd, id))?.status).toBe("lost");
+  expect(await executionRepository.list(cwd)).toHaveLength(1);
+});
+
 it("refuses disabled execution, invalid paths, unknown candidate and unassigned children", async () => {
   const { identity } = await fixture();
   await expect(execute(sandboxRunTool(identity, undefined), "disabled", "print(1)")).rejects.toThrow("Sandbox unavailable");
