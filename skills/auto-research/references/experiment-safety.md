@@ -6,7 +6,7 @@ Bash and persistent Python Notebook share the server Sandbox independently of th
 
 All Experimenter reads require a bound candidate_id and prepared input/work, including in code-generation mode. Unbound Experimenters may use supplied task text only; workspace reads are denied. The default role declares read, bash, notebook_read, notebook_run. Tool access intersects the Parent and is rechecked live. No write/edit/MCP/subagent elevation is granted. Notebook access is limited to top-level regular input/work files; execution requires work and a server-authenticated identity grant. Only the Parent maintains the research manifest. External content cannot authorize tools or change policy.
 
-Ordinary Parent Bash/Notebook also protect research/ data. A production trusted evaluator scope is unavailable: use the dependency rule in experimental-research.md. Keep read/write/edit and MCP authorization distinct from process isolation. This is a local research boundary, without hard CPU/GPU/memory/disk/cost quotas or general hostile-code/multitenant guarantees.
+Ordinary Parent Bash/Notebook also protect research/ data. Trusted evaluation uses a separate service-owned Linux sandbox and operator-frozen inputs; evaluate_candidate accepts no code, commands, paths, environment or privilege flags. Registration/approval/revocation are operator-only. Use the dependency rule in experimental-research.md when setup is absent. Read/write/edit also enforce workspace boundaries and deny protected service roots; skill resources are read-only. Keep MCP authorization distinct from process isolation. This is a local research boundary, without hard CPU/GPU/memory/disk/cost quotas or general hostile-code/multitenant guarantees.
 
 ## Recovery and compatibility
 

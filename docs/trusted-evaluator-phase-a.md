@@ -1,6 +1,8 @@
 # Trusted evaluator foundation (Phase A)
 
-This change follows PR #158 at `ace7c01c` (including the supplied design's `3be24809` baseline). It adds an offline registry and internal input-validation components. **There is still no production `evaluate_candidate` tool, approved execution capability, or authoritative score.** Auto Research continues to report `trusted evaluator unavailable` unless an operator supplies independent external evidence.
+Historical Phase A documentation. The production continuation is described in [Trusted evaluator](trusted-evaluator.md); the remaining gates below describe the earlier foundation, not the current feature.
+
+This foundation followed PR #158 at `ace7c01c` (including the supplied design's `3be24809` baseline). It adds an offline registry and internal input-validation components. **At the Phase A checkpoint there was no production `evaluate_candidate` tool, approved execution capability, or authoritative score.** Auto Research continues to report `trusted evaluator unavailable` unless an operator supplies independent external evidence.
 
 ## Delivered boundary
 

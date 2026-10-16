@@ -54,3 +54,11 @@ it("can index legacy result paths without renaming evidence or accepting legacy 
   const duplicate: any = manifest; duplicate.experiments["experiment-2"] = { ...manifest.experiments["experiment-1"] };
   expect(() => validateManifest(duplicate)).toThrow("shared result_path");
 });
+
+it("requires complete versioned provenance for trusted evaluator evidence while preserving manual evidence", () => {
+  const manifest: any = fixture(); const experiment = manifest.experiments["experiment-1"];
+  experiment.status = "completed"; experiment.execution_ids.push("exec_eval");
+  experiment.evaluation = { source: "trusted_evaluator", execution_id: "exec_eval", result_artifact: { artifact_id: "evaluation", version: 2 }, evaluator_digest: "a".repeat(64), data_digest: "b".repeat(64), evaluation_id: "evaluation_one", evaluator_revision_id: "eval-1", environment_revision: "env-1", environment_digest: "c".repeat(64), protocol_revision: "protocol-1", input_sha256: "d".repeat(64) };
+  expect(validateManifest(manifest)).toBe(manifest);
+  delete experiment.evaluation.input_sha256; expect(() => validateManifest(manifest)).toThrow("fields");
+});

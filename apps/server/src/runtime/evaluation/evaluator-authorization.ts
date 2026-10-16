@@ -5,7 +5,7 @@ import type { EvaluatorRegistry } from "./evaluator-registry.js";
 /** Authenticated server context, obtained independently of evaluation arguments. */
 export interface EvaluatorCaller { sessionId: string; workspace: string; researchId: string; parentSessionId?: string; delegatedAgent?: string; operationId: string }
 
-/** Phase A input gate only: no execution, budget admission, score, or tool registration.
+/** Input gate only: no execution, budget admission, score, or tool registration.
  * Resolver dependencies MUST be bound by the authenticated control plane, not a model. */
 export class EvaluatorInputService {
   constructor(private readonly registry: EvaluatorRegistry,
@@ -21,7 +21,7 @@ export class EvaluatorInputService {
     if (caller.sessionId !== revision.ownerSessionId || caller.workspace !== revision.workspace || caller.researchId !== revision.researchId) throw new EvaluatorError("unauthorized");
     const proof = await this.provenance(parsed.data.artifact_id, parsed.data.artifact_version);
     const candidate = await resolveEvaluatorArtifact(parsed.data, revision, proof);
-    // The future runner must reauthorize immediately before atomic admission/launch;
+    // The service must reauthorize immediately before atomic admission/launch;
     // this preparation result is neither a capability token nor a durable approval.
     await this.registry.load(parsed.data.evaluator_revision_id);
     return { revision, candidate };

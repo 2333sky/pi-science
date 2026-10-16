@@ -227,7 +227,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
       expect(blocked.json().ok).toBe(false);
       const candidateBash = sandboxBashTool(identity);
       const run = (id: string, command: string, context = BACKGROUND_CONTEXT) => candidateBash.execute(id, { command }, () => {}, { env: new NodeExecutionEnv({ cwd }) }, invocation(id), context);
-      expect((await run("candidate", "python3 -I -c \"print(open('../input/value.txt').read())\"; ! cat ../../../evaluator/secret")).content).toEqual([expect.objectContaining({ text: expect.stringContaining("approved") })]);
+      expect((await run("candidate", "python3 -I -c \"print(open('../input/value.txt').read())\"; ! cat ../../../evaluator/secret")).content).toEqual(expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining("approved") }), expect.objectContaining({ text: expect.stringContaining('"execution_id"') })]));
       const controller = new AbortController(); setTimeout(() => controller.abort(), 300);
       await expect(run("abort", "python3 -I -c 'while True: pass'", { ...BACKGROUND_CONTEXT, abortSignal: controller.signal })).rejects.toThrow();
       await manager.shutdownOwner(cwd, identity.sessionId);

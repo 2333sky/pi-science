@@ -6,25 +6,14 @@ import type { AgentHarnessTool, NodeExecutionEnv } from "@earendil-works/pi-agen
 import { withFileWriteLock, workspaceFile, writeJsonAtomic } from "../../../storage/persistence.js";
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
-interface Budget { deadline: number; maxExecutions: number; used: number }
-const MAX_SECONDS = 3600;
-const MAX_EXECUTIONS = 100;
-const budgetSchema = z.object({ deadline: z.number().finite().positive(), maxExecutions: z.number().int().min(1).max(MAX_EXECUTIONS), used: z.number().int().min(0).max(MAX_EXECUTIONS) }).strict();
-async function readBudget(path: string): Promise<Budget | null> {
-  let text: string;
-  try { text = await readFile(path, "utf8"); } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
-  const parsed = budgetSchema.safeParse(JSON.parse(text));
-  if (!parsed.success) throw new Error("Invalid saved execution budget; refusing to reset its limits");
-  return parsed.data;
-}
-
+import { readBudget, MAX_SECONDS, MAX_EXECUTIONS } from "../../executions/execution-budget.js";
 /** Generic operation-scoped admission and deadlines, durable across worker recovery. */
 export function executionBudgetTools(cwd: string, inheritedOperationId?: string): { tool: Tool; wrap: (tool: Tool) => Tool } {
   const pathFor = (id: string) => workspaceFile(cwd, `execution-budgets/${createHash("sha256").update(id).digest("hex")}.json`);
   const hash = (id: string) => createHash("sha256").update(id).digest("hex");
   const scopePath = (id: string) => workspaceFile(cwd, `execution-budget-scopes/${hash(id)}.json`);
   const valuesSchema = z.object({ research_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/).optional(),
-    max_seconds: z.number().int().min(1).max(MAX_SECONDS).optional(), max_executions: z.number().int().min(1).max(MAX_EXECUTIONS).optional() }).strict();
+    max_evaluations: z.number().int().min(1).max(MAX_EXECUTIONS).optional(), max_seconds: z.number().int().min(1).max(MAX_SECONDS).optional(), max_executions: z.number().int().min(1).max(MAX_EXECUTIONS).optional() }).strict();
   const resolvePath = async (operationId: string, values?: z.infer<typeof valuesSchema>): Promise<string> => {
     const owner = inheritedOperationId ?? operationId;
     const bindingPath = scopePath(owner);
@@ -40,7 +29,7 @@ export function executionBudgetTools(cwd: string, inheritedOperationId?: string)
         // Write limits before publishing the binding; recovery can only reuse or narrow them.
         await withFileWriteLock(researchPath, async () => {
           if (!await readBudget(researchPath)) await writeJsonAtomic(researchPath, { deadline: Date.now() + (values.max_seconds ?? MAX_SECONDS) * 1000,
-            maxExecutions: values.max_executions ?? MAX_EXECUTIONS, used: 0 });
+            maxExecutions: values.max_executions ?? MAX_EXECUTIONS, maxEvaluations: values.max_evaluations ?? MAX_EXECUTIONS, used: 0 });
         });
         binding = { researchId: values.research_id };
         await writeJsonAtomic(bindingPath, binding);
@@ -49,15 +38,15 @@ export function executionBudgetTools(cwd: string, inheritedOperationId?: string)
       if (binding && !await readBudget(target)) throw new Error("Missing shared execution budget; refusing to reset");
       if (!binding && !inheritedOperationId) await withFileWriteLock(target, async () => {
         if (!await readBudget(target)) await writeJsonAtomic(target, { deadline: Date.now() + (values?.max_seconds ?? MAX_SECONDS) * 1000,
-          maxExecutions: values?.max_executions ?? MAX_EXECUTIONS, used: 0 });
+          maxExecutions: values?.max_executions ?? MAX_EXECUTIONS, maxEvaluations: values?.max_evaluations ?? MAX_EXECUTIONS, used: 0 });
       });
       return target;
     });
   };
   const tool: Tool = {
     name: "execution_budget", label: "Execution budget",
-    description: "Set or inspect a durable budget for this conversation operation before costly tool calls. Bounds bash, notebook, MCP and subagent executions. Limits may be narrowed but never expanded during an operation. Set research_id before the first execution to share one persistent budget across continuation operations. Hidden children inherit the same cap. Counts calls, not semantic experiments, tokens or cost.",
-    parameters: Type.Object({ research_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" })), max_seconds: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SECONDS })), max_executions: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_EXECUTIONS })) }),
+    description: "Set or inspect a durable budget for this conversation operation before costly tool calls. Bounds bash, notebook, MCP and subagent executions. Limits may be narrowed but never expanded during an operation. Set research_id before the first execution to share one persistent budget across continuation operations. Hidden children inherit the same cap. max_evaluations additionally caps total official queries across all revisions in a research scope. Counts calls, not semantic experiments, tokens or cost.",
+    parameters: Type.Object({ research_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$" })), max_evaluations: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_EXECUTIONS })), max_seconds: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_SECONDS })), max_executions: Type.Optional(Type.Integer({ minimum: 1, maximum: MAX_EXECUTIONS })) }),
     async execute(_id, params, _update, _ctx, invocation) {
       const values = valuesSchema.parse(params);
       const path = await resolvePath(invocation.operationId, values);
@@ -65,9 +54,9 @@ export function executionBudgetTools(cwd: string, inheritedOperationId?: string)
         const prior = await readBudget(path);
         if (!prior && inheritedOperationId) throw new Error("Missing inherited execution budget; refusing to reset");
         const proposed = { deadline: Date.now() + Math.min(MAX_SECONDS, Math.max(1, values.max_seconds ?? MAX_SECONDS)) * 1000,
-          maxExecutions: Math.min(MAX_EXECUTIONS, Math.max(1, values.max_executions ?? MAX_EXECUTIONS)), used: prior?.used ?? 0 };
+          maxExecutions: Math.min(MAX_EXECUTIONS, Math.max(1, values.max_executions ?? MAX_EXECUTIONS)), maxEvaluations: values.max_evaluations ?? MAX_EXECUTIONS, used: prior?.used ?? 0 };
         const budget = prior ? { ...prior, deadline: values.max_seconds === undefined ? prior.deadline : Math.min(prior.deadline, proposed.deadline),
-          maxExecutions: values.max_executions === undefined ? prior.maxExecutions : Math.min(prior.maxExecutions, proposed.maxExecutions) } : proposed;
+          maxExecutions: values.max_executions === undefined ? prior.maxExecutions : Math.min(prior.maxExecutions, proposed.maxExecutions), maxEvaluations: Math.min(prior.maxEvaluations ?? MAX_EXECUTIONS, proposed.maxEvaluations) } : proposed;
         await writeJsonAtomic(path, budget);
         const status = { remaining_seconds: Math.max(0, Math.floor((budget.deadline - Date.now()) / 1000)), remaining_executions: Math.max(0, budget.maxExecutions - budget.used), ...budget };
         return { content: [{ type: "text", text: JSON.stringify(status) }], details: status };

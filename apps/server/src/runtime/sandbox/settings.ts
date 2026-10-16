@@ -2,8 +2,8 @@ import { constants } from "node:fs";
 import { access, readFile, realpath } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { isWithin, type SandboxPolicy } from "./policy.js";
-import { pathsOverlap, runtimeDependencyGrants, runtimeReadPolicy, runtimeReadPolicyId, sandboxRuntimeRoot } from "./read-grants.js";
+import { isEvaluatorPolicy, isWithin, type SandboxPolicy } from "./policy.js";
+import { canonicalRuntimeDependency, pathsOverlap, runtimeDependencyGrants, runtimeReadPolicy, runtimeReadPolicyId, sandboxRuntimeRoot } from "./read-grants.js";
 export { srtCli } from "./read-grants.js";
 
 export const SANDBOX_RUNTIME = "@anthropic-ai/sandbox-runtime@0.0.79";
@@ -29,13 +29,16 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
   if (manifest.version !== "0.0.79") throw new Error("Sandbox runtime version has not been validated");
   if (!["x64", "arm64"].includes(process.arch)) throw new Error("Unsupported sandbox architecture");
   await access(join(root, "vendor/seccomp", process.arch, "apply-seccomp"), constants.X_OK);
-  const readPolicy = await runtimeReadPolicy();
+  const evaluator = isEvaluatorPolicy(policy);
+  if (policy.scope === "evaluator" && !evaluator) throw new Error("Evaluator policy must be service-created");
+  const readPolicy = await runtimeReadPolicy(evaluator);
   if (policy.operatorReadPolicyId && policy.operatorReadPolicyId !== runtimeReadPolicyId(readPolicy)) throw new Error("Operator read policy changed before sandbox startup");
   if (readPolicy.file && policy.writePaths.some((write) => pathsOverlap(write, readPolicy.file!))) throw new Error("Operator read policy must be outside writable sandbox paths");
-  const dependencyReads = await runtimeDependencyGrants(readPolicy, dependencies);
+  const dependencyReads = evaluator ? await Promise.all(dependencies.map(canonicalRuntimeDependency)) : await runtimeDependencyGrants(readPolicy, dependencies);
+  if (evaluator && dependencyReads.some((path) => !policy.readPaths.some((root) => isWithin(root, path)))) throw new Error("Evaluator dependencies must be privately staged");
   const reads = [...readPolicy.systemReads, ...dependencyReads];
   for (const path of [...reads, ...policy.readPaths, ...policy.writePaths]) {
-    if (readPolicy.protectedRoots.some((protectedPath) => pathsOverlap(path, protectedPath))) throw new Error("Protected evaluator paths overlap sandbox runtime read grants");
+    if (!evaluator && readPolicy.protectedRoots.some((protectedPath) => pathsOverlap(path, protectedPath))) throw new Error("Protected evaluator paths overlap sandbox runtime read grants");
   }
   for (const canonical of dependencyReads) {
     if (policy.writePaths.some((write) => pathsOverlap(write, canonical))) throw new Error("Runtime dependencies must be outside writable sandbox paths");
@@ -51,8 +54,8 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
   const literal = (path: string) => ({ path, literal: true as const });
   return {
     network: { allowedDomains: [], deniedDomains: [], allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
-    filesystem: { denyRead: ["/", ...readPolicy.protectedRoots, ...policy.denyPaths].map(literal), allowRead: [...new Set([...reads, join(root, "vendor/seccomp"), ...(installation.socat ? [installation.socat] : []), ...policy.readPaths])].map(literal),
-      allowWrite: policy.writePaths.map(literal), denyWrite: [...readPolicy.protectedRoots, ...policy.denyPaths, ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), allowGitConfig: false },
+    filesystem: { denyRead: ["/", ...(evaluator ? [] : readPolicy.protectedRoots), ...policy.denyPaths].map(literal), allowRead: [...new Set([...reads, join(root, "vendor/seccomp"), ...(installation.socat ? [installation.socat] : []), ...policy.readPaths])].map(literal),
+      allowWrite: policy.writePaths.map(literal), denyWrite: [...(evaluator ? policy.readPaths.filter((read) => !policy.writePaths.includes(read)) : readPolicy.protectedRoots), ...policy.denyPaths, ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), allowGitConfig: false },
     enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
     ripgrep: { command: installation.ripgrep ?? "/usr/bin/rg" }, ...(installation.socat ? { socatPath: installation.socat } : {}),
   };

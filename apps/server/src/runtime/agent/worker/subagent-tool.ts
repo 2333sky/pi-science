@@ -6,12 +6,13 @@ import type { RuntimeEvent, RuntimeResult } from "../agent-runtime-types.js";
 export class SubagentBridge {
   private readonly pending = new Map<string, { resolve: (result: RuntimeResult) => void; cleanup: () => void }>();
   constructor(private readonly publish: (event: RuntimeEvent) => void) {}
-  request(params: Record<string, unknown>, signal?: AbortSignal, eventType: "subagent.requested" | "capability.requested" = "subagent.requested"): Promise<RuntimeResult> {
+  request(params: Record<string, unknown>, signal?: AbortSignal, eventType: "subagent.requested" | "capability.requested" | "evaluation.requested" = "subagent.requested"): Promise<RuntimeResult> {
     if (signal?.aborted) return Promise.resolve({ success: false, error: "Subagent cancelled" });
     const id = randomUUID();
     return new Promise((resolve) => {
       const abort = () => {
         if (eventType === "subagent.requested") this.publish({ type: "subagent.cancelled", id });
+        if (eventType === "evaluation.requested") this.publish({ type: "evaluation.cancelled", id });
         this.respond({ id, result: { success: false, error: "Subagent cancelled" } });
       };
       signal?.addEventListener("abort", abort, { once: true });

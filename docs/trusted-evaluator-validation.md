@@ -1,4 +1,22 @@
-# Trusted evaluator foundation validation
+# Trusted evaluator validation
+
+The current production feature and setup are documented in [Trusted evaluator](trusted-evaluator.md). The Phase A and review sections below preserve earlier verification history; they do not describe the final delivered scope.
+
+## Production continuation (Phases B–D)
+
+On 2026-10-16 the real official DeepSeek provider test for `deepseek-flash` passed through authenticated Parent → Experimenter → evaluate_candidate → Reviewer → report. It used the production Worker/provider/IPC path and an operator-approved frozen evaluator in required-mode Linux srt. The test asserted one official evaluation, accuracy=1, validity passed, actual exit code 0 and a published versioned metric Artifact. The Agent obtained the candidate Artifact reference from actual Bash/child tool output. No harness-side score calculation or private-reference substitution drove the request. The selected live test passed in 65.20 seconds total (64.03 seconds test time); nine unrelated cases were unselected at that checkpoint. The supplied key remained in process input/memory/environment, stored credentials referenced its environment variable, and temporary private test state was removed. The sanitized log is under ignored `.runtime/live-tests/deepseek-evaluator-live.log`; no key is committed.
+
+The independent deterministic model fixture additionally verifies transport/security behavior, restart reuse and owner exit. Real Linux tests cover unapproved/revoked revision rejection, baseline/negative/boundary approval, readonly frozen inputs, blocked original workspace/data/network, valid metrics, malformed/nonzero/linked outputs, timeout/Abort, excessive logs, false validity, concurrent idempotence, changed-input rejection, uncertain completion marked lost, durable query caps and explicit final-holdout authorization. Unit tests cover shared atomic research/revision/generic reservations and file-tool protection of private state/links. Model fixtures do not establish scientific reasoning quality; the live test establishes this prescribed known-answer workflow, not universal research quality.
+
+Final real Linux combined acceptance: **65 passed / 2 skipped** across Candidate tools, Agent IPC, universal sandbox and evaluator acceptance (99.87 seconds). The two skips are the opt-in paid provider test and the unsupported-platform case. Workspace typecheck passed. Focused evaluator/Worker compatibility checks passed all 88 tests before the final combined run.
+
+Final full workspace regression passed: contracts **14**, server **1,019** (52 configured skips), frontend **1,778**, and Skills **37**; **2,848 passed** in total. The server suite completed in 247.75 seconds and frontend in 256.60 seconds. `pnpm typecheck` and `pnpm build` passed; Vite emitted its existing chunk-size advisory. Whitespace and staged credential-pattern checks passed.
+
+The preceding commit's Windows quality run exposed a cold-start cancellation test that assumed concurrent filesystem preparation preserves launch order (`expected [] to include SIGTERM`). The test now waits for the target's first pending request before launching the survivor; both starts remain unresolved during shutdown, preserving the cancellation/isolation assertion without depending on spawn order. Production kernel cancellation logic is unchanged. Native Windows validation remains delegated to CI.
+
+Initial production contract: bounded JSON predictions only, Linux required mode, operator-frozen Python environment plus minimum trusted OS runtime. CSV/NPY, arbitrary Candidate code, optional task-specific cohort suppression, native unsupported platforms and hard CPU/memory/disk/GPU quotas remain outside this contract.
+
+## Historical Phase A verification
 
 Implementation branch: `feat/trusted-evaluator`.
 Base: PR #158, `ace7c01c` (supplied design baseline `3be24809` is an ancestor).

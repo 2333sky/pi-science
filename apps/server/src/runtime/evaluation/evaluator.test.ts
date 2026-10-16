@@ -4,6 +4,11 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { BACKGROUND_CONTEXT, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { AgentSessionRegistry } from "../agent/agent-session-registry.js";
+import { executionBudgetTools } from "../agent/worker/execution-budget.js";
+import { identifyPolicy } from "../sandbox/policy.js";
+import { authenticateEvaluatorParent } from "./evaluator-identity.js";
 import { metadataRoot, workspaceStateRoot } from "../../storage/persistence.js";
 import { persistArtifactBytes } from "../artifacts/artifact-content-store.js";
 import { EvaluatorInputService, type EvaluatorCaller } from "./evaluator-authorization.js";
@@ -41,6 +46,20 @@ describe.skipIf(process.platform !== "linux")("trusted evaluator Phase A", () =>
   });
   afterEach(async () => { vi.unstubAllEnvs(); if (directory) await rm(directory, { recursive: true, force: true }); });
 
+  it("requires protected private state and authenticated conversation ownership before accepting a research binding", async () => {
+    const sessions = new AgentSessionRegistry(); await sessions.register(workspace, "parent-1", join(directory, "session.jsonl"));
+    await expect(authenticateEvaluatorParent(workspace, "parent-1", "op")).rejects.toThrow("unauthorized");
+    const policy = process.env.PI_SCIENCE_SANDBOX_READ_POLICY!;
+    await writeFile(policy, JSON.stringify({ schemaVersion: 1, dependencyRoots: [], protectedRoots: [registry.root, ...Object.values(sources), metadataRoot(workspace)] }));
+    await executionBudgetTools(workspace).tool.execute("budget", { research_id: "research-1" }, () => {}, { env: new NodeExecutionEnv({ cwd: workspace }) }, { operationId: "op", invocationId: "budget", turnId: "turn", getMemo: async () => undefined, setMemo: async () => {} }, BACKGROUND_CONTEXT);
+    expect(await authenticateEvaluatorParent(workspace, "parent-1", "op")).toMatchObject({ sessionId: "parent-1", researchId: "research-1", operationId: "op" });
+    await sessions.register(workspace, "child", join(directory, "child.jsonl"), undefined, { purpose: "subagent", parentSessionId: "parent-1" });
+    await expect(authenticateEvaluatorParent(workspace, "child", "op")).rejects.toThrow("unauthorized");
+    await chmod(metadataRoot(workspace), 0o755); await expect(authenticateEvaluatorParent(workspace, "parent-1", "op")).rejects.toThrow("private");
+  });
+  it("cannot deserialize an elevated evaluator policy from JSON", () => {
+    expect(() => identifyPolicy({ mode: "required", scope: "evaluator", cwd: workspace, readPaths: [sources.dataset], writePaths: [workspace], denyPaths: [], network: { mode: "none" } })).toThrow("service-created");
+  });
   it("freezes source bytes and keeps the registered digests after source edits", async () => {
     await writeFile(join(sources.evaluator, "asset"), "changed original");
     expect(await registry.load(revision.id)).toEqual(revision);

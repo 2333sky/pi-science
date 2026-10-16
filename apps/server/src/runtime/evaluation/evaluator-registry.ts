@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { withFileWriteLock } from "../../storage/persistence.js";
 import { canonicalDirectory, isWithin } from "../sandbox/policy.js";
 import { evaluatorId, evaluatorRegistrationSchema, evaluatorRevisionSchema, EvaluatorError, type EvaluatorRevision } from "./evaluator-contracts.js";
-import { captureEvaluatorTree, EvaluatorReadBudget, readEvaluatorFile, requirePrivateDirectory } from "./evaluator-files.js";
+import { captureEvaluatorTree, EvaluatorReadBudget, readEvaluatorFile, requirePrivateDirectory, sha256 } from "./evaluator-files.js";
 import { pathsOverlap, runtimeReadPolicy, type RuntimeReadPolicy } from "../sandbox/read-grants.js";
 
 export interface EvaluatorSources { evaluator: string; dataset: string; environment: string }
@@ -89,6 +89,44 @@ export class EvaluatorRegistry {
         return revision;
       });
     } catch { throw new EvaluatorError("revision_unavailable"); }
+  }
+
+  async stage(id: string): Promise<{ directory: string; revision: EvaluatorRevision; cleanup(): Promise<void> }> {
+    const revision = await this.load(id);
+    return withFileWriteLock(join(this.root, "registry"), async () => {
+      const directory = await mkdtemp(join(this.root, ".run-"));
+      try {
+        const budget = new EvaluatorReadBudget();
+        for (const [name, expected] of [["evaluator", revision.evaluatorCodeDigest], ["dataset", revision.protectedDataDigest], ["environment", revision.environmentDigest]] as const) {
+          if ((await captureEvaluatorTree(join(this.root, id, name), budget, join(directory, name))).digest !== expected) throw new Error("Evaluator assets changed during staging");
+        }
+        return { directory, revision, cleanup: () => rm(directory, { recursive: true, force: true }) };
+      } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
+    });
+  }
+
+  async activate(id: string, manifestDigest: string, acceptanceDigest: string, finalAllowed = false): Promise<void> {
+    const revision = await this.load(id);
+    if (sha256(JSON.stringify(revision)) !== manifestDigest) throw new Error("Approval revision changed");
+    await withFileWriteLock(join(this.root, "registry"), async () => {
+      try { await readEvaluatorFile(join(this.root, id, "revoked.json"), 4096); throw new Error("Revoked"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      await writeFile(join(this.root, id, "approval.json"), JSON.stringify({ manifestDigest, acceptanceDigest, finalAllowed, approvedAt: new Date().toISOString() }), { flag: "wx", mode: 0o400 });
+    });
+  }
+
+  /** Serializes final approval/revocation check with admission and launch. */
+  async withActive<T>(revision: EvaluatorRevision, action: () => Promise<T>): Promise<T> {
+    return withFileWriteLock(join(this.root, "registry"), async () => {
+      try {
+        const directory = join(this.root, revision.id);
+        try { await readEvaluatorFile(join(directory, "revoked.json"), 4096); throw new Error("Revoked"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        const manifest = await readEvaluatorFile(join(directory, "manifest.json"), 256 * 1024);
+        const approval = JSON.parse((await readEvaluatorFile(join(directory, "approval.json"), 4096)).toString("utf8"));
+        if (revision.visibility === "final_holdout" && approval.finalAllowed !== true) throw new Error("Final holdout is not authorized");
+        if (sha256(JSON.stringify(JSON.parse(manifest.toString("utf8")))) !== sha256(JSON.stringify(revision)) || approval.manifestDigest !== sha256(JSON.stringify(revision)) || !/^[a-f0-9]{64}$/.test(approval.acceptanceDigest)) throw new Error("Unapproved evaluator");
+      } catch { throw new EvaluatorError("revision_unavailable"); }
+      return action();
+    });
   }
 
   async revoke(id: string): Promise<void> {

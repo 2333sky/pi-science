@@ -50,6 +50,7 @@ export type CommandResult<K extends RuntimeCommandName> = RuntimeResult<CommandD
 export const resultSchema = z.object({ success: z.boolean(), code: z.string().optional(), error: z.string().optional(), data: z.unknown().optional() }).passthrough();
 export const notificationSchemas = {
   extension_ui_response: z.object({ id: text, cancelled: z.boolean().optional(), confirmed: z.boolean().optional(), value: z.unknown().optional() }).strict(),
+  evaluation_response: z.object({ id: text, result: resultSchema }).strict(),
   subagent_response: z.object({ id: text, result: resultSchema }).strict(),
 } as const;
 export type RuntimeNotification = { [K in keyof typeof notificationSchemas]: { notification: K; params: z.infer<(typeof notificationSchemas)[K]> } }[keyof typeof notificationSchemas];

@@ -6,7 +6,7 @@ import { digestSchema, EvaluatorError, type EvaluateCandidateRequest, type Evalu
 import { readEvaluatorFile, sha256 } from "./evaluator-files.js";
 
 /** Must come from control-plane provenance, never manifest.producer or request data.
- * The future Worker adapter must resolve authenticated session ancestry/research and
+ * The server Worker adapter resolves authenticated session ancestry/research and
  * immutable execution evidence before supplying this binding. No default resolver exists. */
 export interface VerifiedCandidateProvenance {
   artifactId: string; version: number; sha256: string; size: number;

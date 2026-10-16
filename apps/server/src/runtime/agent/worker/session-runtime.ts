@@ -1,3 +1,5 @@
+import { evaluateCandidateTool } from "./evaluate-candidate-tool.js";
+import { workspaceFileTool } from "./workspace-file-tool.js";
 import { executionBudgetTools } from "./execution-budget.js";
 import { sandboxBashTool } from "./sandbox-bash.js";
 import { sandboxRunTool, sandboxInstallation, candidateReadTool } from "./sandbox-tool.js";
@@ -162,8 +164,8 @@ export class SessionRuntime {
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [budgets.tool, candidateReadTool(createReadTool(), { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }), budgets.wrap(sandboxRunTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, sandboxInstallation())), budgets.wrap(sandboxBashTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, environment)), createEditTool(), createWriteTool(),
-          todoHarnessTool(session), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
+        tools: [budgets.tool, candidateReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }), budgets.wrap(sandboxRunTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, sandboxInstallation())), budgets.wrap(sandboxBashTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
+          ...(!options.parentSessionId && !options.delegatedAgent ? [evaluateCandidateTool(subagents)] : []), todoHarnessTool(session), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => !options.allowedTools || options.allowedTools.includes(tool.name))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
             const permission = await subagents.request({ tool: tool.name }, context.abortSignal, "capability.requested");
@@ -474,7 +476,7 @@ export class SessionRuntime {
     const decoded = decodeNotification(type, params);
     if (!decoded.ok) return decoded.result;
     params = decoded.value.params;
-    if (type === "subagent_response") return this.subagents?.respond(params) ?? { success: false };
+    if (type === "subagent_response" || type === "evaluation_response") return this.subagents?.respond(params) ?? { success: false };
     return this.interactions.notify(type, params);
   }
 

@@ -16,7 +16,7 @@ export const evaluatorRegistrationSchema = z.object({
   validityChecks: z.array(evaluatorId).min(1).max(32).refine((value) => new Set(value).size === value.length, "Duplicate check labels"),
   timeoutSeconds: z.number().int().min(1).max(600), maxSubmissionBytes: z.number().int().min(1).max(16 * 1024 * 1024), maxQueries: z.number().int().min(1).max(100),
   visibility: z.enum(["validation", "final_holdout"]),
-  // Offline operator attestation. Phase B must independently execute these acceptance cases before enabling the tool.
+  // Operator case descriptions; activation separately requires executable frozen acceptance.json cases.
   acceptance: z.object({ knownAnswer: z.string().min(1).max(2048), negativeCases: z.array(z.string().min(1).max(2048)).min(1).max(32), boundaryCases: z.array(z.string().min(1).max(2048)).min(1).max(32) }).strict(),
 }).strict();
 export type EvaluatorRegistration = z.infer<typeof evaluatorRegistrationSchema>;

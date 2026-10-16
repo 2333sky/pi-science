@@ -7,7 +7,7 @@ import { isArtifactSurfaceablePath } from "../artifacts/artifact-surface-policy.
 export interface SandboxPolicy {
   id: string;
   mode: "required" | "trusted-host";
-  scope: "workspace" | "candidate";
+  scope: "workspace" | "candidate" | "evaluator";
   cwd: string;
   readPaths: string[];
   writePaths: string[];
@@ -16,6 +16,7 @@ export interface SandboxPolicy {
   environmentRevision?: string;
   operatorReadPolicyId?: string;
   owner?: string;
+  researchId?: string;
 }
 export const isWithin = (root: string, path: string) => { const part = relative(root, path); return part === "" || part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
 export async function canonicalDirectory(path: string): Promise<string> {
@@ -54,7 +55,14 @@ export async function workspacePolicy(cwd: string, environmentRevision?: string)
   cwd = mode === "required" ? await canonicalDirectory(cwd) : await realpath(resolve(cwd));
   return identifyPolicy({ mode, scope: "workspace", cwd, readPaths: [cwd], writePaths: [cwd], denyPaths: mode === "required" ? await protectedPaths(cwd) : [], network: { mode: "none" }, ...(environmentRevision ? { environmentRevision } : {}) });
 }
+const EVALUATOR_POLICY = Symbol("server-evaluator-policy");
+export const isEvaluatorPolicy = (policy: SandboxPolicy) => policy.scope === "evaluator" && (policy as unknown as Record<symbol, unknown>)[EVALUATOR_POLICY] === true;
+export async function evaluatorPolicy(stage: string, environmentRevision: string): Promise<SandboxPolicy> {
+  await canonicalDirectory(stage);
+  return identifyPolicy({ mode: "required", scope: "evaluator", cwd: join(stage, "output"), readPaths: ["evaluator", "dataset", "environment", "submission"].map((name) => join(stage, name)), writePaths: [join(stage, "output")], denyPaths: [], network: { mode: "none" }, environmentRevision, [EVALUATOR_POLICY]: true } as Omit<SandboxPolicy, "id">);
+}
 export function identifyPolicy(policy: Omit<SandboxPolicy, "id">): SandboxPolicy {
+  if (policy.scope === "evaluator" && !isEvaluatorPolicy(policy as SandboxPolicy)) throw new Error("Evaluator policy must be service-created");
   const { id: _oldId, ...content } = policy as SandboxPolicy;
   return Object.freeze({ ...content, id: createHash("sha256").update(JSON.stringify(content)).digest("hex") });
 }

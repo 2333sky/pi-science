@@ -34,5 +34,5 @@ async function authorizedKernelPolicy(cwd: string, revision: string | undefined,
     return identifyPolicy({ ...await workspacePolicy(cwd, revision), owner: binding.sessionId });
   }
   const candidate = await sandboxCandidate(binding, binding.budgetOperationId, binding.candidateId);
-  return identifyPolicy({ mode: "required", scope: "candidate", owner: binding.sessionId, cwd: candidate.work, readPaths: [candidate.input, candidate.work], writePaths: [candidate.work], denyPaths: [], network: { mode: "none" }, ...(revision ? { environmentRevision: revision } : {}) });
+  return identifyPolicy({ mode: "required", scope: "candidate", researchId: candidate.researchId, owner: binding.sessionId, cwd: candidate.work, readPaths: [candidate.input, candidate.work], writePaths: [candidate.work], denyPaths: [], network: { mode: "none" }, ...(revision ? { environmentRevision: revision } : {}) });
 }
