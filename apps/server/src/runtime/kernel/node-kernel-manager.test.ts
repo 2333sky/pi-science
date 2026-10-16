@@ -74,6 +74,17 @@ function status(workspace: string, prefix: string): WorkspaceEnvironmentStatus {
 }
 
 describe("NodeKernelManager native execution", () => {
+  it.skipIf(python === null)("preserves native loader settings without inheriting model credentials", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-science-native-env-")); cleanup.push(workspace);
+    const prefix = join(workspace, "env"); await createTestEnvironment(prefix);
+    vi.stubEnv("DEEPSEEK_API_KEY", "native-test-secret");
+    const manager = new NodeKernelManager();
+    try {
+      const result = await manager.execute({ language: "python", cwd: workspace, environment: status(workspace, prefix), timeoutMs: 10_000,
+        code: "import os\nassert 'DEEPSEEK_API_KEY' not in os.environ\nassert os.environ.get('PATH')\nif os.name == 'nt': assert os.environ.get('SystemRoot')\nprint('safe-native-environment')" });
+      expect(result).toMatchObject({ ok: true, stdout: "safe-native-environment\n" });
+    } finally { await manager.shutdownAll(); }
+  });
   it.skipIf(python === null)("spawns the kernel bridge directly from the environment prefix and returns a cell result", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-science-native-kernel-"));
     cleanup.push(workspace);

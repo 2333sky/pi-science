@@ -6,6 +6,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface, type Interface } from "node:readline";
 import { metadataRoot } from "../../storage/persistence.js";
+import { toolEnvironment } from "../agent/agent-runtime-environment.js";
 import { workspacePolicy, type SandboxPolicy } from "../sandbox/policy.js";
 import { killSandboxGroup, launcherPath, prepareSandbox, type PreparedSandbox } from "../sandbox/process.js";
 import {
@@ -457,7 +458,9 @@ class NodeKernelSession {
       if (signal?.aborted || this.stopPromise) { await prepared.cleanup(); throw kernelStartCancelledError(); }
       this.sandbox = prepared;
     }
-    const env = this.sandbox?.env ?? this.deps.workspaceEnvironmentVariables(this.options.environment, {});
+    // Native compatibility still needs safe OS loader settings (SystemRoot/PATH
+    // on Windows). Keep credentials excluded rather than passing an empty base.
+    const env = this.sandbox?.env ?? this.deps.workspaceEnvironmentVariables(this.options.environment, toolEnvironment(process.env));
     const child = this.deps.spawnProcess(this.sandbox ? process.execPath : executable, this.sandbox ? [launcherPath, this.sandbox.manifest] : args, {
       cwd: this.options.sandboxPolicy!.cwd,
       env,
