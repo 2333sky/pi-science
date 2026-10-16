@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { isArtifactSurfaceablePath } from "../artifacts/artifact-surface-policy.js";
 
 /** Internal server policy. Never deserialize this type from tool/HTTP parameters. */
@@ -16,9 +16,10 @@ export interface SandboxPolicy {
   environmentRevision?: string;
   owner?: string;
 }
-export const isWithin = (root: string, path: string) => { const part = relative(root, path); return part === "" || part !== ".." && !part.startsWith("../") && !isAbsolute(part); };
+export const isWithin = (root: string, path: string) => { const part = relative(root, path); return part === "" || part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
 export async function canonicalDirectory(path: string): Promise<string> {
-  if (!isAbsolute(path) || resolve(path) !== path || await realpath(path) !== path) throw new Error("Sandbox directory aliases and symlinks are forbidden");
+  const normalized = process.platform === "win32" ? resolve(path).toLowerCase() === path.replaceAll("/", "\\").toLowerCase() : resolve(path) === path;
+  if (!isAbsolute(path) || !normalized || relative(path, await realpath(path)) !== "") throw new Error("Sandbox directory aliases and symlinks are forbidden");
   for (let current = path; dirname(current) !== current; current = dirname(current)) if (!(await lstat(current)).isDirectory()) throw new Error("Sandbox requires real directories");
   return path;
 }
@@ -46,8 +47,10 @@ async function protectedPaths(cwd: string): Promise<string[]> {
   return [...new Set(denied)].sort();
 }
 export async function workspacePolicy(cwd: string, environmentRevision?: string): Promise<SandboxPolicy> {
-  await canonicalDirectory(cwd);
   const mode = operatorExecutionMode();
+  // Native compatibility accepts OS-normalized paths. Required execution still
+  // rejects every linked component, including junctions and directory aliases.
+  cwd = mode === "required" ? await canonicalDirectory(cwd) : await realpath(resolve(cwd));
   return identifyPolicy({ mode, scope: "workspace", cwd, readPaths: [cwd], writePaths: [cwd], denyPaths: mode === "required" ? await protectedPaths(cwd) : [], network: { mode: "none" }, ...(environmentRevision ? { environmentRevision } : {}) });
 }
 export function identifyPolicy(policy: Omit<SandboxPolicy, "id">): SandboxPolicy {

@@ -134,6 +134,7 @@ function defaultKillProcessTree(pid: number): void {
 }
 
 export class NodeKernelManager {
+  private readonly admissionTails = new Map<string, Promise<void>>();
   private readonly requests = new Set<KernelStartState>();
   private readonly sessions = new Map<string, NodeKernelSession>();
   private readonly starting = new Map<string, { state: KernelStartState; promise: Promise<NodeKernelSession> }>();
@@ -152,10 +153,17 @@ export class NodeKernelManager {
   }
 
   async execute(options: KernelExecuteOptions): Promise<KernelResult> {
+    if (this.stoppingAll || [...this.notebookShutdowns].some((scope) => matchesShutdown(options, scope))) throw new Error("Kernel shutdown is in progress");
     const request: KernelStartState = { options, controller: new AbortController() };
     this.requests.add(request);
-    try { return await this.executeAuthorized({ ...options, abortSignal: options.abortSignal ? AbortSignal.any([options.abortSignal, request.controller.signal]) : request.controller.signal }); }
-    finally { this.requests.delete(request); }
+    // Reserve submission order before any async policy or cold-start work.
+    // Include policy/environment transitions in the same logical-kernel queue.
+    const key = [resolve(options.cwd), kernelIdentity(options), options.language].join("\0");
+    const run = (this.admissionTails.get(key) ?? Promise.resolve()).then(() => this.executeAuthorized({ ...options, abortSignal: options.abortSignal ? AbortSignal.any([options.abortSignal, request.controller.signal]) : request.controller.signal }));
+    const tail = run.then(() => undefined, () => undefined);
+    this.admissionTails.set(key, tail);
+    try { return await run; }
+    finally { this.requests.delete(request); if (this.admissionTails.get(key) === tail) this.admissionTails.delete(key); }
   }
 
   private async executeAuthorized(options: KernelExecuteOptions): Promise<KernelResult> {

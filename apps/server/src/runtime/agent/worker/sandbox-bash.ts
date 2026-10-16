@@ -30,6 +30,7 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
       let prepared: PreparedSandbox | undefined;
       let env: NodeExecutionEnv | undefined;
       let started = false;
+      let outcome: { exitCode?: number | null; errorCode?: string } = {};
       let before: Awaited<ReturnType<typeof snapshotSandboxOutputs>> | undefined;
       const outputs = async () => {
         await env?.cleanup(context);
@@ -49,19 +50,27 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
         const dependencies = [...new Set([...(hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX ? [hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX] : []), ...bashDependencies()])];
         prepared = policy.mode === "required" ? await prepareSandbox(policy, ["/bin/bash", "--noprofile", "--norc"], dependencies, Math.min(timeout, 600)) : undefined;
         env = new NodeExecutionEnv({ cwd: policy.cwd, ...(prepared ? { shellPath: prepared.shell } : {}) });
+        // Upstream throws on nonzero exits and omits the code from the thrown
+        // error. Observe its structured OS result without parsing output text.
+        const exec = env.exec.bind(env);
+        env.exec = async (...args) => {
+          const result = await exec(...args);
+          outcome = result.ok ? { exitCode: result.value.exitCode } : { errorCode: result.error.code };
+          return result;
+        };
         before = await snapshotSandboxOutputs(identity.cwd, policy);
         const safeOriginal = createBashTool({ prepare(execution) { execution.env = prepared?.env ?? toolEnvironment(hostEnvironment); execution.inheritEnv = false; } });
         const result = await safeOriginal.execute(id, { ...values, timeout: Math.min(timeout, 600) }, update, { ...ctx, env }, invocation, context);
         const evidence = await outputs();
-        await executionRepository.finish(identity.cwd, executionId, { status: "succeeded", producer: "bash", result: { sandbox_policy_id: policy.id, exit_code: 0,
+        await executionRepository.finish(identity.cwd, executionId, { status: "succeeded", producer: "bash", result: { sandbox_policy_id: policy.id, exit_code: outcome.exitCode,
           output_preview: result.content.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join("\n").slice(0, 16 * 1024),
           ...(evidence.failures.length ? { artifact_publish_errors: evidence.failures } : {}) }, files: evidence.files, artifacts: evidence.artifacts });
         return result;
       } catch (error) {
-        const timedOut = error instanceof Error && error.cause instanceof Error && "code" in error.cause && error.cause.code === "timeout" || context.abortSignal?.reason instanceof Error && context.abortSignal.reason.message === "Execution time budget exhausted";
+        const timedOut = outcome.errorCode === "timeout" || context.abortSignal?.reason instanceof Error && context.abortSignal.reason.message === "Execution time budget exhausted";
         if (started) {
           const evidence = await outputs();
-          await executionRepository.finish(identity.cwd, executionId, { status: timedOut ? "timed_out" : context.abortSignal?.aborted ? "cancelled" : "failed", producer: "bash", result: { error: String(error), sandbox_policy_id: policy.id,
+          await executionRepository.finish(identity.cwd, executionId, { status: timedOut ? "timed_out" : outcome.errorCode === "aborted" || context.abortSignal?.aborted ? "cancelled" : "failed", producer: "bash", result: { error: String(error), sandbox_policy_id: policy.id, ...(outcome.exitCode !== undefined ? { exit_code: outcome.exitCode } : {}), ...(outcome.errorCode ? { execution_error_code: outcome.errorCode } : {}),
             ...(evidence.failures.length ? { artifact_publish_errors: evidence.failures } : {}) }, files: evidence.files, artifacts: evidence.artifacts });
         }
         throw error;

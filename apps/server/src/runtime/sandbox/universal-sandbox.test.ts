@@ -79,6 +79,22 @@ it.skipIf(process.platform !== "linux")("captures only authorized regular output
   await expect(sandboxArtifactCapture(cwd, policy)(join(work, "huge.txt"))).rejects.toThrow("bounded single-link");
 });
 describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("real universal Linux sandbox", () => {
+  it("records actual Bash exits, timeout and Abort in durable execution evidence", async () => {
+    const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    for (const [id, command, code] of [["exit7", "exit 7", 7], ["false", "false", 1]] as const) {
+      await expect(bash(cwd, command, id)).rejects.toThrow(`code ${code}`);
+      const record = (await executionRepository.list(cwd)).find((entry) => entry.correlation?.tool_call_id === id);
+      expect(record).toMatchObject({ status: "failed", result: { exit_code: code } });
+    }
+    await expect(bash(cwd, "sleep 30", "timeout", undefined, 0.5)).rejects.toThrow(/timed out/);
+    expect((await executionRepository.list(cwd)).find((entry) => entry.correlation?.tool_call_id === "timeout")).toMatchObject({ status: "timed_out", result: { execution_error_code: "timeout" } });
+    const controller = new AbortController();
+    const tool = sandboxBashTool({ cwd, sessionId: "session" });
+    await expect(tool.execute("abort", { command: "echo abort-ready; sleep 30" }, (update) => {
+      if (update.content.some((part) => part.type === "text" && part.text.includes("abort-ready"))) controller.abort();
+    }, { env: new NodeExecutionEnv({ cwd }) }, invocation("abort"), { ...BACKGROUND_CONTEXT, abortSignal: controller.signal })).rejects.toThrow();
+    expect((await executionRepository.list(cwd)).find((entry) => entry.correlation?.tool_call_id === "abort")).toMatchObject({ status: "cancelled" });
+  }, 30_000);
   it("runs Bash without a skill, keeps child commands isolated and records policy evidence", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("OPENAI_API_KEY", "host-secret");
     const result = await bash(cwd, "set -e; cat data.txt; printf output > result.txt; test -z \"$OPENAI_API_KEY\"; if grep SECRET token.json; then exit 44; fi; if cat .pi-science/secret; then exit 44; fi; if cat research/evaluator/secret; then exit 44; fi; bash -c 'test ! -r /etc/passwd'; echo isolated");

@@ -7,6 +7,7 @@ import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NodeKernelManager, type KernelResult } from "./node-kernel-manager.js";
 import type { WorkspaceEnvironmentStatus } from "../workspace/workspace-environment.js";
+import * as sandboxPolicies from "../sandbox/policy.js";
 
 function systemPython(): string | null {
   const commands = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
@@ -40,6 +41,7 @@ const cleanup: string[] = [];
 beforeEach(() => vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host"));
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
 });
@@ -246,6 +248,31 @@ describe("NodeKernelManager native execution", () => {
     } finally {
       await manager.shutdownAll();
     }
+  });
+
+  it.skipIf(python === null)("preserves admission order while the first policy is delayed", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "pi-science-policy-order-")); cleanup.push(workspace);
+    const prefix = join(workspace, "env"); await createTestEnvironment(prefix);
+    const original = sandboxPolicies.workspacePolicy;
+    let release!: () => void; let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const ready = new Promise<void>((resolve) => { entered = resolve; });
+    const policy = vi.spyOn(sandboxPolicies, "workspacePolicy").mockImplementationOnce(async (...args) => { entered(); await gate; return original(...args); });
+    const manager = new NodeKernelManager();
+    const options = { language: "python" as const, cwd: workspace, environment: status(workspace, prefix), notebookId: "ordered", timeoutMs: 10_000 };
+    const first = manager.execute({ ...options, code: "ordered_value = 40" });
+    const second = manager.execute({ ...options, code: "ordered_value + 2" });
+    // Attach rejection handlers before making assertions that can fail.
+    const results = Promise.allSettled([first, second]);
+    try {
+      await ready;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+      expect(policy).toHaveBeenCalledTimes(1);
+      release();
+      expect(await first).toMatchObject({ ok: true });
+      expect(await second).toMatchObject({ ok: true, result: "42" });
+      expect(manager.status().active_count).toBe(1);
+    } finally { release(); await results; await manager.shutdownAll(); }
   });
 
   it.skipIf(python === null)("handles cell timeouts without leaking the manager state", async () => {
