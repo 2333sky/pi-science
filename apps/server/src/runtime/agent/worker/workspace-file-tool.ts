@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readFile, realpath, rename, unlink, type FileHandle } from "node:fs/promises";
+import { lstat, mkdir, open, rename, unlink, type FileHandle } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { relative, resolve } from "node:path";
 import { ok, type AgentHarnessTool, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
@@ -28,7 +28,7 @@ export function workspaceFileTool(original: Tool, cwd: string, skillRoots: strin
     const env = new Proxy(ctx.env, { get(target, property) {
       if (["readBinaryFile", "readTextFile"].includes(String(property))) return async (requested: string) => {
         const path = check(requested);
-        const bytes = process.platform === "linux" ? await readRegularFile(path, 16 * 1024 * 1024) : await readFile(await realpath(path).then((canonical) => check(canonical)));
+        const bytes = await readRegularFile(path, 16 * 1024 * 1024);
         return ok(property === "readTextFile" ? bytes.toString("utf8") : bytes);
       };
       if (property === "writeFile") return async (requested: string, bytes: string | Uint8Array) => {

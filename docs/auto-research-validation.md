@@ -20,6 +20,14 @@ The live comparison now requires all four cases to pass. Simple source-only task
 
 Review-fix verification: workspace typecheck, full tests and build passed (**2,777 tests**: contracts 14, server 947, frontend 1,778, Skills 38; server 42 configured skips). Real Linux acceptance passed **74 tests / 2 configured skips**. The final file-tool fault/denial checks were rerun after strengthening untouched-secret assertions.
 
+## Native hardlink read follow-up (2026-10-17)
+
+Workspace read/edit snapshots now use the descriptor reader on every platform. Linux retains its pinned directory walk. macOS/Windows validate canonical parents and a regular single-link entry, match its device/inode to the opened descriptor, then enforce link count, byte limits and mutation checks before returning captured bytes. The pathname-only read fallback is removed.
+
+Native tests without platform skips cover benign reads, read-only Skill resources, hardlink aliases to `.env` through read/write/edit, and hardlinks created during open/read. Linux also exercises the native fallback algorithm locally; that is not native macOS/Windows evidence. Dedicated early Windows/macOS CI steps run the same tests on their actual operating systems. Paid model tests are not rerun for this filesystem fix; the historical cost baseline below is unchanged.
+
+Local verification for this follow-up: server **950 passed / 42 configured skips**; real Linux regression **77 passed / 2 configured skips**; workspace typecheck/build passed. Native platform results are reported by the dedicated CI steps. The unchanged frontend unit suite and paid API comparison were not rerun locally.
+
 ## Real API comparison
 
 The opt-in test is `apps/server/src/runtime/agent/auto-research.live.test.ts`. It calls the official DeepSeek endpoint with `deepseek-flash` through the production Agent Worker, then checks real executions, published artifacts and manifest links. The harness does not supply evaluator scores or model tool responses. It prepares task fixtures, Candidate directories and the same production research budget for both modes; all delegation, execution, repair, Parent evaluation and evidence writing remain model actions.

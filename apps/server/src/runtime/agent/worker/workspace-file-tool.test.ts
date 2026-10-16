@@ -96,3 +96,25 @@ it.skipIf(process.platform !== "linux")("keeps complete checkpoint bytes on part
   await call(state, '{"manifest_revision":2}'); expect(JSON.parse(await readFile(manifest, "utf8")).revision).toBe(2);
   await env.cleanup(BACKGROUND_CONTEXT);
 });
+
+it("denies native hardlink aliases to sensitive files through read/write/edit", async () => {
+  await mkdir(resolve("../../.runtime"), { recursive: true }); root = await mkdtemp(join(resolve("../../.runtime"), "native-file-boundary-"));
+  const cwd = join(root, "workspace"); const skillRoot = join(cwd, ".pi/skills/example"); await mkdir(skillRoot, { recursive: true });
+  await writeFile(join(cwd, "public.txt"), "public"); await writeFile(join(skillRoot, "SKILL.md"), "protocol");
+  const secret = join(cwd, ".env"); await writeFile(secret, "SECRET"); await link(secret, join(cwd, "innocent.txt"));
+  const env = new NodeExecutionEnv({ cwd });
+  const invocation = { operationId: "op", invocationId: "call", turnId: "turn", getMemo: async () => undefined, setMemo: async () => {} };
+  const tools = [createReadTool(), createWriteTool(), createEditTool()].map((tool) => workspaceFileTool(tool, cwd, [skillRoot]));
+  const call = (tool: typeof tools[number], path: string) => tool.execute("call", { path, content: "changed", edits: [{ oldText: "SECRET", newText: "changed" }] }, () => {}, { env }, invocation, BACKGROUND_CONTEXT);
+  try {
+    expect(JSON.stringify(await call(tools[0]!, "public.txt"))).toContain("public");
+    expect(JSON.stringify(await call(tools[0]!, join(skillRoot, "SKILL.md")))).toContain("protocol");
+    for (const tool of tools) {
+      await expect(call(tool, ".env")).rejects.toThrow("outside");
+      await expect(call(tool, "innocent.txt")).rejects.toThrow("single-link");
+    }
+    await expect(call(tools[1]!, join(skillRoot, "SKILL.md"))).rejects.toThrow("read-only");
+    expect(await readFile(secret, "utf8")).toBe("SECRET");
+    expect(await readFile(join(cwd, "innocent.txt"), "utf8")).toBe("SECRET");
+  } finally { await env.cleanup(BACKGROUND_CONTEXT); }
+});
