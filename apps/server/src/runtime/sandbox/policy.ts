@@ -7,7 +7,7 @@ import { isArtifactSurfaceablePath } from "../artifacts/artifact-surface-policy.
 export interface SandboxPolicy {
   id: string;
   mode: "required" | "trusted-host";
-  scope: "workspace" | "candidate" | "evaluator";
+  scope: "workspace" | "candidate";
   cwd: string;
   readPaths: string[];
   writePaths: string[];
@@ -25,14 +25,14 @@ export async function canonicalDirectory(path: string): Promise<string> {
   for (let current = path; dirname(current) !== current; current = dirname(current)) if (!(await lstat(current)).isDirectory()) throw new Error("Sandbox requires real directories");
   return path;
 }
-const sensitive = (name: string) => !isArtifactSurfaceablePath(name) || /^(?:research|credentials?|secrets?|evaluators?|evaluation|final[-_]?tests?|holdout)(?:$|[._-])/i.test(name);
+const sensitive = (name: string) => !isArtifactSurfaceablePath(name) || /^(?:credentials?|secrets?|final[-_]?tests?|holdout)(?:$|[._-])/i.test(name);
 
 /** Enumerate protected paths instead of assuming a broad workspace read grant hides secrets.
  * Reject aliases/hardlinks: a second name for a protected inode must not reopen it. */
 async function protectedPaths(cwd: string): Promise<string[]> {
   // Include absent control paths too. srt creates deny-write placeholders at startup;
   // those placeholders must not change a persistent kernel's policy identity.
-  const denied: string[] = [".pi-science", ".pi", ".git", ".env", ".ssh", ".aws", "research", "node_modules", ".bash_profile", ".bashrc", ".claude", ".gitconfig", ".gitmodules", ".idea", ".mcp.json", ".profile", ".ripgreprc", ".vscode", ".zprofile", ".zshrc"].map((name) => join(cwd, name)); let count = 0;
+  const denied: string[] = [".pi-science", ".pi", ".git", ".env", ".ssh", ".aws", "node_modules", ".bash_profile", ".bashrc", ".claude", ".gitconfig", ".gitmodules", ".idea", ".mcp.json", ".profile", ".ripgreprc", ".vscode", ".zprofile", ".zshrc"].map((name) => join(cwd, name)); let count = 0;
   const visit = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (++count > 100_000) throw new Error("Workspace too large to establish sandbox policy");
@@ -55,14 +55,7 @@ export async function workspacePolicy(cwd: string, environmentRevision?: string)
   cwd = mode === "required" ? await canonicalDirectory(cwd) : await realpath(resolve(cwd));
   return identifyPolicy({ mode, scope: "workspace", cwd, readPaths: [cwd], writePaths: [cwd], denyPaths: mode === "required" ? await protectedPaths(cwd) : [], network: { mode: "none" }, ...(environmentRevision ? { environmentRevision } : {}) });
 }
-const EVALUATOR_POLICY = Symbol("server-evaluator-policy");
-export const isEvaluatorPolicy = (policy: SandboxPolicy) => policy.scope === "evaluator" && (policy as unknown as Record<symbol, unknown>)[EVALUATOR_POLICY] === true;
-export async function evaluatorPolicy(stage: string, environmentRevision: string): Promise<SandboxPolicy> {
-  await canonicalDirectory(stage);
-  return identifyPolicy({ mode: "required", scope: "evaluator", cwd: join(stage, "output"), readPaths: ["evaluator", "dataset", "environment", "submission"].map((name) => join(stage, name)), writePaths: [join(stage, "output")], denyPaths: [], network: { mode: "none" }, environmentRevision, [EVALUATOR_POLICY]: true } as Omit<SandboxPolicy, "id">);
-}
 export function identifyPolicy(policy: Omit<SandboxPolicy, "id">): SandboxPolicy {
-  if (policy.scope === "evaluator" && !isEvaluatorPolicy(policy as SandboxPolicy)) throw new Error("Evaluator policy must be service-created");
   const { id: _oldId, ...content } = policy as SandboxPolicy;
   return Object.freeze({ ...content, id: createHash("sha256").update(JSON.stringify(content)).digest("hex") });
 }

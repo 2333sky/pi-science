@@ -22,16 +22,14 @@ export async function canonicalRuntimeDependency(path: string): Promise<string> 
   return canonical;
 }
 
-/** Single operator-owned policy consumed afresh by both registry and sandbox settings.
- * Registry use requires this file. Existing runtimes without a registry retain their
- * legacy operator-configured grants until a shared policy is provisioned. */
-export async function runtimeReadPolicy(required = false): Promise<RuntimeReadPolicy> {
+/** Optional operator-owned dependency/protected-root policy shared by ordinary runtimes. */
+export async function runtimeReadPolicy(): Promise<RuntimeReadPolicy> {
   const systemReads: string[] = [];
   for (const path of [...systemPaths, join(sandboxRuntimeRoot, "vendor/seccomp")]) {
     try { systemReads.push(await realpath(path)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   }
   const file = process.env.PI_SCIENCE_SANDBOX_READ_POLICY;
-  if (file === undefined) { if (required) throw new Error("Evaluator registry requires a shared operator read policy"); return { systemReads: [...new Set(systemReads)], protectedRoots: [] }; }
+  if (file === undefined) return { systemReads: [...new Set(systemReads)], protectedRoots: [] };
   if (!isAbsolute(file) || resolve(file) !== file) throw new Error("Operator read policy requires a canonical absolute path");
   await canonicalDirectory(dirname(file));
   for (let directory = dirname(file); dirname(directory) !== directory; directory = dirname(directory)) {
@@ -52,14 +50,14 @@ export async function runtimeReadPolicy(required = false): Promise<RuntimeReadPo
   const parsed = schema.parse(JSON.parse(text));
   const dependencyRoots = await Promise.all(parsed.dependencyRoots.map(canonicalRuntimeDependency));
   const protectedRoots = [file, ...await Promise.all(parsed.protectedRoots.map(canonicalDirectory))];
-  if (protectedRoots.some((protectedPath) => [...systemReads, ...dependencyRoots].some((read) => pathsOverlap(protectedPath, read)))) throw new Error("Protected evaluator paths overlap sandbox runtime read grants");
+  if (protectedRoots.some((protectedPath) => [...systemReads, ...dependencyRoots].some((read) => pathsOverlap(protectedPath, read)))) throw new Error("Protected paths overlap sandbox runtime read grants");
   return { systemReads: [...new Set(systemReads)], dependencyRoots, protectedRoots: [...new Set(protectedRoots)], file };
 }
 
 export async function runtimeDependencyGrants(policy: RuntimeReadPolicy, dependencies: string[]): Promise<string[]> {
   const roots = await Promise.all(dependencies.map(canonicalRuntimeDependency));
   for (const path of roots) {
-    if (policy.protectedRoots.some((protectedPath) => pathsOverlap(path, protectedPath))) throw new Error("Protected evaluator paths overlap sandbox runtime read grants");
+    if (policy.protectedRoots.some((protectedPath) => pathsOverlap(path, protectedPath))) throw new Error("Protected paths overlap sandbox runtime read grants");
     if (policy.dependencyRoots && ![...policy.systemReads, ...policy.dependencyRoots].some((root) => isWithin(root, path))) throw new Error("Runtime dependency is outside the shared operator read policy");
   }
   return [...new Set(roots)];

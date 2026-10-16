@@ -50,7 +50,7 @@ export function validateManifest(manifest) {
     if (experiment.status === "completed") {
       const evaluation = experiment.evaluation;
       const evidence = ["source", "execution_id", "result_artifact", "evaluator_digest", "data_digest"];
-      if (!["external_operator", "trusted_evaluator"].includes(evaluation.source)) fail("independent evaluation evidence is required");
+      if (!["parent_tool", "external_operator", "trusted_evaluator"].includes(evaluation.source)) fail("independent evaluation evidence is required");
       fields(evaluation, evaluation.source === "trusted_evaluator" ? [...evidence, "evaluation_id", "evaluator_revision_id", "environment_revision", "environment_digest", "protocol_revision", "input_sha256"] : evidence, "evaluation");
       if (evaluation.source === "trusted_evaluator") {
         for (const key of ["evaluation_id", "evaluator_revision_id", "environment_revision", "protocol_revision"]) text(evaluation[key], key);

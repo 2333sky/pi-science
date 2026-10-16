@@ -66,13 +66,14 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
           output_preview: result.content.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join("\n").slice(0, 16 * 1024),
           ...(evidence.failures.length ? { artifact_publish_errors: evidence.failures } : {}) }, files: evidence.files, artifacts: evidence.artifacts });
         const references = { execution_id: executionId, artifact_refs: evidence.artifacts };
-        return candidate ? { ...result, content: [...result.content, { type: "text" as const, text: JSON.stringify(references) }], details: { ...result.details, ...references } } : result;
+        return candidate || evidence.artifacts.length ? { ...result, content: [...result.content, { type: "text" as const, text: JSON.stringify(references) }], details: { ...result.details, ...references } } : result;
       } catch (error) {
         const timedOut = outcome.errorCode === "timeout" || context.abortSignal?.reason instanceof Error && context.abortSignal.reason.message === "Execution time budget exhausted";
         if (started) {
           const evidence = await outputs();
           await executionRepository.finish(identity.cwd, executionId, { status: timedOut ? "timed_out" : outcome.errorCode === "aborted" || context.abortSignal?.aborted ? "cancelled" : "failed", producer: "bash", result: { error: String(error), sandbox_policy_id: policy.id, ...(outcome.exitCode !== undefined ? { exit_code: outcome.exitCode } : {}), ...(outcome.errorCode ? { execution_error_code: outcome.errorCode } : {}),
             ...(evidence.failures.length ? { artifact_publish_errors: evidence.failures } : {}) }, files: evidence.files, artifacts: evidence.artifacts });
+          throw new Error(`${error instanceof Error ? error.message : String(error)}\n${JSON.stringify({ execution_id: executionId, artifact_refs: evidence.artifacts })}`, { cause: error });
         }
         throw error;
       } finally { await env?.cleanup(context); await prepared?.cleanup(); }

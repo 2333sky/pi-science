@@ -5,11 +5,11 @@ import { dirname, relative, resolve } from "node:path";
 import { ok, type AgentHarnessTool, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { canonicalDirectory, isWithin } from "../../sandbox/policy.js";
 import { runtimeReadPolicy, pathsOverlap } from "../../sandbox/read-grants.js";
-import { readEvaluatorFile } from "../../evaluation/evaluator-files.js";
+import { readRegularFile } from "../../sandbox/file-read.js";
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 /** Tools may manage research protocol/candidate files, but never service-private
- * state, evaluator assets or aliases escaping the workspace. Skill roots are read-only. */
+ * state, protected assets or aliases escaping the workspace. Skill roots are read-only. */
 export function workspaceFileTool(original: Tool, cwd: string, skillRoots: string[]): Tool {
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
     const protectedRoots = (await runtimeReadPolicy()).protectedRoots;
@@ -24,7 +24,7 @@ export function workspaceFileTool(original: Tool, cwd: string, skillRoots: strin
     const env = new Proxy(ctx.env, { get(target, property) {
       if (["readBinaryFile", "readTextFile"].includes(String(property))) return async (requested: string) => {
         const path = check(requested);
-        const bytes = process.platform === "linux" ? await readEvaluatorFile(path, 16 * 1024 * 1024) : await readFile(await realpath(path).then((canonical) => check(canonical)));
+        const bytes = process.platform === "linux" ? await readRegularFile(path, 16 * 1024 * 1024) : await readFile(await realpath(path).then((canonical) => check(canonical)));
         return ok(property === "readTextFile" ? bytes.toString("utf8") : bytes);
       };
       if (property === "writeFile") return async (requested: string, bytes: string | Uint8Array) => {

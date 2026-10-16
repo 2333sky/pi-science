@@ -7,7 +7,6 @@ import { metadataRoot } from "../../storage/persistence.js";
 import { AgentCoreRuntimeClient } from "./agent-runtime-client.js";
 import { AgentRuntimeCapacityError } from "./agent-runtime-errors.js";
 import type { AgentRuntimeStartOptions } from "./worker/protocol.js";
-import { bindEvaluatorDispatch } from "./evaluator-dispatch.js";
 import { bindSubagentDispatch } from "./subagent-dispatch.js";
 
 // Includes pending starts and workers belonging to every app-owned manager.
@@ -130,9 +129,7 @@ export class AgentRuntimeManager {
       for (const [identity, owner] of processOwners) if (owner === slot) processOwners.delete(identity);
     };
     runtime.once("exit", release);
-    const subagentDrain = bindSubagentDispatch(this, runtime, options);
-    const evaluationDrain = bindEvaluatorDispatch(runtime, options);
-    const dispatchDrain = async () => { await Promise.all([subagentDrain(), evaluationDrain()]); };
+    const dispatchDrain = bindSubagentDispatch(this, runtime, options);
     const drain = async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); };
     this.dispatchDrains.set(runtime, drain);
     runtime.once("exit", () => {

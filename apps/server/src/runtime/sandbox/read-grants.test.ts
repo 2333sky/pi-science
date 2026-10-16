@@ -20,7 +20,7 @@ describe.skipIf(process.platform !== "linux")("shared operator runtime read gran
   afterEach(async () => { vi.unstubAllEnvs(); if (directory) await rm(directory, { recursive: true, force: true }); });
 
   it("derives settings from the same canonical grants and denies the shared protected roots", async () => {
-    const policy = await runtimeReadPolicy(true); const configured = await settings([dependency]);
+    const policy = await runtimeReadPolicy(); const configured = await settings([dependency]);
     expect(configured.filesystem.allowRead.map((entry) => entry.path)).toEqual(expect.arrayContaining([...policy.systemReads, dependency]));
     expect(configured.filesystem.denyRead.map((entry) => entry.path)).toEqual(expect.arrayContaining([protectedRoot, file]));
     expect(configured.filesystem.denyWrite.map((entry) => entry.path)).toEqual(expect.arrayContaining([protectedRoot, file]));
@@ -34,37 +34,37 @@ describe.skipIf(process.platform !== "linux")("shared operator runtime read gran
   it("revalidates configuration changes instead of retaining a stale approval", async () => {
     await settings([dependency]);
     await save([dependency, directory], [protectedRoot]);
-    await expect(settings([dependency])).rejects.toThrow("Protected evaluator paths overlap");
-    await expect(runtimeReadPolicy(true)).rejects.toThrow("Protected evaluator paths overlap");
+    await expect(settings([dependency])).rejects.toThrow("Protected paths overlap");
+    await expect(runtimeReadPolicy()).rejects.toThrow("Protected paths overlap");
   });
   it("rejects a policy changed after a kernel was admitted but before startup", async () => {
-    const admitted = identifyPolicy({ mode: "required", scope: "workspace", cwd: workspace, readPaths: [workspace], writePaths: [], denyPaths: [], network: { mode: "none" }, operatorReadPolicyId: runtimeReadPolicyId(await runtimeReadPolicy(true)) });
+    const admitted = identifyPolicy({ mode: "required", scope: "workspace", cwd: workspace, readPaths: [workspace], writePaths: [], denyPaths: [], network: { mode: "none" }, operatorReadPolicyId: runtimeReadPolicyId(await runtimeReadPolicy()) });
     await save([], [protectedRoot]);
     await expect(processSettings(admitted, [], {})).rejects.toThrow("changed before sandbox startup");
     await expect(bindRuntimeReadPolicy(admitted)).rejects.toThrow("changed after admission");
   });
   it("refuses direct protected-root grants even if a caller skips dependency arguments", async () => {
     const policy = identifyPolicy({ mode: "required", scope: "workspace", cwd: workspace, readPaths: [protectedRoot], writePaths: [], denyPaths: [], network: { mode: "none" } });
-    await expect(processSettings(policy, [], {})).rejects.toThrow("Protected evaluator paths overlap");
-    await expect(processSettings(identifyPolicy({ ...policy, readPaths: [workspace], writePaths: [protectedRoot] }), [], {})).rejects.toThrow("Protected evaluator paths overlap");
+    await expect(processSettings(policy, [], {})).rejects.toThrow("Protected paths overlap");
+    await expect(processSettings(identifyPolicy({ ...policy, readPaths: [workspace], writePaths: [protectedRoot] }), [], {})).rejects.toThrow("Protected paths overlap");
   });
-  it("preserves legacy runtime configuration but requires shared policy for registry use", async () => {
+  it("permits ordinary execution without optional operator configuration", async () => {
     delete process.env.PI_SCIENCE_SANDBOX_READ_POLICY;
     await expect(settings([dependency])).resolves.toHaveProperty("filesystem");
-    await expect(runtimeReadPolicy(true)).rejects.toThrow("requires a shared operator read policy");
+    expect((await runtimeReadPolicy()).protectedRoots).toEqual([]);
   });
   it("forwards only the server-selected policy file to Workers", () => {
     expect(workerEnvironment({ PI_SCIENCE_SANDBOX_READ_POLICY: "/untrusted/policy" }).PI_SCIENCE_SANDBOX_READ_POLICY).toBe(file);
   });
   it("rejects writable/readable policy files, links and malformed configuration", async () => {
-    await chmod(file, 0o644); await expect(runtimeReadPolicy(true)).rejects.toThrow("private single-link"); await chmod(file, 0o600);
-    const linked = join(directory, "alias"); await link(file, linked); await expect(runtimeReadPolicy(true)).rejects.toThrow("private single-link"); await rm(linked);
-    await symlink(file, linked); vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", linked); await expect(runtimeReadPolicy(true)).rejects.toThrow();
-    vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", file); await writeFile(file, '{"schemaVersion":1,'); await expect(runtimeReadPolicy(true)).rejects.toThrow();
+    await chmod(file, 0o644); await expect(runtimeReadPolicy()).rejects.toThrow("private single-link"); await chmod(file, 0o600);
+    const linked = join(directory, "alias"); await link(file, linked); await expect(runtimeReadPolicy()).rejects.toThrow("private single-link"); await rm(linked);
+    await symlink(file, linked); vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", linked); await expect(runtimeReadPolicy()).rejects.toThrow();
+    vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", file); await writeFile(file, '{"schemaVersion":1,'); await expect(runtimeReadPolicy()).rejects.toThrow();
   });
   it("rejects broad roots, aliases to broad roots and unknown fields", async () => {
-    await save(["/usr"], [protectedRoot]); await expect(runtimeReadPolicy(true)).rejects.toThrow("narrow absolute");
-    const alias = join(directory, "root-alias"); await symlink("/", alias); await save([alias], [protectedRoot]); await expect(runtimeReadPolicy(true)).rejects.toThrow("narrow absolute");
-    await save([dependency], [protectedRoot]); const value = JSON.parse(await readFile(file, "utf8")); await writeFile(file, JSON.stringify({ ...value, allowAll: true })); await expect(runtimeReadPolicy(true)).rejects.toThrow();
+    await save(["/usr"], [protectedRoot]); await expect(runtimeReadPolicy()).rejects.toThrow("narrow absolute");
+    const alias = join(directory, "root-alias"); await symlink("/", alias); await save([alias], [protectedRoot]); await expect(runtimeReadPolicy()).rejects.toThrow("narrow absolute");
+    await save([dependency], [protectedRoot]); const value = JSON.parse(await readFile(file, "utf8")); await writeFile(file, JSON.stringify({ ...value, allowAll: true })); await expect(runtimeReadPolicy()).rejects.toThrow();
   });
 });

@@ -9,8 +9,6 @@ import { previewKind, previewMime } from "./workspace-artifact-snapshot.js";
 
 const MAX_PUBLISH_BYTES = 2 * 1024 * 1024 * 1024;
 
-import { recordCandidatePublication } from "./candidate-publication.js";
-
 interface ArtifactManifest {
   artifact_id: string;
   version: number;
@@ -118,10 +116,7 @@ export async function publishWorkspaceArtifactsDetailed(
       options.onFailure?.(failure);
       continue;
     }
-    if (artifact) {
-      if (options.captureFile && options.executionId && options.sessionId) await recordCandidatePublication(cwd, { ...artifact, executionId: options.executionId, sessionId: options.sessionId });
-      published.push(artifact);
-    }
+    if (artifact) published.push(artifact);
   }
   return { artifacts: published, failures };
 }
