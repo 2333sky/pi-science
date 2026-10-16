@@ -1,4 +1,4 @@
-import { chmod, link, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, link, mkdir, mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -9,7 +9,7 @@ import { persistArtifactBytes } from "../artifacts/artifact-content-store.js";
 import { EvaluatorInputService, type EvaluatorCaller } from "./evaluator-authorization.js";
 import { resolveEvaluatorArtifact, type VerifiedCandidateProvenance } from "./evaluator-artifact-input.js";
 import { evaluateCandidateRequestSchema, evaluatorRegistrationSchema, validateEvaluatorResult, validateSubmission, type EvaluatorRegistration, type EvaluatorRevision } from "./evaluator-contracts.js";
-import { readEvaluatorFile, sha256 } from "./evaluator-files.js";
+import { captureEvaluatorTree, EvaluatorReadBudget, readEvaluatorFile, sha256 } from "./evaluator-files.js";
 import { EvaluatorRegistry, type EvaluatorSources } from "./evaluator-registry.js";
 
 describe.skipIf(process.platform !== "linux")("trusted evaluator Phase A", () => {
@@ -26,6 +26,8 @@ describe.skipIf(process.platform !== "linux")("trusted evaluator Phase A", () =>
     vi.stubEnv("PI_SCIENCE_HOME", join(directory, "private-state"));
     sources = { evaluator: join(directory, "code"), dataset: join(directory, "data"), environment: join(directory, "env") };
     for (const source of Object.values(sources)) { await mkdir(source); await writeFile(join(source, "asset"), "immutable asset"); }
+    vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", join(directory, "operator-read-policy.json"));
+    await writeFile(process.env.PI_SCIENCE_SANDBOX_READ_POLICY!, JSON.stringify({ schemaVersion: 1, dependencyRoots: [], protectedRoots: [root, ...Object.values(sources)] }), { mode: 0o600 });
     registration = { id: "revision-1", ownerSessionId: "parent-1", researchId: "research-1", workspace, protocolRevision: "protocol-1", environmentRevisionId: "env-1",
       submission: { format: "json", minItems: 1, maxItems: 4, minimum: 0, maximum: 1 }, metrics: { accuracy: { minimum: 0, maximum: 1, unit: "ratio", precision: 3 } }, validityChecks: ["schema_valid", "dataset_match"],
       timeoutSeconds: 30, maxSubmissionBytes: 1024, maxQueries: 3, visibility: "validation", acceptance: { knownAnswer: "operator baseline fixture", negativeCases: ["mismatched dataset"], boundaryCases: ["zero and one"] } };
@@ -83,10 +85,48 @@ describe.skipIf(process.platform !== "linux")("trusted evaluator Phase A", () =>
   it.each(["evaluator", "dataset", "environment"] as const)("rejects Agent-writable %s sources", async (kind) => {
     await expect(registry.register({ ...registration, id: "other" }, { ...sources, [kind]: workspace })).rejects.toThrow("overlap");
   });
-  it("rejects assets exposed by ordinary runtime read grants", async () => {
-    await expect(new EvaluatorRegistry(registry.root, [workspace], [sources.dataset]).register({ ...registration, id: "other" }, sources)).rejects.toThrow("runtime read grants");
-    await expect(new EvaluatorRegistry(registry.root, [workspace], [directory]).load(revision.id)).rejects.toThrow("revision_unavailable");
+  it("requires the shared operator policy even when no custom dependencies are configured", async () => {
+    delete process.env.PI_SCIENCE_SANDBOX_READ_POLICY;
+    await expect(registry.register({ ...registration, id: "other" }, sources)).rejects.toThrow("shared operator read policy");
+    await expect(registry.load(revision.id)).rejects.toThrow("revision_unavailable");
+  });
+  it("rejects later policy changes exposing frozen assets", async () => {
+    const file = process.env.PI_SCIENCE_SANDBOX_READ_POLICY!;
+    const policy = JSON.parse(await readFile(file, "utf8"));
+    await writeFile(file, JSON.stringify({ ...policy, dependencyRoots: [sources.dataset] }));
+    await expect(registry.register({ ...registration, id: "other" }, sources)).rejects.toThrow("runtime read grants");
+    await expect(registry.load(revision.id)).rejects.toThrow("revision_unavailable");
+  });
+  it("rejects unprotected sources and system runtime read grants", async () => {
     await expect(registry.register({ ...registration, id: "other" }, { ...sources, evaluator: "/usr/bin" })).rejects.toThrow("runtime read grants");
+    const source = join(directory, "unprotected"); await mkdir(source);
+    await expect(registry.register({ ...registration, id: "other" }, { ...sources, evaluator: source })).rejects.toThrow("shared protected root");
+  });
+  it("streams a 96 MiB revision and repeated verification without retaining bundle bytes", async () => {
+    for (const source of Object.values(sources)) { const handle = await open(join(source, "asset"), "w"); try { await handle.truncate(32 * 1024 * 1024); } finally { await handle.close(); } }
+    const baseline = process.memoryUsage().arrayBuffers; let peak = baseline;
+    const sample = () => { peak = Math.max(peak, process.memoryUsage().arrayBuffers); }; const timer = setInterval(sample, 1);
+    try {
+      const large = await registry.register({ ...registration, id: "large" }, sources);
+      for (let index = 0; index < 2; index++) expect(await registry.load(large.id)).toEqual(large);
+      sample();
+      expect(peak - baseline).toBeLessThan(16 * 1024 * 1024);
+      const path = join(registry.root, large.id, "dataset", "asset"); await chmod(path, 0o600);
+      const changed = await open(path, "r+"); try { await changed.write(Buffer.from("drift"), 0, 5, 32 * 1024 * 1024 - 5); } finally { await changed.close(); }
+      await expect(registry.load(large.id)).rejects.toThrow("revision_unavailable");
+    } finally { clearInterval(timer); }
+  }, 30_000);
+  it("rejects three individually valid bundles exceeding the shared 256 MiB limit", async () => {
+    for (const source of Object.values(sources)) { const handle = await open(join(source, "asset"), "w"); try { await handle.truncate(96 * 1024 * 1024); } finally { await handle.close(); } }
+    await expect(registry.register({ ...registration, id: "too-large" }, sources)).rejects.toThrow("aggregate byte budget");
+  }, 30_000);
+  it("shares entry and byte accounting across separate tree captures and preserves v1 digests", async () => {
+    const budget = new EvaluatorReadBudget(20);
+    const first = await captureEvaluatorTree(sources.evaluator, budget);
+    expect(first.digest).toBe(sha256(JSON.stringify([["asset", false, sha256("immutable asset")]])));
+    await expect(captureEvaluatorTree(sources.dataset, budget)).rejects.toThrow("aggregate byte budget");
+    const entries = new EvaluatorReadBudget(); for (let index = 0; index < 10_000; index++) entries.enter();
+    expect(() => entries.enter()).toThrow("aggregate entry budget");
   });
   it.each(["symlink", "hardlink"])("rejects %s assets", async (kind) => {
     const path = join(sources.dataset, "linked");

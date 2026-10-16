@@ -7,10 +7,7 @@ import { EvaluatorRegistry } from "../runtime/evaluation/evaluator-registry.js";
 async function main() {
   const [command, root, workspace, ...args] = process.argv.slice(2);
   if (!root || !workspace || !["register", "revoke", "verify"].includes(command ?? "")) throw new Error("Usage: evaluator-registry <register|revoke|verify> <private-root> <workspace> <registration.json evaluator-dir dataset-dir environment-dir | revision-id>");
-  const configured: unknown = JSON.parse(process.env.PI_SCIENCE_SANDBOX_RUNTIME_PATHS ?? "[]");
-  if (!Array.isArray(configured) || configured.some((path) => typeof path !== "string")) throw new Error("Invalid operator runtime paths");
-  const runtimeRoots = [...configured as string[], ...[process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT, process.env.PI_SCIENCE_ENVIRONMENT_PREFIX].filter((path): path is string => !!path)];
-  const registry = new EvaluatorRegistry(resolve(root), [resolve(workspace)], runtimeRoots);
+  const registry = new EvaluatorRegistry(resolve(root), [resolve(workspace)]);
   if (command === "register") {
     const [manifest, evaluator, dataset, environment] = args;
     if (args.length !== 4 || !manifest || !evaluator || !dataset || !environment) throw new Error("Registration requires a manifest and three frozen source directories");

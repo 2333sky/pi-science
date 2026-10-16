@@ -79,6 +79,50 @@ it.skipIf(process.platform !== "linux")("captures only authorized regular output
   await expect(sandboxArtifactCapture(cwd, policy)(join(work, "huge.txt"))).rejects.toThrow("bounded single-link");
 });
 describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("real universal Linux sandbox", () => {
+  it("retires a persistent kernel namespace when the shared operator policy changes", async () => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const cwd = await fixture(); const control = await realpath(await mkdtemp(join(tmpdir(), "pi-kernel-policy-"))); roots.push(control);
+    const prefix = join(control, "runtime"); await mkdir(join(prefix, "bin"), { recursive: true });
+    for (const name of ["python", "python3"]) await symlink("/usr/bin/python3", join(prefix, "bin", name));
+    const protectedRoot = join(control, "protected"); const extra = join(control, "extra"); await mkdir(protectedRoot); await mkdir(extra);
+    const bridge = fileURLToPath(new URL("../kernel/bridges/kernel_bridge.py", import.meta.url));
+    const dependencies = [prefix, bridge, ...[process.env.PI_SCIENCE_SANDBOX_SOCAT, process.env.PI_SCIENCE_SANDBOX_RIPGREP].filter((path): path is string => !!path)];
+    const file = join(control, "policy.json"); const save = (protectedRoots: string[]) => writeFile(file, JSON.stringify({ schemaVersion: 1, dependencyRoots: dependencies, protectedRoots }), { mode: 0o600 });
+    await save([protectedRoot]); vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", file);
+    const manager = new NodeKernelManager(); managers.push(manager);
+    const options = { cwd, language: "python" as const, environment: { ...environment(cwd), prefix, python: join(prefix, "bin/python3") }, notebookId: "policy-change", timeoutMs: 10_000 };
+    expect(await manager.execute({ ...options, code: "old_state=42" })).toMatchObject({ ok: true });
+    const originalId = manager.status().sessions[0]!.sandboxPolicyId;
+    await save([protectedRoot, extra]);
+    expect(await manager.execute({ ...options, code: "'old_state' in globals()" })).toMatchObject({ ok: true, result: "False" });
+    expect(manager.status().sessions[0]!.sandboxPolicyId).not.toBe(originalId); expect(manager.status().active_count).toBe(1);
+    const app = Fastify();
+    registerKernelExecutionRoutes(app, { internalToken: "test-secret", upstreamTimeoutMs: 1000 } as ServerConfig, { ensure: async () => options.environment } as unknown as WorkspaceEnvironmentService, manager);
+    try {
+      const response = await app.inject({ method: "POST", url: `/api/kernels/execute?cwd=${encodeURIComponent(cwd)}`, payload: { language: "python", notebook_id: options.notebookId, code: "1+1" } });
+      expect(response.statusCode).toBe(200); expect(response.json()).toMatchObject({ ok: true, result: "2" });
+      const execution = await executionRepository.get(cwd, response.json().execution_id);
+      expect(execution?.runtime.sandbox_policy_id).toBe(manager.status().sessions[0]!.sandboxPolicyId);
+    } finally { await app.close(); }
+  }, 30_000);
+  it("enforces the shared evaluator read policy in a real Bash sandbox and rejects conflicting reloads", async () => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const cwd = await fixture();
+    const control = await realpath(await mkdtemp(join(tmpdir(), "pi-read-policy-"))); roots.push(control);
+    const protectedRoot = join(control, "evaluator"); await mkdir(protectedRoot, { mode: 0o700 });
+    const secret = join(protectedRoot, "holdout.json"); await writeFile(secret, "PRIVATE_HOLDOUT");
+    const policyFile = join(control, "policy.json");
+    const dependencies = [...JSON.parse(process.env.PI_SCIENCE_SANDBOX_RUNTIME_PATHS ?? "[]") as string[],
+      ...[process.env.PI_SCIENCE_SANDBOX_SOCAT, process.env.PI_SCIENCE_SANDBOX_RIPGREP, process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT].filter((path): path is string => !!path)];
+    await writeFile(policyFile, JSON.stringify({ schemaVersion: 1, dependencyRoots: dependencies, protectedRoots: [protectedRoot] }), { mode: 0o600 });
+    vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", policyFile);
+    const { shellQuote } = await import("./process.js");
+    const output = await bash(cwd, `test ! -r ${shellQuote(secret)} && echo shared-policy-isolated`, "shared-policy");
+    expect(output.content).toEqual([expect.objectContaining({ text: expect.stringContaining("shared-policy-isolated") })]);
+    await writeFile(policyFile, JSON.stringify({ schemaVersion: 1, dependencyRoots: [...dependencies, control], protectedRoots: [protectedRoot] }));
+    await expect(bash(cwd, "touch escaped", "conflicting-read-policy")).rejects.toThrow("Protected evaluator paths overlap");
+    await expect(readFile(join(cwd, "escaped"))).rejects.toThrow();
+  }, 30_000);
   it("records actual Bash exits, timeout and Abort in durable execution evidence", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     for (const [id, command, code] of [["exit7", "exit 7", 7], ["false", "false", 1]] as const) {

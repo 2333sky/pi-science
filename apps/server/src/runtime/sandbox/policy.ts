@@ -14,6 +14,7 @@ export interface SandboxPolicy {
   denyPaths: string[];
   network: { mode: "none" };
   environmentRevision?: string;
+  operatorReadPolicyId?: string;
   owner?: string;
 }
 export const isWithin = (root: string, path: string) => { const part = relative(root, path); return part === "" || part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
