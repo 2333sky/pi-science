@@ -1,3 +1,6 @@
+import { fileURLToPath } from "node:url";
+import { NodeKernelManager } from "../kernel/node-kernel-manager.js";
+import { shellQuote } from "../sandbox/process.js";
 import { createServer } from "node:http";
 import { ModelResourceService } from "../../model-resources/model-resource-service.js";
 import { AgentRuntimeManager } from "../agent/agent-runtime-manager.js";
@@ -5,7 +8,7 @@ import { runHiddenPrompt } from "../agent/hidden-agent-task.js";
 import { AgentSessionRepository } from "../agent/agent-session-repository.js";
 import { budgetHash, readBudget } from "../executions/execution-budget.js";
 import { writeJsonAtomic, configPath, workspaceFile } from "../../storage/persistence.js";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
@@ -54,7 +57,7 @@ describe.skipIf(process.env.PI_SCIENCE_EVALUATOR_TEST !== "1" || process.platfor
     const evaluator = `import json,sys,os,socket,time\ns=json.load(open(sys.argv[1]))['predictions']\nlabels=json.load(open(os.path.join(sys.argv[2],'labels.json')))\nassert 'DEEPSEEK_API_KEY' not in os.environ\nfor p in [${JSON.stringify(join(cwd, "research/study/candidates/one/work/predictions.json"))},${JSON.stringify(join(sources.dataset, "labels.json"))}]:\n try: open(p); raise AssertionError('private path readable')\n except OSError: pass\nfor p in [sys.argv[0],os.path.join(sys.argv[2],'labels.json')]:\n try: open(p,'w'); raise AssertionError('input writable')\n except OSError: pass\ntry: socket.create_connection(('1.1.1.1',443),timeout=.1); raise AssertionError('network')\nexcept OSError: pass\nif s[0]==0.2: print('PRIVATE_LOG_'*20000); sys.exit(0)\nif s[0]==0.25: time.sleep(10)\nif s[0]==0.75: sys.exit(7)\nif s[0]==0.5: open(sys.argv[3],'w').write('PRIVATE_MALFORMED'); sys.exit(0)\nif s[0]==0.4: os.symlink(sys.argv[1],sys.argv[3]); sys.exit(0)\nvalid=len(s)==len(labels)\nresult={'metrics':{'accuracy':sum(a==b for a,b in zip(s,labels))/len(labels)},'validity':{'passed':valid,'checks':['schema_valid','dataset_match'] if valid else ['schema_valid']}}\njson.dump(result,open(sys.argv[3],'w'))\nprint('PRIVATE_LOG_MUST_NOT_BE_PUBLISHED')\n`;
     await writeFile(join(sources.evaluator, "main.py"), evaluator);
     const expected = (accuracy: number) => ({ metrics: { accuracy }, validity: { passed: true, checks: ["schema_valid", "dataset_match"] } });
-    await writeFile(join(sources.evaluator, "acceptance.json"), JSON.stringify([{ kind: "baseline", submission: { predictions: [0, 1] }, expected: expected(1) }, { kind: "negative", submission: { predictions: [0] } }, { kind: "boundary", submission: { predictions: [1, 0] }, expected: expected(0) }]));
+    await writeFile(join(sources.evaluator, "acceptance.json"), JSON.stringify([{ kind: "baseline", submission: { predictions: [0, 1] }, expected: expected(1) }, { kind: "negative", submission: { predictions: [0] }, expected_rejection: { reason_code: "invalid_result", failed_checks: ["dataset_match"] } }, { kind: "boundary", submission: { predictions: [1, 0] }, expected: expected(0) }]));
     registration = { id: "eval-1", researchId: "study", ownerSessionId: "parent", workspace: cwd, protocolRevision: "protocol-1", environmentRevisionId: "env-1", submission: { format: "json", minItems: 1, maxItems: 8, minimum: 0, maximum: 1 }, metrics: { accuracy: { minimum: 0, maximum: 1, unit: "ratio", precision: 3 } }, validityChecks: ["schema_valid", "dataset_match"], timeoutSeconds: 2, maxSubmissionBytes: 1024, maxQueries: 2, visibility: "validation", acceptance: { knownAnswer: "baseline", negativeCases: ["wrong size"], boundaryCases: ["opposite labels"] } };
     registry = new EvaluatorRegistry(registryRoot, [cwd]); await registry.register(registration, sources); service = new EvaluatorService(registry);
     artifact = await candidate([0, 1]);
@@ -70,6 +73,45 @@ describe.skipIf(process.env.PI_SCIENCE_EVALUATOR_TEST !== "1" || process.platfor
     expect(JSON.stringify(execution)).not.toContain("PRIVATE_");
     await evaluate("two"); await expect(evaluate("three")).rejects.toThrow("budget exhausted");
     expect((await readdir(registry.root)).filter((name) => name.startsWith(".run-"))).toEqual([]);
+  }, 30_000);
+  it("refuses legacy approvals that predate structured negative acceptance", async () => {
+    await approveEvaluator(registry, "eval-1");
+    const path = join(registry.root, "eval-1/approval.json"); const receipt = JSON.parse(await readFile(path, "utf8"));
+    expect(receipt.schemaVersion).toBe(2); delete receipt.schemaVersion;
+    await chmod(path, 0o600); await writeFile(path, JSON.stringify(receipt)); await chmod(path, 0o400);
+    await expect(evaluate("legacy-approval")).rejects.toThrow("revision_unavailable");
+    expect((await executionRepository.list(cwd)).filter((item) => item.producer === "evaluate_candidate")).toEqual([]);
+  }, 30_000);
+  it.each([[0.25], [0.75], [0.5], [0.2], [0.4], [0, 1], [-1]])("cannot approve a real failing negative submission %j", async (...predictions) => {
+    const source = join(root, "private/code/acceptance.json"); const cases = JSON.parse(await readFile(source, "utf8"));
+    cases[1].submission = { predictions }; await writeFile(source, JSON.stringify(cases));
+    await registry.register({ ...registration, id: "negative-fault" }, { evaluator: join(root, "private/code"), dataset: join(root, "private/data"), environment: join(root, "private/environment") });
+    await expect(approveEvaluator(registry, "negative-fault")).rejects.toThrow();
+    await expect(readFile(join(registry.root, "negative-fault/approval.json"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(registry.withActive(await registry.load("negative-fault"), async () => true)).rejects.toThrow("revision_unavailable");
+  }, 30_000);
+  it("keeps frozen evaluator data private from real ordinary Bash and Notebook across an operator policy update", async () => {
+    const prefix = join(root, "ordinary-runtime"); await mkdir(join(prefix, "bin"), { recursive: true });
+    for (const name of ["python", "python3"]) await symlink("/usr/bin/python3", join(prefix, "bin", name));
+    const bridge = fileURLToPath(new URL("../kernel/bridges/kernel_bridge.py", import.meta.url));
+    const file = process.env.PI_SCIENCE_SANDBOX_READ_POLICY!; const policy = JSON.parse(await readFile(file, "utf8"));
+    policy.dependencyRoots.push(prefix, bridge); await writeFile(file, JSON.stringify(policy));
+    const assets = [join(registry.root, "eval-1/dataset/labels.json"), join(registry.root, "eval-1/evaluator/main.py")];
+    const manager = new NodeKernelManager();
+    const environment = { ready: true, workspace: cwd, prefix, python: join(prefix, "bin/python3"), pip: join(prefix, "bin/pip"), manager: "micromamba" as const, environment_id: "ordinary", revision_id: "ordinary-v1", npm: { local_prefix: cwd, global_prefix: cwd, cache: cwd } };
+    const ids: Array<string | null> = [];
+    try {
+      for (const phase of [0, 1]) {
+        if (phase) { const extra = join(root, "new-protected-root"); await mkdir(extra, { mode: 0o700 }); policy.protectedRoots.push(extra); await writeFile(file, JSON.stringify(policy)); }
+        const bash = sandboxBashTool({ cwd, sessionId: "parent" });
+        const output = await bash.execute("read-private", { command: assets.map((path) => `test ! -r ${shellQuote(path)}`).join(" && ") + " && echo private-assets-denied", timeout: 10 }, () => {}, { env: new NodeExecutionEnv({ cwd }) }, invocation(`private-${phase}`), BACKGROUND_CONTEXT);
+        expect(JSON.stringify(output.content)).toContain("private-assets-denied");
+        const code = `assert 'old_namespace' not in globals()\nfor path in ${JSON.stringify(assets)}:\n try: open(path); raise AssertionError('private asset readable')\n except OSError: pass\nold_namespace=42\nprint('private-assets-denied')`;
+        expect(await manager.execute({ cwd, language: "python", environment, code, notebookId: "private-read", timeoutMs: 10_000 })).toMatchObject({ ok: true, stdout: "private-assets-denied\n" });
+        ids.push(manager.status().sessions[0]!.sandboxPolicyId);
+      }
+      expect(ids[0]).not.toBe(ids[1]);
+    } finally { await manager.shutdownAll(); }
   }, 30_000);
   it("completes real Parent → Experimenter → evaluator → Reviewer IPC and preserves the score on restart", async () => {
     let requestCount = 0; let cancelMode = false; let official: { metrics: { accuracy: number }; artifact_refs: unknown[] } | undefined;

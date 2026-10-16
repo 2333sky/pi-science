@@ -15,12 +15,18 @@ Before registering, put executable acceptance cases in `evaluator/acceptance.jso
 ```json
 [
   {"kind":"baseline","submission":{"predictions":[0,1]},"expected":{"metrics":{"accuracy":1},"validity":{"passed":true,"checks":["schema_valid","dataset_match"]}}},
-  {"kind":"negative","submission":{"predictions":[0]}},
+  {"kind":"negative","submission":{"predictions":[0]},"expected_rejection":{"reason_code":"invalid_result","failed_checks":["dataset_match"]}},
   {"kind":"boundary","submission":{"predictions":[1,0]},"expected":{"metrics":{"accuracy":0},"validity":{"passed":true,"checks":["schema_valid","dataset_match"]}}}
 ]
 ```
 
-Cases are operator-authored and task-specific: the example assumes protected labels `[0,1]`. At least one case of each kind is mandatory. Baseline/boundary cases must produce the expected validated result; negative cases must be rejected. Approval runs the actual frozen evaluator in its Linux sandbox. Activation is bound to the manifest and acceptance digests. Source changes do not alter a frozen revision; stored drift is rejected. Changes require a new revision ID and approval. Revocation permanently blocks new admission; an already admitted run may finish.
+Cases are operator-authored and task-specific: the example assumes protected labels `[0,1]`. At least one case of each kind is mandatory. Baseline/boundary cases must produce the expected validated result.
+
+Negative cases must declare `expected_rejection` with `reason_code: invalid_result` and the exact nonempty set of registered `failed_checks`. They pass only when the actual evaluator exits normally with code zero and returns schema-valid `validity.passed=false` with exactly those checks missing. Input-validation exceptions, sandbox startup/configuration errors, timeouts, missing dependencies, crashes, nonzero exits, malformed output and mismatched reasons never satisfy a negative case.
+
+Existing case files without explicit rejection expectations must be updated in a new frozen revision. Approval receipts use `schemaVersion: 2`; old unversioned receipts cannot authorize new runs, so operators must register and approve a new revision under these acceptance rules. Historical completed evidence remains readable.
+
+Approval runs the actual frozen evaluator in its Linux sandbox. Activation is bound to the manifest and acceptance digests. Source changes do not alter a frozen revision; stored drift is rejected. Changes require a new revision ID and approval. Revocation permanently blocks new admission; an already admitted run may finish.
 
 ```sh
 export PI_SCIENCE_SANDBOX_READ_POLICY=/srv/pi-operator/read-policy.json

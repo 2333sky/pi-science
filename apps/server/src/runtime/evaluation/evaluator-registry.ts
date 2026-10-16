@@ -7,6 +7,8 @@ import { evaluatorId, evaluatorRegistrationSchema, evaluatorRevisionSchema, Eval
 import { captureEvaluatorTree, EvaluatorReadBudget, readEvaluatorFile, requirePrivateDirectory, sha256 } from "./evaluator-files.js";
 import { pathsOverlap, runtimeReadPolicy, type RuntimeReadPolicy } from "../sandbox/read-grants.js";
 
+const APPROVAL_SCHEMA_VERSION = 2;
+
 export interface EvaluatorSources { evaluator: string; dataset: string; environment: string }
 /** Offline operator API only. Do not instantiate in an Agent Worker or expose through HTTP/tools.
  * Registration freezes assets; it does not certify a runner or enable official scoring. */
@@ -110,7 +112,7 @@ export class EvaluatorRegistry {
     if (sha256(JSON.stringify(revision)) !== manifestDigest) throw new Error("Approval revision changed");
     await withFileWriteLock(join(this.root, "registry"), async () => {
       try { await readEvaluatorFile(join(this.root, id, "revoked.json"), 4096); throw new Error("Revoked"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      await writeFile(join(this.root, id, "approval.json"), JSON.stringify({ manifestDigest, acceptanceDigest, finalAllowed, approvedAt: new Date().toISOString() }), { flag: "wx", mode: 0o400 });
+      await writeFile(join(this.root, id, "approval.json"), JSON.stringify({ schemaVersion: APPROVAL_SCHEMA_VERSION, manifestDigest, acceptanceDigest, finalAllowed, approvedAt: new Date().toISOString() }), { flag: "wx", mode: 0o400 });
     });
   }
 
@@ -122,6 +124,7 @@ export class EvaluatorRegistry {
         try { await readEvaluatorFile(join(directory, "revoked.json"), 4096); throw new Error("Revoked"); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
         const manifest = await readEvaluatorFile(join(directory, "manifest.json"), 256 * 1024);
         const approval = JSON.parse((await readEvaluatorFile(join(directory, "approval.json"), 4096)).toString("utf8"));
+        if (approval.schemaVersion !== APPROVAL_SCHEMA_VERSION) throw new Error("Approval requires structured negative acceptance");
         if (revision.visibility === "final_holdout" && approval.finalAllowed !== true) throw new Error("Final holdout is not authorized");
         if (sha256(JSON.stringify(JSON.parse(manifest.toString("utf8")))) !== sha256(JSON.stringify(revision)) || approval.manifestDigest !== sha256(JSON.stringify(revision)) || !/^[a-f0-9]{64}$/.test(approval.acceptanceDigest)) throw new Error("Unapproved evaluator");
       } catch { throw new EvaluatorError("revision_unavailable"); }
