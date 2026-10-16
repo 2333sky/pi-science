@@ -106,7 +106,8 @@ it.skipIf(process.env.PI_SCIENCE_RESEARCH_LIVE_TEST !== "1")("compares real Deep
       await manager.stop(key); await writeFile(join(outputRoot, "auto-research-comparison.json"), JSON.stringify(observations, null, 2));
     }
     console.info("Live research comparison:", JSON.stringify(observations.map(({ report: _report, final_response: _response, ...summary }) => summary)));
-    expect(observations.filter((item) => item.skill || item.task === "literature").every((item) => item.status === "passed")).toBe(true);
+    expect(observations).toHaveLength(4);
+    expect(observations.every((item) => item.status === "passed")).toBe(true);
   } finally {
     await manager.shutdownAll(); if (previousHome === undefined) delete process.env.PI_SCIENCE_HOME; else process.env.PI_SCIENCE_HOME = previousHome;
     if (previousMode === undefined) delete process.env.PI_SCIENCE_EXECUTION_MODE; else process.env.PI_SCIENCE_EXECUTION_MODE = previousMode; await rm(root, { recursive: true, force: true });

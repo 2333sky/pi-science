@@ -4,11 +4,21 @@ Validation date: 2026-10-16. The default workflow uses existing Conversation too
 
 ## Regression and real isolation
 
-Workspace `pnpm typecheck`, `pnpm test` and `pnpm build` passed: contracts 14, server 945, frontend 1,778 and Skills 38 tests (2,775 total; server 42 configured skips). After the final execution-reference and session-directory fixes, server typecheck/build and the real Linux focused suite passed **72 tests / 2 configured skips**. Skills were rechecked after instruction changes. The frontend build retains its existing large-chunk warning.
+At feature commit `700c4f78`, workspace `pnpm typecheck`, `pnpm test` and `pnpm build` passed: contracts 14, server 945, frontend 1,778 and Skills 38 tests (2,775 total; server 42 configured skips). After the final execution-reference and session-directory fixes, server typecheck/build and the real Linux focused suite passed **72 tests / 2 configured skips**. Skills were rechecked after instruction changes. The frontend build retains its existing large-chunk warning.
 
 The Linux suite uses actual Bubblewrap/srt, Bash, Python and persistent Notebook processes. It covers Parent evaluation in authorized research files, Candidate repair and exact input/work isolation, denied evaluator/sibling/private/credential/link access, forged request fields, protected-root denial before/after policy changes, kernel replacement, network denial, timeout/Abort/owner cleanup, stable publication bytes and continuation without duplicate executions. Historical manifest evidence and saved generic budget consumption remain readable. macOS/Windows required-mode execution remains unavailable and fails closed; native Windows regression runs in CI.
 
 Two small generic fixes arose during acceptance: failed Bash calls now return their recorded Execution/Artifact references while still throwing, and parallel session creation shares the existing bounded retry for vanished atomic `.jsonl.tmp` files. Neither adds research-specific runtime state.
+
+## Review follow-up
+
+File tools now share the sandbox sensitive-name predicate, including credential-like files, hidden control paths and dependency directories. The explicit Skill-root exception permits read-only resources, not secrets within those roots. Symlink/hardlink denial remains in place.
+
+Writes and edits use a synced temporary file in the destination directory followed by atomic rename; Linux keeps the parent directory pinned and syncs it after commit. Existing file mode bits are retained. Fault injection covers partial writes, file-sync errors, cancellation before commit, rename failure and directory-sync failure after commit. The resulting checkpoint is either the complete old version or the complete new version. A committed manifest plus stale state is recovered by rereading the manifest, not repeating experiments. A hard kill before rename may leave a hidden temporary file; it does not truncate the destination. No extra research state machine or backup ledger is introduced.
+
+The live comparison now requires all four cases to pass. Simple source-only tasks use lightweight evidence/report checkpoints rather than empty experimental indexes. The earlier API numbers below remain the cost baseline; this review fix does not claim a measured cost improvement and does not rerun the paid API comparison.
+
+Review-fix verification: workspace typecheck, full tests and build passed (**2,777 tests**: contracts 14, server 947, frontend 1,778, Skills 38; server 42 configured skips). Real Linux acceptance passed **74 tests / 2 configured skips**. The final file-tool fault/denial checks were rerun after strengthening untouched-secret assertions.
 
 ## Real API comparison
 
@@ -45,4 +55,4 @@ PI_SCIENCE_RESEARCH_LIVE_TEST=1 \
   src/runtime/agent/auto-research.live.test.ts
 ```
 
-This is a paid, network-dependent opt-in test. Per-case observations are written under ignored `.runtime/live-tests/auto-research-comparison.json`; fixture workspaces are removed on normal test completion. An incomplete plain Conversation is recorded and does not skip subsequent cases; the Skill numerical case and both literature cases must pass. The test never changes isolation mode or supplies host execution fallback.
+This is a paid, network-dependent opt-in test. Per-case observations are written under ignored `.runtime/live-tests/auto-research-comparison.json`; fixture workspaces are removed on normal test completion. Incomplete cases are recorded without skipping subsequent cases; all four cases must pass the final comparison assertion. The test never changes isolation mode or supplies host execution fallback.
