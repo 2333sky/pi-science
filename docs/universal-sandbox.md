@@ -4,7 +4,7 @@
 
 `apps/server/src/runtime/agent/deepseek-sandbox.live.test.ts` calls the official DeepSeek API with `deepseek-flash` through the product's provider routing and real Agent Workers. It verifies main/authorized-child Bash execution, protected-file and credential isolation, execution policy evidence and captured artifacts. It does not replace the separate Python Notebook acceptance tests. The live test is skipped by default and incurs provider usage when enabled.
 
-Supply `DEEPSEEK_API_KEY` through the process environment, allow outbound HTTPS to `api.deepseek.com`, and configure the Linux sandbox dependencies described below. The credential store saves only the environment-variable reference; temporary test settings and transcripts are deleted on completion. Run from the repository root:
+Supply `DEEPSEEK_API_KEY` through the process environment, allow outbound HTTPS to `api.deepseek.com`, and configure the Linux sandbox dependencies described below. The test explicitly forwards that environment-backed credential to the Worker; Workers intentionally do not inherit ambient provider secrets, and sandboxed tools never receive it. The credential store saves only the environment-variable reference; temporary test settings and transcripts are deleted on completion. Run from the repository root:
 
 ```bash
 PI_SCIENCE_DEEPSEEK_LIVE_TEST=1 pnpm --filter @pi-science/server exec vitest run src/runtime/agent/deepseek-sandbox.live.test.ts
@@ -51,6 +51,8 @@ PI_SCIENCE_SANDBOX_TEST=1 PI_SCIENCE_SANDBOX_ENABLED=1 \
 ```
 
 The suite covers main/child Bash with no enabled Skill, credential/file/network isolation, subprocess inheritance, multi-cell Python/streams, changed-policy namespaces, real interrupt and resistant-cell timeout/rebuild, Candidate HTTP and `notebook_run` with persisted output, forged authorization/mode rejection, shared budgets, candidate repair, independent trusted-harness evaluation and Reviewer stop advice. Compatibility tests cover worker death, cancellation and detached descendant cleanup. The independent evaluator is a trusted test-harness process, not a production agent capability. There is currently no production evaluator scope/API; required-mode autonomous scoring is blocked. The explicit [server-controlled evaluator plan](trusted-evaluator-scope-plan.md) defines operator registration, Parent-only authorization, isolated execution and required acceptance.
+
+The [Phase A evaluator foundation](trusted-evaluator-phase-a.md) adds offline registration/revocation and internal immutable-input checks. It does not add an evaluator policy to Bash/Notebook, enable a Parent tool or produce scores. Dedicated runner, durable admission and real isolation acceptance remain delivery gates.
 
 Read/write/edit and MCP tools remain outside this process sandbox and retain their existing authorization boundaries. Hard CPU, memory, disk, GPU and cost quotas, hostile multi-tenant isolation, containers/VMs, providers and schedulers are outside this change. Long-lived Python kernels have a 24-hour watchdog ceiling. Operator-approved runtime dependencies and user-approved inputs must contain no secrets. Ordinary workspace policy also protects all `research` data. Workflows requiring independent executable scoring must report `trusted evaluator unavailable` until the planned scope exists or an operator supplies external evaluation evidence; never switch to host execution or expose held-out data as a workaround.
 

@@ -1,4 +1,6 @@
-# Server-controlled evaluator scope (planned, not implemented)
+# Server-controlled evaluator scope and delivery gates
+
+The [Phase A foundation](trusted-evaluator-phase-a.md) now provides an offline frozen registry and internal authorization/input-validation components. Production Worker authentication/provenance adapters, isolated execution, durable query admission and the Parent tool are still unavailable. Registry registration does not activate scoring; the remaining execution and acceptance requirements below still apply.
 
 PR #158 isolates ordinary Bash and Python Notebook execution from all `research/` data. Consequently the Auto Research Parent cannot run a frozen evaluator or read its held-out inputs through those tools in required mode. There is currently no production evaluator scope/API. The independent evaluator in acceptance tests is a trusted test-harness process, not an agent capability. Quantitative autonomous evaluation remains incomplete until the service below exists; a successful Candidate process or Reviewer response is not an official score.
 
