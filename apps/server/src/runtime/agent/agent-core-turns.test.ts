@@ -205,12 +205,22 @@ describe("agent-core product turns", () => {
     const original = core.liveRuntime(cwd)!;
     const emit = original.emit.bind(original);
     let droppedSettled = false;
+    let eventDropped!: () => void;
+    const dropped = new Promise<void>((resolve) => { eventDropped = resolve; });
+    // Inject the loss before allowing the watchdog to repair it. On slower
+    // hosts, its snapshot can otherwise overtake terminal IPC delivery and
+    // replace the worker before this test has actually dropped any event.
+    const supervisor = core as unknown as { probe: (...args: unknown[]) => Promise<void> };
+    const probe = supervisor.probe.bind(supervisor);
+    vi.spyOn(supervisor, "probe").mockImplementation(async (...args) => { await dropped; await probe(...args); });
+    cleanup.push(async () => { eventDropped(); });
     vi.spyOn(original, "emit").mockImplementation((type, ...args) => {
       // Lose the worker's terminal event, not a supervisor's synthetic repair.
       // Depending on the last observed sequence, the watchdog can reconcile a
       // snapshot in this worker or reopen it after detecting a sequence gap.
       if (type === "event" && args[0]?.type === "operation.settled" && !args[0]?.recovery) {
         droppedSettled = true;
+        eventDropped();
         return false;
       }
       return emit(type, ...args);
