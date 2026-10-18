@@ -1,3 +1,4 @@
+import { ExecutionBudgetLedger, watchExecutionDeadline } from "../executions/execution-budget.js";
 import type { ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
@@ -49,7 +50,7 @@ export class JobCoordinator {
     });
   }
 
-  async submit(cwd: string, body: Record<string, unknown>): Promise<JobRecord> {
+  async submit(cwd: string, body: Record<string, unknown>, budgetBinding?: { owner: string; nodeId?: string }): Promise<JobRecord> {
     const command = parseCommand(body.command);
     if (!command.length) throw new Error("command is empty");
     const requirement = (body.requirement && typeof body.requirement === "object" ? body.requirement : {}) as JobRequirement;
@@ -76,6 +77,7 @@ export class JobCoordinator {
     const ownership = this.leases.createOwnership(now);
     const jobId = `job_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     const executionId = executionIdFor("job", resolve(cwd), jobId);
+    if (budgetBinding) await new ExecutionBudgetLedger(cwd, budgetBinding.owner, true, budgetBinding.nodeId).reserve("job", budgetBinding.owner, jobId);
     const admittedRoot = operatorExecutionMode() === "required" ? await realpath(cwd) : undefined;
     if (admittedRoot) {
       // Resolve only a workspace-relative path after lexical containment checks;
@@ -84,7 +86,7 @@ export class JobCoordinator {
       if (!isWithin(admittedRoot, executionCwd)) throw new Error("Job execution cwd escapes the workspace");
     }
     const admission = admittedRoot ? identifyPolicy({ ...await workspacePolicy(admittedRoot, baseEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID), cwd: executionCwd }) : undefined;
-    const record: JobRecord = { job_id: jobId, execution_id: executionId, command, cwd, ...(executionCwd !== resolve(cwd) ? { execution_cwd: executionCwd } : {}), surface, status: "pending", created_at: new Date(now).toISOString(), stdout: "", stderr: "", artifact_ids: [], environment: { platform: process.platform, node: process.version, prefix: baseEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX, revision: baseEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID, npm_prefix: environment.npm_config_prefix,
+    const record: JobRecord = { job_id: jobId, execution_id: executionId, command, cwd, ...(executionCwd !== resolve(cwd) ? { execution_cwd: executionCwd } : {}), surface, status: "pending", created_at: new Date(now).toISOString(), stdout: "", stderr: "", artifact_ids: [], environment: { ...(budgetBinding ? { budget_owner: budgetBinding.owner, ...(budgetBinding.nodeId ? { budget_node: budgetBinding.nodeId } : {}) } : {}), platform: process.platform, node: process.version, prefix: baseEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX, revision: baseEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID, npm_prefix: environment.npm_config_prefix,
       ...(admission ? { sandbox: SANDBOX_RUNTIME, sandbox_policy_id: admission.id, execution_mode: "required" } : { execution_mode: "trusted-host" }) }, requirement, ownership };
     await this.executions.start(cwd, {
       execution_id: executionId,
@@ -258,10 +260,21 @@ export class JobCoordinator {
     let child: ChildProcess | undefined;
     let spawnedProcess: SpawnedJobProcess | undefined;
     let sandbox: PreparedSandbox | undefined;
+    let stopBudgetWatch: (() => Promise<void>) | undefined;
+    let budgetFailure: Error | undefined;
+    let budgetDeadline = Infinity;
     try {
       await this.hooks.beforeSpawn?.(record);
       if (this.cancelled.has(record.job_id)) { Object.assign(record, transitionJobStatus(record, "cancelled")); return; }
+      if (typeof record.environment.budget_owner === "string") {
+        const ledger = new ExecutionBudgetLedger(record.cwd, record.environment.budget_owner, true, typeof record.environment.budget_node === "string" ? record.environment.budget_node : undefined);
+        const budget = await ledger.status(); budgetDeadline = budget.deadline;
+        if (budget.cancelled) { budgetFailure = new Error("Execution task cancelled"); throw budgetFailure; }
+        stopBudgetWatch = watchExecutionDeadline(ledger, (error) => { budgetFailure = error; this.processes.terminate(record.job_id); });
+      }
       const validateExecutionMode = () => {
+        if (budgetFailure) throw budgetFailure;
+        if (budgetDeadline <= Date.now()) { budgetFailure = new Error("Execution time budget exhausted"); throw budgetFailure; }
         if (record.environment.execution_mode !== operatorExecutionMode()) throw new Error("Job execution mode changed after admission; resubmit the job");
       };
       validateExecutionMode();
@@ -275,7 +288,7 @@ export class JobCoordinator {
         // Surface labels and request environment variables cannot select a
         // broader role, dependency prefix or execution mode.
         const scopedEnvironment = Object.fromEntries(Object.entries(environment).filter((entry): entry is [string, string] => entry[1] !== undefined && !/^(?:PI_SCIENCE_(?:SANDBOX_.*|EXECUTION_MODE|INTERNAL_TOKEN)|NODE_OPTIONS|LD_PRELOAD|DYLD_.*)$/.test(entry[0])));
-        sandbox = await prepareSandbox(policy, record.command, dependencies, Math.max(1, Number(record.requirement.timeout_seconds ?? 3600)), undefined, undefined, scopedEnvironment);
+        sandbox = await prepareSandbox(policy, record.command, dependencies, Math.max(1, Math.floor(Math.min(Number(record.requirement.timeout_seconds ?? 3600), (budgetDeadline - Date.now()) / 1000))), undefined, undefined, scopedEnvironment);
       }
       const launchCommand = sandbox ? [process.execPath, launcherPath, sandbox.manifest] : record.command;
       const launchEnvironment = sandbox?.env ?? environment;
@@ -286,7 +299,7 @@ export class JobCoordinator {
           await this.hooks.testBeforeAuthorizedSpawn?.(record);
           if (this.cancelled.has(record.job_id)) { Object.assign(record, transitionJobStatus(record, "cancelled")); return false; }
           validateExecutionMode();
-          spawnedProcess = this.processes.spawn(record.job_id, launchCommand, record.execution_cwd ?? record.cwd, launchEnvironment, Math.max(1, Number(record.requirement.timeout_seconds ?? 3600)) * 1000);
+          spawnedProcess = this.processes.spawn(record.job_id, launchCommand, record.execution_cwd ?? record.cwd, launchEnvironment, Math.max(1, Math.floor(Math.min(Number(record.requirement.timeout_seconds ?? 3600), (budgetDeadline - Date.now()) / 1000))) * 1000);
           child = spawnedProcess.child;
           const updatedOwnership = { ...current.ownership!, child: { ...spawnedProcess.identity, ownership_generation: current.ownership!.generation, ownership_token: current.ownership!.token } };
           record.ownership = updatedOwnership;
@@ -309,7 +322,7 @@ export class JobCoordinator {
           // child identity and local registration therefore share one per-job
           // critical section; another coordinator cannot cancel between them.
           validateExecutionMode();
-          spawnedProcess = this.processes.spawn(record.job_id, launchCommand, record.execution_cwd ?? record.cwd, launchEnvironment, Math.max(1, Number(record.requirement.timeout_seconds ?? 3600)) * 1000);
+          spawnedProcess = this.processes.spawn(record.job_id, launchCommand, record.execution_cwd ?? record.cwd, launchEnvironment, Math.max(1, Math.floor(Math.min(Number(record.requirement.timeout_seconds ?? 3600), (budgetDeadline - Date.now()) / 1000))) * 1000);
           child = spawnedProcess.child;
           current.ownership = { ...current.ownership!, child: { ...spawnedProcess.identity, ownership_generation: current.ownership!.generation, ownership_token: current.ownership!.token } };
           record.ownership = current.ownership;
@@ -320,18 +333,19 @@ export class JobCoordinator {
       if (this.cancelled.has(record.job_id)) this.processes.terminate(child);
       const result = await spawnedProcess.result;
       record.stdout = result.stdout;
-      record.stderr = result.stderr;
+      record.stderr = [result.stderr, budgetFailure?.message].filter(Boolean).join("\n");
       record.stdout_truncated = result.stdout_truncated;
       record.stderr_truncated = result.stderr_truncated;
       record.return_code = result.code;
-      const nextStatus = this.cancelled.has(record.job_id) ? "cancelled" : result.timed_out ? "timed_out" : result.code === 0 ? "succeeded" : "failed";
+      const nextStatus = budgetFailure ? /time budget exhausted/.test(budgetFailure.message) ? "timed_out" : "cancelled" : this.cancelled.has(record.job_id) ? "cancelled" : result.timed_out ? "timed_out" : result.code === 0 ? "succeeded" : "failed";
       Object.assign(record, transitionJobStatus(record, nextStatus));
-    } catch (error) { if (child) this.processes.terminate(child); if (!this.cancelled.has(record.job_id)) { Object.assign(record, transitionJobStatus(record, "failed")); record.stderr = String(error).slice(-100_000); } }
+    } catch (error) { if (child) this.processes.terminate(child); if (!this.cancelled.has(record.job_id)) { Object.assign(record, transitionJobStatus(record, budgetFailure ? /time budget exhausted/.test(budgetFailure.message) ? "timed_out" : "cancelled" : "failed")); record.stderr = String(error).slice(-100_000); } }
     finally {
       // Keep the in-process ownership proof until the terminal state is
       // durably written. Otherwise another coordinator can observe the still
       // running record in the small window after the child exits, conclude
       // that its expired lease is orphaned, and fence a healthy completion.
+      await stopBudgetWatch?.();
       this.leases.stopHeartbeat(record.job_id);
       record.ended_at = new Date(this.now()).toISOString(); this.processes.forget(record.job_id);
       try {

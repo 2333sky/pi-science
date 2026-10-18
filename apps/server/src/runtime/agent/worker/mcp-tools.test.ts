@@ -9,6 +9,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { z } from "zod";
 import { AgentMcpTools } from "./mcp-tools.js";
 import { InteractionBridge } from "./interaction-bridge.js";
+import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { CredentialStore } from "../../../model-resources/credential-store.js";
 
 // These protocol/authorization fixtures deliberately run on the host. Real
@@ -81,6 +82,13 @@ describe("agent-core managed MCP tools", () => {
       expect(interactions).toEqual([]); // readOnlyHint must not silently grant authorization or wait for hidden UI.
       await project({ ...base, __piScienceAllowedTools: ["lookup"] });
       expect(await call()).toMatchObject({ content: [{ text: "source" }] });
+      const slots = await Promise.all(Array.from({ length: 4 }, () => acquireMcpCall(cwd, JSON.stringify(["project_test", "connector_test"]))));
+      try {
+        const queued = call();
+        const rejected = expect(queued).rejects.toThrow("disabled or connector changed");
+        await project({ ...base, __piScienceAllowedTools: ["lookup"], excludeTools: ["lookup"] });
+        await slots[0]!.release(); await rejected;
+      } finally { await Promise.all(slots.map((slot) => slot.release())); }
       await project(base);
       await expect(call()).rejects.toThrow("explicit preauthorization");
       await project({ ...base, approveTools: false, excludeTools: ["lookup"] });

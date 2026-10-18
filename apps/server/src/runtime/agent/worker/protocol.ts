@@ -13,6 +13,8 @@ export interface AgentRuntimeStartOptions {
   allowedTools?: string[];
   /** Hidden children spend against the owning operation, never a fresh quota. */
   budgetOperationId?: string;
+  /** Durable local node within the inherited task-tree ledger. */
+  budgetNodeId?: string;
   delegatedAgent?: string;
   /** Assigned by authenticated parent dispatch; never inferred from child task text. */
   sandboxCandidateId?: string;
@@ -45,7 +47,7 @@ const startOptionsSchema = z.object({
   cwd: z.string().min(1), sessionsRoot: z.string().min(1), sessionId: z.string().min(1).optional(),
   parentSessionId: z.string().optional(), depth: z.number().int().nonnegative().optional(), allowedTools: z.array(z.string()).optional(),
   sandboxCandidateId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).optional(),
-  budgetOperationId: z.string().min(1).optional(), delegatedAgent: z.string().min(1).optional(),
+  budgetOperationId: z.string().min(1).optional(), budgetNodeId: z.string().min(1).optional(), delegatedAgent: z.string().min(1).optional(),
   model: z.object({ provider: z.string().min(1), modelId: z.string().min(1) }).strict(),
   thinking: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
   settings: z.object({ compaction_enabled: z.boolean().optional(), compaction_threshold_percent: z.number().min(50).max(95).optional(),

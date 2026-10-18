@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -498,3 +499,120 @@ fs.writeFileSync('research/quant/result.json', JSON.stringify(result)); console.
     expect(history.some((item) => item.content.some((part) => part.text === "Alternative"))).toBe(true);
   }, 20000);
 });
+
+describe("durable subagent supervision", () => {
+  it("collects background results after the execution quota is spent and replays without respawning", async () => {
+    const fixture = await modelFixture(async (body) => {
+      if (body.messages[0]!.content.includes("bounded background runner")) return "Background result.";
+      const tools = body.messages.filter((message) => message.role === "tool");
+      if (!tools.length) return { name: "execution_budget", args: { max_executions: 1, max_seconds: 30 } };
+      if (tools.length === 1) return { name: "subagent", args: { agent: "background", task: "Return a result.", tools: [], budget: { max_executions: 1 }, wait_seconds: 0 } };
+      if (tools.length === 2) {
+        expect(tools[1]!.content).toContain('"status":"running"');
+        const taskId = tools[1]!.content.match(/"task_id":"([a-f0-9]{64})"/)![1];
+        return { name: "subagent_control", args: { action: "collect", task_id: taskId, wait_seconds: 20 } };
+      }
+      expect(tools.at(-1)!.content).toContain("Background result."); return "Collected background result.";
+    });
+    await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+    await writeFile(join(fixture.cwd, ".pi/agents/background.md"), "---\nname: background\ntools: []\n---\nYou are a bounded background runner.");
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const options = { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off" as const, allowedTools: ["execution_budget", "subagent", "subagent_control"] };
+    const parent = await openHiddenTask(manager, "background-parent", options, "owner");
+    expect(await runHiddenPrompt(parent, "Run and collect", "once", Date.now() + 30_000)).toBe("Collected background result.");
+    const requests = fixture.requests(); await manager.stop("background-parent");
+    const reopened = await openHiddenTask(manager, "background-parent", options, "owner");
+    expect(await runHiddenPrompt(reopened, "Run and collect", "once", Date.now() + 10_000)).toBe("Collected background result.");
+    expect(fixture.requests()).toBe(requests);
+  }, 45_000);
+
+  it.each(["stop", "deadline"])("terminates a child waiting for a model response on %s", async (mode) => {
+    let release!: () => void, started!: () => void;
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const childStarted = new Promise<void>((resolve) => { started = resolve; });
+    const fixture = await modelFixture(async (body) => {
+      if (body.messages[0]!.content.includes("blocked background runner")) { started(); await blocked; return "late child"; }
+      const tools = body.messages.filter((message) => message.role === "tool");
+      if (!tools.length) return { name: "subagent", args: { agent: "blocked", task: "Wait for a model response.", wait_seconds: 0, budget: { max_seconds: mode === "deadline" ? 8 : 30 } } };
+      if (tools.length === 1) {
+        await childStarted;
+        return { name: "subagent_control", args: { action: mode === "stop" ? "stop" : "collect", task_id: tools[0]!.content.match(/"task_id":"([a-f0-9]{64})"/)![1], wait_seconds: 10 } };
+      }
+      expect(tools.at(-1)!.content).toMatch(mode === "stop" ? /cancelled/ : /deadline|aborted/i);
+      return "Child terminated.";
+    });
+    await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+    await writeFile(join(fixture.cwd, ".pi/agents/blocked.md"), "---\nname: blocked\ntools: []\n---\nYou are a blocked background runner.");
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const parent = await openHiddenTask(manager, "blocked-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["subagent", "subagent_control"] }, "owner");
+    try { expect(await runHiddenPrompt(parent, "Run a child", "once", Date.now() + 30_000)).toBe("Child terminated."); }
+    finally { release(); }
+    const { readdir } = await import("node:fs/promises");
+    const files = await readdir(join(fixture.cwd, ".pi-science/agent-tasks", createHash("sha256").update(parent.sessionId).digest("hex")));
+    const record = JSON.parse(await readFile(join(fixture.cwd, ".pi-science/agent-tasks", createHash("sha256").update(parent.sessionId).digest("hex"), files.find((name) => name.endsWith(".json"))!), "utf8"));
+    expect(record.status).toBe(mode === "stop" ? "cancelled" : "timed_out");
+  }, 45_000);
+});
+
+it("recovers a child result committed before its task summary without restarting the child or spending again", async () => {
+  let childCalls = 0, taskId = "";
+  const fixture = await modelFixture((body) => {
+    if (body.messages[0]!.content.includes("checkpointed result runner")) { childCalls++; return "Committed child result."; }
+    const start = body.messages.findLastIndex((message) => message.role === "user");
+    const tools = body.messages.slice(start).filter((message) => message.role === "tool");
+    if (body.messages[start]!.content.includes("Recover pending task")) {
+      if (!tools.length) return { name: "subagent_control", args: { action: "collect", task_id: taskId, wait_seconds: 10 } };
+      expect(tools.at(-1)!.content).toContain("Committed child result."); return "Recovered.";
+    }
+    if (!tools.length) return { name: "subagent", args: { agent: "checkpointed", task: "Return the result.", wait_seconds: 0 } };
+    taskId = tools[0]!.content.match(/"task_id":"([a-f0-9]{64})"/)![1]!; return "Dispatched.";
+  });
+  await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+  await writeFile(join(fixture.cwd, ".pi/agents/checkpointed.md"), "---\nname: checkpointed\ntools: []\n---\nYou are a checkpointed result runner.");
+  const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+  const options = { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off" as const, allowedTools: ["subagent", "subagent_control"] };
+  const parent = await openHiddenTask(manager, "checkpointed-parent", options, "owner");
+  expect(await runHiddenPrompt(parent, "Dispatch a task", "dispatch", Date.now() + 30_000)).toBe("Dispatched.");
+  const path = join(fixture.cwd, ".pi-science/agent-tasks", createHash("sha256").update(parent.sessionId).digest("hex"), `${taskId}.json`);
+  await vi.waitFor(async () => expect(JSON.parse(await readFile(path, "utf8")).status).toBe("completed"), { timeout: 15_000 });
+  await manager.stop("checkpointed-parent");
+  const record = JSON.parse(await readFile(path, "utf8"));
+  const { result: _result, ...unfinished } = record;
+  // Reproduce the durable crash boundary: child result is committed, group
+  // summary has not landed. Keep its original invocation/budget identity.
+  const { writeJsonAtomic } = await import("../../storage/persistence.js");
+  await writeJsonAtomic(path, { ...unfinished, status: "running" });
+  const reopened = await openHiddenTask(manager, "checkpointed-parent", { ...options, allowedTools: ["subagent_control"] }, "owner");
+  expect(await reopened.sendCommand("get_state")).toMatchObject({ success: true, data: { activeTools: ["subagent_control"] } });
+  expect(await runHiddenPrompt(reopened, "Recover pending task", "recover", Date.now() + 20_000)).toBe("Recovered.");
+  expect(childCalls).toBe(1);
+  const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+  expect(await new ExecutionBudgetLedger(fixture.cwd, record.budget_owner, true).status()).toMatchObject({ used: 1, usage: { subagent: 1 } });
+}, 45_000);
+
+it("keeps an idle parent and its workspace active while a background child is running", async () => {
+  let release!: () => void, started!: () => void;
+  const childStarted = new Promise<void>((resolve) => { started = resolve; });
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const fixture = await modelFixture(async (body) => {
+    if (body.messages[0]!.content.includes("idle background runner")) { started(); await blocked; return "Child finished."; }
+    if (body.messages.findLast((message) => message.role === "user")!.content.includes("Keep waiting")) return "Waiting.";
+    if (!body.messages.some((message) => message.role === "tool")) return { name: "subagent", args: { agent: "idle", task: "Wait.", wait_seconds: 0 } };
+    return "Dispatched.";
+  });
+  await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+  await writeFile(join(fixture.cwd, ".pi/agents/idle.md"), "---\nname: idle\ntools: []\n---\nYou are an idle background runner.");
+  const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+  const parent = await openHiddenTask(manager, "idle-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["subagent", "subagent_control"] }, "owner");
+  try {
+    expect(await runHiddenPrompt(parent, "Dispatch", "dispatch", Date.now() + 30_000)).toBe("Dispatched.");
+    await childStarted;
+    vi.stubEnv("PI_SCIENCE_IDLE_RUNTIME_MS", "50");
+    expect(await runHiddenPrompt(parent, "Keep waiting", "waiting", Date.now() + 10_000)).toBe("Waiting.");
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(manager.get("idle-parent")).toBe(parent);
+    const { hasActiveWorkspaceRuntimes, closeIdleWorkspaceRuntimes } = await import("./agent-runtime-manager.js");
+    expect(await hasActiveWorkspaceRuntimes(fixture.cwd)).toBe(true);
+    await expect(closeIdleWorkspaceRuntimes(fixture.cwd)).rejects.toThrow();
+  } finally { release(); vi.stubEnv("PI_SCIENCE_IDLE_RUNTIME_MS", "0"); }
+}, 45_000);

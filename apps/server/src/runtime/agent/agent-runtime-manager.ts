@@ -12,7 +12,7 @@ import { bindSubagentDispatch } from "./subagent-dispatch.js";
 // Includes pending starts and workers belonging to every app-owned manager.
 const capacity = new Set<symbol>();
 const processOwners = new Map<string, symbol>();
-const workspaceRuntimes = new Map<AgentCoreRuntimeClient, { manager: AgentRuntimeManager; key: string }>();
+const workspaceRuntimes = new Map<AgentCoreRuntimeClient, { manager: AgentRuntimeManager; key: string; hasActiveTasks: () => boolean }>();
 function workerLimit(): number {
   const value = Number(process.env.PI_SCIENCE_AGENT_MAX_WORKERS ?? 16);
   return Number.isSafeInteger(value) && value > 0 ? value : 16;
@@ -31,8 +31,9 @@ function idleTimeoutMs(): number {
 
 /** Called under exclusive lifecycle admission, including hidden workers owned by other managers. */
 export async function hasActiveWorkspaceRuntimes(cwd: string): Promise<boolean> {
-  for (const runtime of workspaceRuntimes.keys()) {
+  for (const [runtime, owner] of workspaceRuntimes) {
     if (runtime.isClosed || !pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
+    if (owner.hasActiveTasks()) return true;
     const state = await runtime.sendCommand("get_state").catch(() => null); const data = state?.data;
     if (!state?.success || !data || data.busy || data.pendingInteraction || Array.isArray(data.queues) && data.queues.length > 0) return true;
   }
@@ -41,6 +42,7 @@ export async function hasActiveWorkspaceRuntimes(cwd: string): Promise<boolean> 
 export async function closeIdleWorkspaceRuntimes(cwd: string): Promise<void> {
   for (const [runtime, owner] of [...workspaceRuntimes]) {
     if (runtime.isClosed || !pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
+    if (owner.hasActiveTasks()) throw new WorkspaceLifecycleBusyError();
     await owner.manager.stop(owner.key);
     if (!runtime.isClosed) throw new WorkspaceLifecycleBusyError();
   }
@@ -148,7 +150,7 @@ export class AgentRuntimeManager {
       throw new Error(`session ${runtime.sessionId} is already owned by another worker`);
     }
     this.runtimes.set(key, runtime);
-    workspaceRuntimes.set(runtime, { manager: this, key });
+    workspaceRuntimes.set(runtime, { manager: this, key, hasActiveTasks: dispatchDrain.isBusy });
     runtime.once("exit", () => workspaceRuntimes.delete(runtime));
     this.owners.set(ownerKey, key);
     this.owners.set(canonical, key);
@@ -190,7 +192,7 @@ export class AgentRuntimeManager {
       const state = await runtime.sendCommand("get_state");
       const data = state.data;
       const queued = Array.isArray(data?.queues) && data?.queues.length > 0;
-      if (!state.success || !data || data.busy || queued || data?.pendingInteraction) {
+      if (!state.success || !data || data.busy || queued || data?.pendingInteraction || workspaceRuntimes.get(runtime)?.hasActiveTasks()) {
         this.scheduleIdleCheck(key, runtime);
         return;
       }

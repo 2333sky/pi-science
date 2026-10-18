@@ -1,3 +1,4 @@
+import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -71,7 +72,7 @@ export class AgentMcpTools {
   readonly diagnostics: string[] = [];
 
   static async open(cwd: string, bridge: InteractionBridge, environment: Record<string, string>, budgetMs = DISCOVERY_BUDGET_MS,
-    allowedTools?: readonly string[], preauthorizedOnly = false): Promise<AgentMcpTools> {
+    allowedTools?: readonly string[], preauthorizedOnly = false, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>): Promise<AgentMcpTools> {
     const result = new AgentMcpTools();
     const capabilities = allowedTools === undefined ? undefined : new Set(allowedTools);
     const rawSnapshot = loadProjectedSnapshot(cwd);
@@ -80,14 +81,14 @@ export class AgentMcpTools {
     }, (name) => capabilities === undefined || [...capabilities].some((tool) => tool.split("__").length === 3 && tool.split("__")[1] === name)) as Record<string, ServerDefinition>;
     const deadline = Date.now() + budgetMs;
     await Promise.all(Object.entries(servers).map(async ([name, server]) => {
-      try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, rawSnapshot.mcpServers[name]); }
+      try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, rawSnapshot.mcpServers[name], authorize); }
       catch (error) { result.diagnostics.push(`${name}: ${error instanceof Error ? error.message : String(error)}${typeof (error as { code?: unknown }).code === "number" ? ` (HTTP ${(error as { code: number }).code})` : ""}`); }
     }));
     return result;
   }
 
   private async connect(name: string, server: ServerDefinition, cwd: string, bridge: InteractionBridge, environment: Record<string, string>, deadline: number,
-    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>): Promise<void> {
+    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>): Promise<void> {
     if (server.auth === "oauth" && !Object.keys(server.headers ?? {}).some((key) => key.toLowerCase() === "authorization")) {
       throw new Error("OAuth MCP connector requires an authorized credential binding");
     }
@@ -138,16 +139,26 @@ export class AgentMcpTools {
           parameters: tool.inputSchema as TSchema,
           async execute(_toolCallId, params, _onUpdate, _toolContext, _invocation, context) {
             let policy = currentPolicy(tool.name);
+            let approvedByUser = false;
             if (permissionRequired(policy, tool.name)) {
               if (preauthorizedOnly) throw new Error(`Delegated MCP tool requires explicit preauthorization in MCP settings: ${name}: ${tool.name}`);
               const approved = await bridge.confirmPermission(`Allow ${name}: ${tool.name}?`,
                 `Arguments: ${JSON.stringify(params).slice(0, 4_000)}`, context.abortSignal);
+              approvedByUser = approved;
               if (!approved) return { content: [{ type: "text", text: "MCP tool call was declined by the user" }], details: { declined: true }, isError: true };
             }
             // Approval may race with connector disable/revocation. Recheck before dispatch.
             policy = currentPolicy(tool.name);
-            if (preauthorizedOnly && permissionRequired(policy, tool.name)) throw new Error("Delegated MCP authorization revoked");
+            if (permissionRequired(policy, tool.name) && !approvedByUser) throw new Error("MCP authorization revoked before dispatch");
             if (context.abortSignal?.aborted) throw context.abortSignal.reason;
+            const slot = await acquireMcpCall(cwd, JSON.stringify([server.__piScienceProjectId, server.__piScienceConnectorId]), context.abortSignal);
+            const started = Date.now();
+            try {
+            // Queued calls must observe revocations made while they waited.
+            await authorize?.(`mcp__${name}__${tool.name}`, context.abortSignal);
+            context.abortSignal?.throwIfAborted();
+            policy = currentPolicy(tool.name);
+            if (permissionRequired(policy, tool.name) && !approvedByUser) throw new Error("MCP authorization revoked before dispatch");
             const response = await client.callTool({ name: tool.name, arguments: params as Record<string, unknown> }, undefined,
               { signal: context.abortSignal, timeout: server.requestTimeoutMs ?? 60_000 });
             const parts = Array.isArray(response.content) ? response.content as Array<Record<string, unknown>> : [];
@@ -158,7 +169,8 @@ export class AgentMcpTools {
                 content.push({ type: "image", data: part.data, mimeType: part.mimeType });
               }
             }
-            return { content, details: response.structuredContent, isError: response.isError === true };
+            return { content, details: { result: response.structuredContent, scheduling: { queued_ms: slot.queuedMs, execution_ms: Date.now() - started } }, isError: response.isError === true };
+            } finally { await slot.release(); }
           },
         });
       }

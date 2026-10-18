@@ -51,16 +51,21 @@ export async function runHiddenPrompt(runtime: AgentCoreRuntimeClient, message: 
 
 async function runHiddenPromptAdmitted(runtime: AgentCoreRuntimeClient, message: string, clientId: string, deadline: number,
   observe?: (event: RuntimeEvent) => void): Promise<string> {
+  const assertDeadline = () => { if (deadline <= Date.now()) throw new Error("Hidden agent execution deadline exceeded"); };
+  assertDeadline();
   const expected = promptOperationId(runtime.sessionId, clientId);
   let cleanup = () => {};
   let finish!: (error?: Error) => void;
   const completed = new Promise<void>((resolve, reject) => {
     const event = (value: RuntimeEvent) => {
       observe?.(value);
-      if (value.type === "operation.settled" && value.runId === expected) finish(value.status === "completed" ? undefined : new Error(`Child operation ${value.status}`));
+      if (value.type === "operation.settled" && value.runId === expected) finish(value.status === "completed" ? undefined : new Error(deadline <= Date.now() ? "Hidden agent execution deadline exceeded" : `Child operation ${value.status}`));
     };
     const exit = () => finish(new Error("Hidden agent worker exited"));
-    const timer = setTimeout(() => finish(new Error("Hidden agent timed out")), Math.max(1, deadline - Date.now()));
+    const timer = setTimeout(() => {
+      finish(new Error("Hidden agent execution deadline exceeded"));
+      void runtime.sendCommand("abort").catch(() => undefined);
+    }, Math.max(1, deadline - Date.now()));
     cleanup = () => { clearTimeout(timer); runtime.off("event", event); runtime.off("exit", exit); };
     finish = (error) => { cleanup(); error ? reject(error) : resolve(); };
     runtime.on("event", event); runtime.once("exit", exit);
@@ -69,6 +74,7 @@ async function runHiddenPromptAdmitted(runtime: AgentCoreRuntimeClient, message:
   void completed.catch(() => undefined);
   try {
     const state = await runtime.sendCommand("get_state");
+    assertDeadline();
     if (!state.success) throw new Error(state.error ?? "Unable to read child state");
     const data = state.data;
     if (!data) throw new Error("Child returned no state");
@@ -76,6 +82,7 @@ async function runHiddenPromptAdmitted(runtime: AgentCoreRuntimeClient, message:
     else {
       if (data.busy && data.operation?.id !== expected) throw new Error("Child is executing another operation");
       const activation = await runtime.sendCommand("activate");
+      assertDeadline();
       if (!activation.success) throw new Error(activation.error ?? "Unable to activate child");
       if (!data.busy) {
         const admitted = await runtime.sendCommand("prompt", { message, client_message_id: clientId });

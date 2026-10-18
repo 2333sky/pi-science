@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { localBudgetParameters } from "./execution-budget.js";
 import type { RuntimeEvent, RuntimeResult } from "../agent-runtime-types.js";
 
 export class SubagentBridge {
   private readonly pending = new Map<string, { resolve: (result: RuntimeResult) => void; cleanup: () => void }>();
   constructor(private readonly publish: (event: RuntimeEvent) => void) {}
-  request(params: Record<string, unknown>, signal?: AbortSignal, eventType: "subagent.requested" | "capability.requested" = "subagent.requested"): Promise<RuntimeResult> {
+  request(params: Record<string, unknown>, signal?: AbortSignal, eventType: "subagent.requested" | "capability.requested" | "subagent.control" = "subagent.requested"): Promise<RuntimeResult> {
     if (signal?.aborted) return Promise.resolve({ success: false, error: "Subagent cancelled" });
     const id = randomUUID();
     return new Promise((resolve) => {
@@ -27,18 +28,22 @@ export class SubagentBridge {
     item.resolve(params.result as RuntimeResult);
     return { success: true };
   }
+  cancelAll(): void { this.publish({ type: "subagent.cancel_all", id: "all" }); }
   close(): void {
+    this.cancelAll();
     for (const id of this.pending.keys()) this.respond({ id, result: { success: false, error: "Worker closed" } });
   }
 }
 
 export function subagentHarnessTool(bridge: SubagentBridge): AgentHarnessTool<{ env: NodeExecutionEnv }> {
   return {
-    name: "subagent", label: "Subagent", description: "Delegate a task to a named workspace agent (single), a sequential chain, or a bounded parallel group. The parent synthesizes the results. For sandbox execution, assign candidate_id on each Experimenter task; the child cannot change this assignment. Async and workflow modes are unavailable.",
+    name: "subagent", label: "Subagent", description: "Delegate a task to a named workspace agent (single), a sequential chain, or a bounded parallel group. The parent synthesizes the results. For sandbox execution, assign candidate_id on each Experimenter task; the child cannot change this assignment. wait_seconds bounds only waiting (0 dispatches in the background). Execution deadlines and local budgets still apply; use subagent_control to inspect, collect, resume or stop your tasks.",
     parameters: Type.Object({
+      wait_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 600 })),
+      tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters),
       agent: Type.Optional(Type.String()), task: Type.Optional(Type.String()), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })),
-      chain: Type.Optional(Type.Array(Type.Object({ agent: Type.String(), task: Type.String(), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 8 })),
-      tasks: Type.Optional(Type.Array(Type.Object({ agent: Type.String(), task: Type.String(), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 4 })),
+      chain: Type.Optional(Type.Array(Type.Object({ agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 8 })),
+      tasks: Type.Optional(Type.Array(Type.Object({ agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 4 })),
     }),
     async execute(_id, params, onUpdate, _ctx, invocation, context) {
       const cached = await invocation.getMemo("subagent-result");
@@ -51,6 +56,19 @@ export function subagentHarnessTool(bridge: SubagentBridge): AgentHarnessTool<{ 
       const result = response.data as { content: Array<{ type: "text"; text: string }>; details: unknown };
       await invocation.setMemo("subagent-result", JSON.parse(JSON.stringify(result)));
       return result;
+    },
+  };
+}
+
+/** Observation/cleanup remains available even after an execution quota is spent. */
+export function subagentControlTool(bridge: SubagentBridge): AgentHarnessTool<{ env: NodeExecutionEnv }> {
+  return {
+    name: "subagent_control", label: "Subagent tasks", description: "List, inspect, collect, resume or stop this session's own child tasks. Waiting can expire while execution continues. Collection resumes interrupted tasks under their original budget and current permissions. Stopping cancels descendants. Observation and cleanup do not consume execution slots.",
+    parameters: Type.Object({ action: Type.Union([Type.Literal("list"), Type.Literal("status"), Type.Literal("collect"), Type.Literal("stop")]), task_id: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })), wait_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 600 })) }),
+    async execute(_id, params, _update, _ctx, _invocation, context) {
+      const response = await bridge.request({ params }, context.abortSignal, "subagent.control");
+      if (!response.success) throw new Error(response.error ?? "Subagent control failed");
+      return response.data as { content: Array<{ type: "text"; text: string }>; details: unknown };
     },
   };
 }

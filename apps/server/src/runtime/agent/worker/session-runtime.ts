@@ -1,5 +1,5 @@
 import { workspaceFileTool } from "./workspace-file-tool.js";
-import { executionBudgetTools } from "./execution-budget.js";
+import { executionBudgetTools, watchExecutionDeadline } from "./execution-budget.js";
 import { sandboxBashTool } from "./sandbox-bash.js";
 import { sandboxRunTool, sandboxInstallation, candidateReadTool } from "./sandbox-tool.js";
 import { randomUUID } from "node:crypto";
@@ -14,7 +14,7 @@ import { AgentCoreEventAdapter } from "../agent-event-adapter.js";
 import { promptOperationId, userPrompt } from "../agent-message.js";
 import { notebookHarnessTools } from "./notebook-tools.js";
 import { todoHarnessTool } from "./todo-tool.js";
-import { SubagentBridge, subagentHarnessTool } from "./subagent-tool.js";
+import { SubagentBridge, subagentHarnessTool, subagentControlTool } from "./subagent-tool.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 import { questionnaireHarnessTool } from "./questionnaire-tool.js";
 import { AgentMcpTools } from "./mcp-tools.js";
@@ -62,6 +62,10 @@ export class SessionRuntime {
   private promptTemplates: PromptTemplate[] = [];
   private skillPolicy: RuntimeSkillPolicy = { mode: "inherit" };
   private closed = false;
+  private stopBudgetWatch?: () => Promise<void>;
+  private budgetWatchDrains = new Set<Promise<void>>();
+  private watchedBudgetOperation?: string;
+  private budgetTools!: ReturnType<typeof executionBudgetTools>;
   private activated = false;
   private activateWatch: (() => void) | undefined;
   private mutationTail: Promise<unknown> = Promise.resolve();
@@ -149,14 +153,17 @@ export class SessionRuntime {
       if (recovering && saved?.model === `${model.provider}/${model.id}`) model.contextWindow = saved.contextWindow;
       const discovered = await loadSkills(executionEnv, skillPaths, context);
       const templates = await loadPromptTemplates(executionEnv, join(options.cwd, ".pi", "prompts"), context);
+      const subagents = new SubagentBridge(emit);
       // Capability checks precede discovery: a tool-free worker must not spawn
       // connectors, open connections, or materialize their credentials.
       if (options.allowedTools === undefined || options.allowedTools.some((name) => name.startsWith("mcp__"))) {
-        mcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools, options.delegatedAgent !== undefined);
+        mcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools, options.delegatedAgent !== undefined, options.delegatedAgent ? async (tool, signal) => {
+          const permission = await subagents.request({ tool }, signal, "capability.requested");
+          if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
+        } : undefined);
       }
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
-      const subagents = new SubagentBridge(emit);
-      const budgets = executionBudgetTools(options.cwd, options.budgetOperationId);
+      const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
       const { harness, open } = await AgentHarness.create({
         session,
         models,
@@ -164,7 +171,7 @@ export class SessionRuntime {
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
         tools: [budgets.tool, candidateReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }), budgets.wrap(sandboxRunTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, sandboxInstallation())), budgets.wrap(sandboxBashTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
-          todoHarnessTool(session), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
+          todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => !options.allowedTools || options.allowedTools.includes(tool.name))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
             const permission = await subagents.request({ tool: tool.name }, context.abortSignal, "capability.requested");
@@ -181,6 +188,7 @@ export class SessionRuntime {
       openedLane = lane;
       const watch = await lane.watch(context);
       const runtime = new SessionRuntime(session.metadata.id, lane, harness, repo, executionEnv, session.metadata, session, watch, interactions, mcp, skillPaths, discovered.skills, skillPolicy, fatal);
+      runtime.budgetTools = budgets;
       runtime.settings = options.settings ?? {};
       runtime.promptTemplates = templates.promptTemplates;
       runtime.subagents = subagents;
@@ -188,6 +196,12 @@ export class SessionRuntime {
       runtime.runtimeEpoch = runtimeEpoch;
       runtime.eventSequence = () => eventSequence;
       const snapshot = await watch.resnapshot(context);
+      // Durable tool selection is a preference, never a capability grant. Strip
+      // revoked tools before recovery; add supervision for existing delegates.
+      const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
+      const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
+      if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
+      if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
       // A restored lane keeps its durable model, and the seed only applies to a lane that has
       // none. That is deliberate: an explicit configure owns the durable model, so a request
       // the worker will reject must not have committed it already. When the restored model is
@@ -225,14 +239,17 @@ export class SessionRuntime {
       const adapter = new AgentCoreEventAdapter();
       runtime.activateWatch = () => {
         watch.start((event) => {
-          for (const mapped of adapter.adapt(event)) emit(mapped);
+          for (const mapped of adapter.adapt(event)) {
+            if (mapped.type === "operation.settled" && mapped.runId === runtime.watchedBudgetOperation) { runtime.drainBudgetWatch(); }
+            emit(mapped);
+          }
         });
         const recovered = open.find((operation) => operation.lane === "main");
         if (recovered) {
           // A just-accepted run resumes from "starting" without run_resume.
           // Seed its lifecycle from the durable snapshot after binding.
           if (recovered.kind === "run") emit(adapter.beginRecovery(recovered.operationId));
-          void lane.resume(context).catch(fatal);
+          void runtime.guardBudget(recovered.operationId).then(() => lane.resume(context)).catch(fatal);
         }
       };
       return runtime;
@@ -332,6 +349,7 @@ export class SessionRuntime {
           const admitted = await this.lane.accept({ kind: "prompt", operationId, prompt: userPrompt(message, clientMessageId) }, context);
           if (!admitted.ok) return resultValue(admitted);
           const acceptedId = admitted.value.operationId;
+          await this.guardBudget(acceptedId);
           void this.lane.drive({ operationId: acceptedId, waitForRetry: true, pollDeferred: true }, context)
             .catch(this.fatal); // A fresh worker resumes the durable operation.
           return { success: true, operationId: acceptedId };
@@ -344,7 +362,10 @@ export class SessionRuntime {
             ? await this.lane.steer(message, undefined, context)
             : await this.lane.followUp(message, undefined, context));
         }
-        case "abort": return resultValue(await this.lane.abort(context));
+        case "abort":
+          this.subagents?.cancelAll();
+          if (this.watchedBudgetOperation) await this.budgetTools.ledger(this.watchedBudgetOperation).cancel();
+          return resultValue(await this.lane.abort(context));
         case "compact": {
           if (!this.activated) return { success: false, code: "not_ready", error: "agent runtime has not been activated" };
           const customInstructions = typeof params.customInstructions === "string" ? params.customInstructions : undefined;
@@ -489,7 +510,28 @@ export class SessionRuntime {
       enabled: enabled.has(skill.name) }));
   }
 
+  private drainBudgetWatch(): void {
+    const pending = this.stopBudgetWatch?.(); this.stopBudgetWatch = undefined;
+    if (pending) { this.budgetWatchDrains.add(pending); void pending.finally(() => this.budgetWatchDrains.delete(pending)); }
+  }
+
+  private async guardBudget(operationId: string): Promise<void> {
+    this.drainBudgetWatch();
+    this.watchedBudgetOperation = operationId;
+    const ledger = this.budgetTools.ledger(operationId);
+    try {
+      const budget = await ledger.status();
+      if (budget.cancelled || budget.deadline <= Date.now()) throw new Error(budget.cancelled ? "Execution task cancelled" : "Execution time budget exhausted");
+    } catch (error) { await this.lane.abort(context); throw error; }
+    this.stopBudgetWatch = watchExecutionDeadline(ledger, () => {
+      this.subagents?.cancelAll();
+      void this.lane.abort(context).catch(this.fatal);
+    });
+  }
+
   async close(): Promise<void> {
+    this.drainBudgetWatch();
+    await Promise.all([...this.budgetWatchDrains]);
     this.subagents?.close();
     if (this.closed) return;
     this.closed = true;

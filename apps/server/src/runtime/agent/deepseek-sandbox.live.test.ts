@@ -1,4 +1,5 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { join, resolve } from "node:path";
@@ -10,6 +11,8 @@ import { workspacePolicy } from "../sandbox/policy.js";
 import { prepareSandbox, launcherPath } from "../sandbox/process.js";
 import { AgentRuntimeManager } from "./agent-runtime-manager.js";
 import { openHiddenTask, runHiddenPrompt } from "./hidden-agent-task.js";
+import { ExecutionBudgetLedger } from "../executions/execution-budget.js";
+import { promptOperationId } from "./agent-message.js";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { streamSimple } from "@earendil-works/pi-ai/api/openai-completions";
 import { normalizeContext } from "@earendil-works/pi-ai";
@@ -128,11 +131,11 @@ it.skipIf(process.env.PI_SCIENCE_DEEPSEEK_LIVE_TEST !== "1")("runs real DeepSeek
     await writeJsonAtomic(configPath("config.json"), { ...await readJson(configPath("config.json"), {}), model: `${provider.id}/${modelId}`, thinking: "high" });
     // Worker environments deliberately exclude ambient provider secrets. Pass this
     // environment-backed credential explicitly, as the production session adapter does.
-    const runtime = await openHiddenTask(manager, "deepseek-live", { cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), model: { provider: provider.id, modelId }, env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY }, thinking: "high", allowedTools: ["bash", "subagent"], skillPolicy: { mode: "none" } }, "live-test-owner");
+    const runtime = await openHiddenTask(manager, "deepseek-live", { cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), model: { provider: provider.id, modelId }, env: { DEEPSEEK_API_KEY: process.env.DEEPSEEK_API_KEY }, thinking: "high", allowedTools: ["bash", "subagent", "subagent_control"], skillPolicy: { mode: "none" } }, "live-test-owner");
     expect(await runtime.sendCommand("get_state")).toMatchObject({ success: true, data: { thinkingLevel: "high" } });
     const command = "set -e; test -z \"$DEEPSEEK_API_KEY\"; test ! -r .pi-science/protected; printf main-isolated > main.txt; echo main-isolated";
     const childCommand = command.replaceAll("main", "child");
-    const output = await runHiddenPrompt(runtime, `Execute exactly these steps, without extra tool calls: (1) Call bash with command ${JSON.stringify(command)}. (2) Call subagent with agent='runner' and task asking it to call bash exactly once with command ${JSON.stringify(childCommand)}. (3) Summarize the actual results. Stop if any step fails; do not retry.`, "live-once", Date.now() + 300_000);
+    const output = await runHiddenPrompt(runtime, `Execute exactly these steps, without extra tool calls: (1) Call bash with command ${JSON.stringify(command)}. (2) Call subagent with agent='runner', wait_seconds=0, tools=['bash'], budget={max_seconds:60,max_executions:1,by_kind:{bash:1}}, and task asking it to call bash exactly once with command ${JSON.stringify(childCommand)}. (3) Use the returned task_id to call subagent_control with action='collect' and wait_seconds=120. (4) Summarize the collected actual results. Stop if any step fails; do not retry.`, "live-once", Date.now() + 300_000);
     expect(output.trim()).not.toBe("");
     expect(await readFile(join(cwd, "main.txt"), "utf8")).toBe("main-isolated");
     expect(await readFile(join(cwd, "child.txt"), "utf8")).toBe("child-isolated");
@@ -143,7 +146,14 @@ it.skipIf(process.env.PI_SCIENCE_DEEPSEEK_LIVE_TEST !== "1")("runs real DeepSeek
       expect(record.runtime).toMatchObject({ execution_mode: "required", sandbox_policy_id: expect.any(String) });
       expect(record.artifacts.length).toBeGreaterThan(0);
     }
-    expect(requests.length).toBeGreaterThanOrEqual(4);
+    const ledger = new ExecutionBudgetLedger(cwd, promptOperationId(runtime.sessionId, "live-once"));
+    expect(await ledger.status()).toMatchObject({ used: 3, usage: { bash: 2, subagent: 1 } });
+    const taskDirectory = join(cwd, ".pi-science/agent-tasks", createHash("sha256").update(runtime.sessionId).digest("hex"));
+    const taskFiles = (await readdir(taskDirectory)).filter((name) => name.endsWith(".json"));
+    expect(taskFiles).toHaveLength(1);
+    const task = JSON.parse(await readFile(join(taskDirectory, taskFiles[0]!), "utf8"));
+    expect(task).toMatchObject({ status: "completed", params: { wait_seconds: 0, tools: ["bash"], budget: { max_executions: 1, by_kind: { bash: 1 } } } });
+    expect(requests.length).toBeGreaterThanOrEqual(5);
     for (const request of requests) expect(request).toMatchObject({ model: modelId, reasoning_effort: "high", thinking_enabled: true, status: 200 });
     expect(requests.some((request) => request.reasoning_chunks > 0)).toBe(true);
     executionEvidence = executions.map((record) => ({ status: record.status, runtime: record.runtime, artifact_count: record.artifacts.length }));

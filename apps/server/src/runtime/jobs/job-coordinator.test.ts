@@ -62,6 +62,33 @@ async function linuxStartTicks(pid: number): Promise<string | null> {
 async function processExists(pid: number): Promise<boolean> { try { process.kill(pid, 0); return true; } catch { return false; } }
 
 describe("job coordinator", () => {
+  it("keeps a task cancelled during job preparation from spawning", async () => {
+    const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+    const cwd = await workspace(); const ledger = new ExecutionBudgetLedger(cwd, "cancel-before-launch");
+    await ledger.configure({ max_seconds: 30 });
+    const child = await ledger.createChild("child");
+    const coordinator = jobCoordinator({ PATH: process.env.PATH }, { beforeSpawn: () => child.cancel() });
+    const job = await coordinator.submit(cwd, { command: [process.execPath, "-e", "require('node:fs').writeFileSync('late.txt','escaped')"] }, { owner: "cancel-before-launch", nodeId: "child" });
+    expect(await waitFor(() => coordinator.get(cwd, job.job_id), terminal)).toMatchObject({ status: "cancelled", stderr: expect.stringContaining("task cancelled") });
+    await expect(readFile(join(cwd, "late.txt"))).rejects.toThrow();
+  });
+
+  it.each(["cancel", "deadline"] as const)("terminates a real background process on task-tree %s", async (mode) => {
+    const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+    const cwd = await workspace(); const ledger = new ExecutionBudgetLedger(cwd, "job-tree");
+    await ledger.configure({ max_seconds: 30, by_kind: { job: 1 } });
+    const child = await ledger.createChild("child", { max_seconds: mode === "deadline" ? 3 : 30 });
+    const coordinator = jobCoordinator({ PATH: process.env.PATH });
+    const job = await coordinator.submit(cwd, { command: [process.execPath, "-e", "console.log('ready');setTimeout(()=>require('node:fs').writeFileSync('late.txt','escaped'),15000)"] }, { owner: "job-tree", nodeId: "child" });
+    await waitFor(() => coordinator.get(cwd, job.job_id), (record) => !!record?.ownership?.child);
+    await expect(coordinator.submit(cwd, { command: [process.execPath, "-e", "console.log('over quota')"] }, { owner: "job-tree", nodeId: "child" })).rejects.toThrow("job budget exhausted");
+    if (mode === "cancel") await child.cancel();
+    const record = await waitFor(() => coordinator.get(cwd, job.job_id), terminal);
+    expect(record?.status).toBe(mode === "cancel" ? "cancelled" : "timed_out");
+    await expect(readFile(join(cwd, "late.txt"))).rejects.toThrow();
+    expect(await ledger.status()).toMatchObject({ used: 1, usage: { job: 1 } });
+  });
+
   it.each(["beforeSpawn", "testBeforeAuthorizedSpawn"] as const)("refuses a persisted host-mode job when required mode is enabled at %s", async (barrier) => {
     const cwd = await workspace();
     const coordinator = jobCoordinator({ PATH: process.env.PATH }, {
