@@ -13,6 +13,7 @@ export class SubagentBridge {
     return new Promise((resolve) => {
       const abort = () => {
         if (eventType === "subagent.requested") this.publish({ type: "subagent.cancelled", id });
+        if (eventType === "subagent.control") this.publish({ type: "subagent.wait_cancelled", id });
         this.respond({ id, result: { success: false, error: "Subagent cancelled" } });
       };
       signal?.addEventListener("abort", abort, { once: true });

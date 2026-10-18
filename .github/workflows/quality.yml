@@ -136,6 +136,14 @@ jobs:
           if-no-files-found: ignore
           include-hidden-files: true
 
+      - name: Install required Linux sandbox dependencies for control-plane smoke
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # This ephemeral runner must permit the user namespaces used by Bubblewrap.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Run control-plane smoke test
         if: runner.os != 'Windows'
         run: bash scripts/smoke-control-plane.sh

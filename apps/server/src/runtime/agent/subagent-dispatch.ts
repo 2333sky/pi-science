@@ -24,6 +24,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
   const active = new Map<string, Set<string>>();
   const cancelled = new Set<string>();
   const requests = new Map<string, string>();
+  const waits = new Map<string, AbortController>();
   const jobs = new Map<string, Promise<Record<string, unknown>>>();
   const pathFor = (id: string) => workspaceFile(options.cwd, `agent-tasks/${digest(parent.sessionId)}/${id}.json`);
   const load = async (id: string): Promise<TaskRecord> => {
@@ -186,19 +187,29 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
     void promise.finally(() => { jobs.delete(record.task_id); active.delete(record.task_id); cancelled.delete(record.task_id); }).catch(() => undefined);
     return promise;
   };
-  const awaitTask = async (record: TaskRecord, seconds: number) => {
+  const awaitTask = async (record: TaskRecord, seconds: number, signal?: AbortSignal) => {
+    signal?.throwIfAborted();
     if (record.status !== "running") return record.result ? { ...record.result, details: { ...(record.result.details as object), ...view(record) } } : toolResult(view(record));
     const work = start(record);
     if (seconds === 0) return toolResult(view(record));
     let timer: NodeJS.Timeout | undefined;
-    try { return await Promise.race([work, new Promise<Record<string, unknown>>((resolve, reject) => { timer = setTimeout(() => { void load(record.task_id).then((value) => resolve(value.result ? { ...value.result, details: { ...(value.result.details as object), ...view(value) } } : toolResult(view(value))), reject); }, seconds * 1000); })]); }
-    finally { if (timer) clearTimeout(timer); }
+    let abort: (() => void) | undefined;
+    const interrupted = new Promise<never>((_resolve, reject) => {
+      abort = () => reject(new Error("Subagent wait cancelled"));
+      signal?.addEventListener("abort", abort, { once: true });
+      if (signal?.aborted) abort();
+    });
+    try { return await Promise.race([work, interrupted, new Promise<Record<string, unknown>>((resolve, reject) => { timer = setTimeout(() => { void load(record.task_id).then((value) => resolve(value.result ? { ...value.result, details: { ...(value.result.details as object), ...view(value) } } : toolResult(view(value))), reject); }, seconds * 1000); })]); }
+    finally { if (timer) clearTimeout(timer); if (abort) signal?.removeEventListener("abort", abort); }
   };
   parent.on("event", (event: RuntimeEvent) => {
     const id = String(event.id ?? "");
+    if (event.type === "subagent.wait_cancelled") { waits.get(id)?.abort(); return; }
     if (event.type === "subagent.cancel_all") { track(cancelAll()); return; }
     if (event.type === "subagent.cancelled") { const taskId = requests.get(id); if (taskId) track(cancel(taskId)); else cancelled.add(id); return; }
     if (event.type !== "subagent.requested" && event.type !== "subagent.control") return;
+    const waiting = event.type === "subagent.control" ? new AbortController() : undefined;
+    if (waiting) waits.set(id, waiting);
     const dispatch = async () => {
       if (event.type === "subagent.control") {
         const params = controlSchema.parse(event.params);
@@ -206,7 +217,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         if (!params.task_id) throw new Error("task_id is required");
         let record = await load(params.task_id);
         if (params.action === "stop") { await cancel(record.task_id); record = await load(record.task_id); }
-        if (params.action === "collect") return awaitTask(record, params.wait_seconds ?? 30);
+        if (params.action === "collect") return awaitTask(record, params.wait_seconds ?? 30, waiting?.signal);
         return toolResult(view(record));
       }
       if (typeof event.operationId !== "string" || typeof event.invocationId !== "string") throw new Error("Missing subagent invocation identity");
@@ -234,7 +245,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
       if (cancelled.has(id) || parent.isClosed) { await cancel(taskId); throw new Error("Subagent cancelled"); }
       return awaitTask(record, record.params.wait_seconds ?? 600);
     };
-    track(dispatch().then((data) => parent.sendNotification("subagent_response", { id, result: { success: true, data } }), (error) => parent.sendNotification("subagent_response", { id, result: { success: false, error: String(error) } })).catch(() => undefined).finally(() => { requests.delete(id); cancelled.delete(id); }));
+    track(dispatch().then((data) => parent.sendNotification("subagent_response", { id, result: { success: true, data } }), (error) => parent.sendNotification("subagent_response", { id, result: { success: false, error: String(error) } })).catch(() => undefined).finally(() => { requests.delete(id); cancelled.delete(id); waits.delete(id); }));
   });
   return Object.assign(async () => { while (pending.size) await Promise.allSettled([...pending]); },
     { isBusy: () => jobs.size > 0 || active.size > 0 || pending.size > 0 });

@@ -31,7 +31,7 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     }
     const env = { ...scoped, PATH: [...bins, "/usr/bin", "/bin"].join(":"), HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch,
       XDG_CACHE_HOME: scratch, MPLCONFIGDIR: scratch, LANG: "C.UTF-8", OPENBLAS_NUM_THREADS: "1", OMP_NUM_THREADS: "1", PYTHONNOUSERSITE: "1", NODE_USE_ENV_PROXY: "1",
-      ...(certificate ? { SSL_CERT_FILE: certificate, CURL_CA_BUNDLE: certificate, REQUESTS_CA_BUNDLE: certificate, NODE_EXTRA_CA_CERTS: certificate } : {}) };
+      ...(certificate ? { SSL_CERT_FILE: certificate, CURL_CA_BUNDLE: certificate, REQUESTS_CA_BUNDLE: certificate, NODE_EXTRA_CA_CERTS: certificate, ...(policy.profile === "install" ? { MAMBA_SSL_VERIFY: certificate, CONDA_SSL_VERIFY: certificate } : {}) } : {}) };
     const settingsPath = join(control, "settings.json"); const manifest = join(control, "launch.json"); const shell = join(control, "bash");
     await writeFile(settingsPath, JSON.stringify(settings), { mode: 0o600 });
     const supervisor = await prepareMacosSupervisor(control);

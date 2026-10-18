@@ -41,7 +41,46 @@ export PI_SCIENCE_REQUIRE_INTERNAL_TOKEN=1
 # The control plane deliberately authenticates every /api request. Keep the
 # smoke script readable by attaching the per-process token at one boundary.
 curl() {
-    command curl -H "x-pi-science-internal-token: ${PI_SCIENCE_INTERNAL_TOKEN}" "$@"
+    # Streaming calls must reach their output file as events arrive.
+    case " $* " in
+        *" --no-buffer "*) command curl -H "x-pi-science-internal-token: ${PI_SCIENCE_INTERNAL_TOKEN}" "$@"; return ;;
+    esac
+    local capture rc=0 endpoint="unknown"
+    capture="$(mktemp "$TEMP_DIR/http-response.XXXXXX")"
+    local arg
+    for arg in "$@"; do
+        case "$arg" in http://*|https://*) endpoint="${arg%%\?*}" ;; esac
+    done
+    command curl -H "x-pi-science-internal-token: ${PI_SCIENCE_INTERNAL_TOKEN}" "$@" >"$capture" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        echo "[smoke] HTTP request failed: $endpoint (curl exit $rc)" >&2
+        # Only structured diagnostic fields are logged; request payloads,
+        # credentials and arbitrary response fields never enter CI logs.
+        python3 - "$capture" <<'PYERROR' >&2
+import json, re, sys
+try:
+    value = json.load(open(sys.argv[1]))
+    def safe(value):
+        if isinstance(value, dict):
+            return {k: safe(v) for k, v in value.items() if k in ("error", "message", "code", "detail", "type")}
+        if isinstance(value, list):
+            return [safe(v) for v in value[:5]]
+        if isinstance(value, str):
+            value = re.sub(r"(?i)(bearer\s+|(?:api[_-]?key|token|secret|password)[=: ]+)[^\s,;]+", r"\1[redacted]", value)
+            value = re.sub(r"(?:sk-|gh[pousr]_)[A-Za-z0-9_-]+", "[redacted]", value)
+            for secret in ("smoke-internal-token", "smoke-secret", "custom-secret"):
+                value = value.replace(secret, "[redacted]")
+            return value[:2000]
+        return value
+    print("[smoke] redacted error response:", json.dumps(safe(value))[:2400])
+except (ValueError, OSError):
+    print("[smoke] response was not structured JSON; body omitted")
+PYERROR
+    else
+        cat "$capture"
+    fi
+    rm -f "$capture"
+    return "$rc"
 }
 
 SMOKE_WORKSPACE="$TEMP_DIR/workspace"
@@ -73,7 +112,7 @@ wait_http() {
     local url="$1"
     local attempts=0
     while [ "$attempts" -lt 40 ]; do
-        if curl --fail --silent "$url" >/dev/null 2>&1; then return 0; fi
+        if curl --fail-with-body --silent "$url" >/dev/null 2>&1; then return 0; fi
         attempts=$((attempts + 1))
         sleep 0.25
     done
@@ -114,7 +153,7 @@ assert_body_contains() {
     local needle="$1"
     local url="$2"
     local body
-    body="$(curl --fail --silent --show-error "$url")"
+    body="$(curl --fail-with-body --silent --show-error "$url")"
     if ! grep -Fq -- "$needle" <<<"$body"; then
         echo "response from $url did not contain: $needle" >&2
         exit 40
@@ -150,7 +189,7 @@ assert_status 200 "http://127.0.0.1:${NODE_PORT}/internal/ready"
 assert_status 200 "http://127.0.0.1:${NODE_PORT}/api/health"
 assert_body_contains '"control_plane":"node"' "http://127.0.0.1:${NODE_PORT}/api/health"
 HEALTH_HEADERS="$TEMP_DIR/health.headers"
-curl --fail --silent --show-error --dump-header "$HEALTH_HEADERS" --output /dev/null \
+curl --fail-with-body --silent --show-error --dump-header "$HEALTH_HEADERS" --output /dev/null \
     "http://127.0.0.1:${NODE_PORT}/api/health"
 assert_header_file_contains "$HEALTH_HEADERS" 'x-pi-science-runtime: node-control-plane'
 
@@ -162,7 +201,7 @@ assert_body_contains '"api_keys"' "http://127.0.0.1:${NODE_PORT}/api/settings/co
 WORKSPACE_Q="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))' "$SMOKE_WORKSPACE")"
 
 echo "[smoke] native settings, files, artifacts, jobs, and provenance"
-SETTINGS_JSON="$(curl --fail --silent --show-error -X PUT \
+SETTINGS_JSON="$(curl --fail-with-body --silent --show-error -X PUT \
     -H 'Content-Type: application/json' \
     -d '{"provider":"openai","api_key":"smoke-secret"}' \
     "http://127.0.0.1:${NODE_PORT}/api/settings/api-key")"
@@ -170,7 +209,7 @@ if ! echo "$SETTINGS_JSON" | grep -q '"ok":true'; then
     echo "settings api-key write failed" >&2
     exit 40
 fi
-CONFIG_JSON="$(curl --fail --silent --show-error "http://127.0.0.1:${NODE_PORT}/api/settings/config")"
+CONFIG_JSON="$(curl --fail-with-body --silent --show-error "http://127.0.0.1:${NODE_PORT}/api/settings/config")"
 if ! echo "$CONFIG_JSON" | grep -q '"openai":true'; then
     echo "settings key presence was not persisted" >&2
     exit 40
@@ -180,7 +219,7 @@ if echo "$CONFIG_JSON" | grep -q 'smoke-secret'; then
     exit 40
 fi
 
-CUSTOM_PROVIDER_JSON="$(curl --fail --silent --show-error -X PUT \
+CUSTOM_PROVIDER_JSON="$(curl --fail-with-body --silent --show-error -X PUT \
     -H 'Content-Type: application/json' \
     -d '{"name":"Smoke Provider","base_url":"https://llm.example.com/v1","api_key":"custom-secret","api":"openai-completions","models":["smoke-model"]}' \
     "http://127.0.0.1:${NODE_PORT}/api/settings/custom-providers/smoke-provider")"
@@ -194,7 +233,7 @@ if echo "$CUSTOM_PROVIDER_JSON" | grep -q 'custom-secret'; then
 fi
 assert_body_contains 'user-smoke-provider/smoke-model' "http://127.0.0.1:${NODE_PORT}/api/settings/config"
 
-KEYLESS_PROVIDER_JSON="$(curl --fail --silent --show-error -X PUT \
+KEYLESS_PROVIDER_JSON="$(curl --fail-with-body --silent --show-error -X PUT \
     -H 'Content-Type: application/json' \
     -d '{"name":"Local No-Key Provider","base_url":"http://127.0.0.1:11434/v1","api":"openai-completions","models":["local-model"]}' \
     "http://127.0.0.1:${NODE_PORT}/api/settings/custom-providers/local-no-key")"
@@ -203,20 +242,20 @@ if ! echo "$KEYLESS_PROVIDER_JSON" | grep -q '"ok":true'; then
     exit 40
 fi
 assert_body_contains 'user-local-no-key/local-model' "http://127.0.0.1:${NODE_PORT}/api/settings/config"
-curl --fail --silent --show-error -X DELETE \
+curl --fail-with-body --silent --show-error -X DELETE \
     "http://127.0.0.1:${NODE_PORT}/api/settings/custom-providers/smoke-provider" >/dev/null
-curl --fail --silent --show-error -X DELETE \
+curl --fail-with-body --silent --show-error -X DELETE \
     "http://127.0.0.1:${NODE_PORT}/api/settings/custom-providers/local-no-key" >/dev/null
 
-curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+curl --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' \
     -d '{"filename":"uploaded.txt","content":"smoke-upload"}' \
     "http://127.0.0.1:${NODE_PORT}/api/files/upload?cwd=${WORKSPACE_Q}" >/dev/null
-curl --fail --silent --show-error -X POST -F "file=@${ROOT_DIR}/README.md" \
+curl --fail-with-body --silent --show-error -X POST -F "file=@${ROOT_DIR}/README.md" \
     "http://127.0.0.1:${NODE_PORT}/api/files/upload?cwd=${WORKSPACE_Q}" >/dev/null
-curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+curl --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' \
     -d '{"source":"uploaded.txt","target":"renamed.txt"}' \
     "http://127.0.0.1:${NODE_PORT}/api/files/rename?cwd=${WORKSPACE_Q}" >/dev/null
-ARTIFACT_JSON="$(curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+ARTIFACT_JSON="$(curl --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' \
     -d '{"path":"renamed.txt","session_id":"smoke-session"}' \
     "http://127.0.0.1:${NODE_PORT}/api/artifacts/publish?cwd=${WORKSPACE_Q}")"
 if ! echo "$ARTIFACT_JSON" | grep -q '"version":1'; then
@@ -224,13 +263,13 @@ if ! echo "$ARTIFACT_JSON" | grep -q '"version":1'; then
     exit 40
 fi
 
-JOB_JSON="$(curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+JOB_JSON="$(curl --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' \
     -d '{"command":["node","-e","process.stdout.write(\"smoke-job\")"]}' \
     "http://127.0.0.1:${NODE_PORT}/api/jobs?cwd=${WORKSPACE_Q}")"
 JOB_ID="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["job_id"])' "$JOB_JSON")"
 JOB_STATE=''
 for _ in $(seq 1 30); do
-    JOB_STATE="$(curl --fail --silent --show-error "http://127.0.0.1:${NODE_PORT}/api/jobs/${JOB_ID}?cwd=${WORKSPACE_Q}")"
+    JOB_STATE="$(curl --fail-with-body --silent --show-error "http://127.0.0.1:${NODE_PORT}/api/jobs/${JOB_ID}?cwd=${WORKSPACE_Q}")"
     if echo "$JOB_STATE" | grep -Eq '"status":"(succeeded|failed|cancelled|timed_out)"'; then break; fi
     sleep 0.1
 done
@@ -242,12 +281,12 @@ assert_body_contains '"records"' "http://127.0.0.1:${NODE_PORT}/api/provenance?c
 
 echo "[smoke] native project memory and cleanup"
 assert_body_contains '"archives"' "http://127.0.0.1:${NODE_PORT}/api/project-memory/archives?cwd=${WORKSPACE_Q}"
-curl --fail --silent --show-error -X DELETE \
+curl --fail-with-body --silent --show-error -X DELETE \
     "http://127.0.0.1:${NODE_PORT}/api/files/renamed.txt?cwd=${WORKSPACE_Q}" >/dev/null
 
 echo "[smoke] CORS and request ID"
 CORS_HEADERS="$TEMP_DIR/cors.headers"
-curl --fail --silent --show-error --dump-header "$CORS_HEADERS" --output /dev/null \
+curl --fail-with-body --silent --show-error --dump-header "$CORS_HEADERS" --output /dev/null \
     -H 'Origin: http://127.0.0.1:5173' "http://127.0.0.1:${NODE_PORT}/api/health"
 assert_header_file_contains "$CORS_HEADERS" 'access-control-allow-origin: http://127.0.0.1:5173'
 
@@ -268,7 +307,7 @@ fi
 if [ "$AGENT_CORE" = true ]; then
     echo "[smoke] Agent Core uses independent Workers, Node sessions, and SSE"
     SESSION_A_HEADERS="$TEMP_DIR/session-a.headers"
-    SESSION_JSON="$(curl --fail --silent --show-error --dump-header "$SESSION_A_HEADERS" -X POST \
+    SESSION_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$SESSION_A_HEADERS" -X POST \
         -H 'Content-Type: application/json' \
         -d "{\"cwd\":\"${SMOKE_WORKSPACE}\"}" \
         "http://127.0.0.1:${NODE_PORT}/api/sessions")"
@@ -280,7 +319,7 @@ if [ "$AGENT_CORE" = true ]; then
     assert_header_file_contains "$SESSION_A_HEADERS" 'x-pi-science-runtime: node-control-plane'
 
     STATE_A_HEADERS="$TEMP_DIR/state-a.headers"
-    STATE_A_JSON="$(curl --fail --silent --show-error --dump-header "$STATE_A_HEADERS" \
+    STATE_A_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$STATE_A_HEADERS" \
         "http://127.0.0.1:${NODE_PORT}/api/sessions/${SESSION_A}/state?cwd=${WORKSPACE_Q}")"
     assert_header_file_contains "$STATE_A_HEADERS" 'x-pi-science-runtime: node-control-plane'
     if ! echo "$STATE_A_JSON" | grep -Fq -- "\"id\":\"${SESSION_A}\""; then
@@ -305,7 +344,7 @@ if [ "$AGENT_CORE" = true ]; then
     if [ -n "$SESSION_MODEL" ]; then
         echo "[smoke] prompt with configured Core model: $SESSION_MODEL"
         PROMPT_HEADERS="$TEMP_DIR/prompt.headers"
-        PROMPT_JSON="$(curl --fail --silent --show-error --dump-header "$PROMPT_HEADERS" -X POST \
+        PROMPT_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$PROMPT_HEADERS" -X POST \
             -H 'Content-Type: application/json' \
             -d '{"message":"Reply with exactly NODE_NATIVE_SMOKE_OK"}' \
             "http://127.0.0.1:${NODE_PORT}/api/sessions/${SESSION_A}/prompt?cwd=${WORKSPACE_Q}")"
@@ -328,7 +367,7 @@ if [ "$AGENT_CORE" = true ]; then
 
     echo "[smoke] session switching and fork"
     SESSION_B_HEADERS="$TEMP_DIR/session-b.headers"
-    SESSION_B_JSON="$(curl --fail --silent --show-error --dump-header "$SESSION_B_HEADERS" -X POST \
+    SESSION_B_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$SESSION_B_HEADERS" -X POST \
         -H 'Content-Type: application/json' -d "{\"cwd\":\"${SMOKE_WORKSPACE}\"}" \
         "http://127.0.0.1:${NODE_PORT}/api/sessions")"
     SESSION_B="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["id"])' "$SESSION_B_JSON")"
@@ -349,7 +388,7 @@ if [ "$AGENT_CORE" = true ]; then
             "http://127.0.0.1:${NODE_PORT}/api/sessions/${SESSION_B}/events?cwd=${WORKSPACE_Q}" || true) &
         SSE_PID=$!
         sleep 0.2
-        curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' \
+        curl --fail-with-body --silent --show-error -X POST -H 'Content-Type: application/json' \
             -d '{"message":"Reply with exactly NODE_NATIVE_SESSION_B_OK"}' \
             "http://127.0.0.1:${NODE_PORT}/api/sessions/${SESSION_B}/prompt?cwd=${WORKSPACE_Q}" >/dev/null
         if ! wait_for_file_match "$SSE_B_BODY" '"type":"operation\.settled"' 1200; then
@@ -369,7 +408,7 @@ if [ "$AGENT_CORE" = true ]; then
     fi
 
     FORK_HEADERS="$TEMP_DIR/fork.headers"
-    FORK_JSON="$(curl --fail --silent --show-error --dump-header "$FORK_HEADERS" -X POST \
+    FORK_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$FORK_HEADERS" -X POST \
         -H 'Content-Type: application/json' -d '{}' \
         "http://127.0.0.1:${NODE_PORT}/api/sessions/${FORK_SOURCE}/fork?cwd=${WORKSPACE_Q}")"
     FORK_ID="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get("id", ""))' "$FORK_JSON")"
@@ -379,14 +418,14 @@ if [ "$AGENT_CORE" = true ]; then
         exit 50
     fi
 
-    HEALTH_ACTIVE_JSON="$(curl --fail --silent --show-error "http://127.0.0.1:${NODE_PORT}/api/health")"
+    HEALTH_ACTIVE_JSON="$(curl --fail-with-body --silent --show-error "http://127.0.0.1:${NODE_PORT}/api/health")"
     python3 -c 'import json,sys; value=json.loads(sys.argv[1])["active_agent_workers"]; assert value >= 1, value' "$HEALTH_ACTIVE_JSON"
 
     echo "[smoke] exact delete and health ownership"
     DELETE_IDS=("$FORK_ID" "$SESSION_B" "$SESSION_A")
     for session_id in "${DELETE_IDS[@]}"; do
         DELETE_HEADERS="$TEMP_DIR/delete-${session_id}.headers"
-        DELETE_JSON="$(curl --fail --silent --show-error --dump-header "$DELETE_HEADERS" -X DELETE \
+        DELETE_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$DELETE_HEADERS" -X DELETE \
             "http://127.0.0.1:${NODE_PORT}/api/sessions/${session_id}?cwd=${WORKSPACE_Q}")"
         assert_header_file_contains "$DELETE_HEADERS" 'x-pi-science-runtime: node-control-plane'
         if ! echo "$DELETE_JSON" | grep -q '"ok":true'; then
@@ -396,7 +435,7 @@ if [ "$AGENT_CORE" = true ]; then
     done
     assert_status 404 "http://127.0.0.1:${NODE_PORT}/api/sessions/${FORK_ID}/state?cwd=${WORKSPACE_Q}"
     HEALTH_FINAL_HEADERS="$TEMP_DIR/health-final.headers"
-    HEALTH_FINAL_JSON="$(curl --fail --silent --show-error --dump-header "$HEALTH_FINAL_HEADERS" \
+    HEALTH_FINAL_JSON="$(curl --fail-with-body --silent --show-error --dump-header "$HEALTH_FINAL_HEADERS" \
         "http://127.0.0.1:${NODE_PORT}/api/health")"
     assert_header_file_contains "$HEALTH_FINAL_HEADERS" 'x-pi-science-runtime: node-control-plane'
     EXPECTED_FINAL_PROCESSES=0

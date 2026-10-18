@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { constants, existsSync } from "node:fs";
-import { access, chmod, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { delimiter, join, resolve, sep } from "node:path";
 import { configPath, metadataRoot, readJson, withFileWriteLock, withWorkspaceWriteLock, writeJsonAtomic } from "../../storage/persistence.js";
@@ -618,8 +618,14 @@ export class WorkspaceEnvironmentService {
       // Conda prefixes are not safely relocatable: create at the final path and
       // use registry status as the publication boundary. Failed prefixes are
       // removed before the revision is marked failed.
-      const cache = configPath(join("micromamba", "pkgs"));
-      await runEnvironmentProcess(micromamba, ["create", "--yes", "--prefix", finalPrefix, "--channel", "conda-forge", "--strict-channel-priority", ...input.packages], finalPrefix, cache, 20 * 60_000,
+      // Pass the same canonical paths to the package manager and its sandbox.
+      // Pre-create the root so weakly_canonical never probes hidden ancestors.
+      const cachePath = configPath(join("micromamba", "pkgs"));
+      await mkdir(join(cachePath, "root"), { recursive: true });
+      await mkdir(finalPrefix, { recursive: true });
+      const cache = await realpath(cachePath);
+      const installPrefix = await realpath(finalPrefix);
+      await runEnvironmentProcess(micromamba, ["create", "--yes", "--prefix", installPrefix, "--channel", "conda-forge", "--strict-channel-priority", ...input.packages], installPrefix, cache, 20 * 60_000,
         { MAMBA_ROOT_PREFIX: join(cache, "root"), CONDA_PKGS_DIRS: cache, MAMBA_NO_RC: "true" });
       await this.runHealthCheck(finalPrefix, input.language);
       revision = { ...revision, status: "ready", integrity_snapshot: await integritySnapshot(finalPrefix) };
