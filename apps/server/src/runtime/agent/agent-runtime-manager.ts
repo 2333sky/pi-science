@@ -32,8 +32,9 @@ function idleTimeoutMs(): number {
 /** Called under exclusive lifecycle admission, including hidden workers owned by other managers. */
 export async function hasActiveWorkspaceRuntimes(cwd: string): Promise<boolean> {
   for (const [runtime, owner] of workspaceRuntimes) {
-    if (runtime.isClosed || !pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
+    if (!pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
     if (owner.hasActiveTasks()) return true;
+    if (runtime.isClosed) continue;
     const state = await runtime.sendCommand("get_state").catch(() => null); const data = state?.data;
     if (!state?.success || !data || data.busy || data.pendingInteraction || Array.isArray(data.queues) && data.queues.length > 0) return true;
   }
@@ -41,8 +42,9 @@ export async function hasActiveWorkspaceRuntimes(cwd: string): Promise<boolean> 
 }
 export async function closeIdleWorkspaceRuntimes(cwd: string): Promise<void> {
   for (const [runtime, owner] of [...workspaceRuntimes]) {
-    if (runtime.isClosed || !pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
+    if (!pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
     if (owner.hasActiveTasks()) throw new WorkspaceLifecycleBusyError();
+    if (runtime.isClosed) continue;
     await owner.manager.stop(owner.key);
     if (!runtime.isClosed) throw new WorkspaceLifecycleBusyError();
   }
@@ -132,10 +134,11 @@ export class AgentRuntimeManager {
     };
     runtime.once("exit", release);
     const dispatchDrain = bindSubagentDispatch(this, runtime, options);
-    const drain = async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); };
+    let drained: Promise<void> | undefined;
+    const drain = () => drained ??= (async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); })();
     this.dispatchDrains.set(runtime, drain);
     runtime.once("exit", () => {
-      const done = () => this.dispatchDrains.delete(runtime);
+      const done = () => { this.dispatchDrains.delete(runtime); workspaceRuntimes.delete(runtime); };
       void drain().then(done, done);
     });
     const canonical = sessionKey(options.cwd, runtime.sessionId);
@@ -150,8 +153,7 @@ export class AgentRuntimeManager {
       throw new Error(`session ${runtime.sessionId} is already owned by another worker`);
     }
     this.runtimes.set(key, runtime);
-    workspaceRuntimes.set(runtime, { manager: this, key, hasActiveTasks: dispatchDrain.isBusy });
-    runtime.once("exit", () => workspaceRuntimes.delete(runtime));
+    workspaceRuntimes.set(runtime, { manager: this, key, hasActiveTasks: () => dispatchDrain.isBusy() || runtime.isClosed && this.dispatchDrains.has(runtime) });
     this.owners.set(ownerKey, key);
     this.owners.set(canonical, key);
     runtime.once("exit", () => this.forget(key, runtime));

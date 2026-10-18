@@ -15,6 +15,25 @@ afterEach(async () => {
 });
 
 describe("AgentRuntimeManager", () => {
+  it("keeps the workspace occupied until exit cleanup drains exactly once", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-science-exit-drain-")); roots.push(cwd);
+    await mkdir(join(cwd, ".pi-science"));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const cleanup = vi.fn(async () => gate);
+    const manager = new AgentRuntimeManager(cleanup); managers.push(manager);
+    const runtime = await manager.start("draining", { cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), model: { provider: "openai", modelId: "gpt-4.1-mini" } });
+    const stopping = manager.stop("draining");
+    try {
+      await vi.waitFor(() => expect(cleanup).toHaveBeenCalledTimes(1));
+      expect(runtime.isClosed).toBe(true);
+      expect(await hasActiveWorkspaceRuntimes(cwd)).toBe(true);
+      await expect(closeIdleWorkspaceRuntimes(cwd)).rejects.toThrow();
+    } finally { release(); await stopping; }
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(await hasActiveWorkspaceRuntimes(cwd)).toBe(false);
+  }, 20_000);
+
   it("shares capacity and excludes duplicate owners across managers", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-science-agent-capacity-")); roots.push(cwd);
     await mkdir(join(cwd, ".pi-science"));
