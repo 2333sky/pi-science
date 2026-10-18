@@ -364,7 +364,7 @@ export class SessionRuntime {
         }
         case "abort":
           this.subagents?.cancelAll();
-          if (this.watchedBudgetOperation) await this.budgetTools.ledger(this.watchedBudgetOperation).cancel();
+          if (this.watchedBudgetOperation) await this.budgetTools.ledger(this.watchedBudgetOperation).cancelOperation();
           return resultValue(await this.lane.abort(context));
         case "compact": {
           if (!this.activated) return { success: false, code: "not_ready", error: "agent runtime has not been activated" };
@@ -511,6 +511,7 @@ export class SessionRuntime {
   }
 
   private drainBudgetWatch(): void {
+    this.watchedBudgetOperation = undefined;
     const pending = this.stopBudgetWatch?.(); this.stopBudgetWatch = undefined;
     if (pending) { this.budgetWatchDrains.add(pending); void pending.finally(() => this.budgetWatchDrains.delete(pending)); }
   }

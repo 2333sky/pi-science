@@ -12,7 +12,7 @@ export const budgetLimitsSchema = z.object({ max_seconds: z.number().int().min(1
 export type BudgetLimits = z.infer<typeof budgetLimitsSchema>;
 const nodeSchema = z.object({ parent: z.string().optional(), cancelled: z.boolean().optional(), deadline: z.number().finite().positive(), maxExecutions: z.number().int().min(1).max(MAX_EXECUTIONS), used: z.number().int().min(0).max(MAX_EXECUTIONS), usage: counts.optional(), limits: counts.optional() }).strict();
 const budgetSchema = nodeSchema.omit({ parent: true }).extend({
-  nodes: z.record(z.string(), nodeSchema).optional(), reservations: z.record(z.string(), z.literal(true)).optional(), scopeLocked: z.boolean().optional(),
+  nodes: z.record(z.string(), nodeSchema).optional(), reservations: z.record(z.string(), z.literal(true)).optional(), scopeLocked: z.boolean().optional(), cancelledOperations: z.record(z.string(), z.literal(true)).optional(),
   maxEvaluations: z.unknown().optional(), evaluations: z.unknown().optional(),
 }).strict().transform(({ maxEvaluations: _old, evaluations: _evaluations, ...budget }) => budget);
 export type Budget = z.infer<typeof budgetSchema>;
@@ -69,6 +69,9 @@ export class ExecutionBudgetLedger {
     }
     return nodes;
   }
+  private isCancelled(budget: Budget, nodes = this.ancestors(budget)) {
+    return !!budget.cancelledOperations?.[hash(this.owner)] || nodes.some((node) => node.cancelled);
+  }
   async status() {
     // Atomic file replacement makes ordinary inspection lock-free. Only first
     // admission initializes state under the scope/ledger transaction.
@@ -78,7 +81,7 @@ export class ExecutionBudgetLedger {
     const path = workspaceFile(this.cwd, `execution-budgets/${hash(binding ? `research:${binding.researchId}` : this.owner)}.json`);
     const budget = await readBudget(path) ?? (await readBudget(await this.path()))!;
     const nodes = this.ancestors(budget);
-    return { cancelled: nodes.some((node) => node.cancelled), node_id: this.nodeId, remaining_by_kind: Object.fromEntries(executionKinds.map((kind) => [kind, Math.max(0, Math.min(...nodes.map((node) => (node.limits?.[kind] ?? MAX_EXECUTIONS) - (node.usage?.[kind] ?? 0))))])), deadline: Math.min(...nodes.map((node) => node.deadline)), maxExecutions: nodes[this.nodeId ? 1 : 0]!.maxExecutions, used: nodes[this.nodeId ? 1 : 0]!.used,
+    return { cancelled: this.isCancelled(budget, nodes), node_id: this.nodeId, remaining_by_kind: Object.fromEntries(executionKinds.map((kind) => [kind, Math.max(0, Math.min(...nodes.map((node) => (node.limits?.[kind] ?? MAX_EXECUTIONS) - (node.usage?.[kind] ?? 0))))])), deadline: Math.min(...nodes.map((node) => node.deadline)), maxExecutions: nodes[this.nodeId ? 1 : 0]!.maxExecutions, used: nodes[this.nodeId ? 1 : 0]!.used,
       remaining_executions: Math.max(0, Math.min(...nodes.map((node) => node.maxExecutions - node.used))),
       usage: nodes[this.nodeId ? 1 : 0]!.usage ?? {}, global_used: budget.used, global_max_executions: budget.maxExecutions };
   }
@@ -91,7 +94,7 @@ export class ExecutionBudgetLedger {
     budgetLimitsSchema.parse(limits);
     await this.withPath(undefined, (path) => withFileWriteLock(path, async () => {
       const budget = (await readBudget(path))!; const ancestors = this.ancestors(budget);
-      if (ancestors.some((node) => node.cancelled)) throw new Error("Execution task cancelled");
+      if (this.isCancelled(budget, ancestors)) throw new Error("Execution task cancelled");
       if (Math.min(...ancestors.map((node) => node.deadline)) <= Date.now()) throw new Error("Execution time budget exhausted");
       const node = (budget.nodes ??= {})[id] ??= { ...fresh(), ...(this.nodeId ? { parent: this.nodeId } : {}) };
       if (node.parent !== this.nodeId) throw new Error("Budget node owner changed");
@@ -100,6 +103,18 @@ export class ExecutionBudgetLedger {
       await writeJsonAtomic(path, budget);
     }));
     return new ExecutionBudgetLedger(this.cwd, this.owner, true, id);
+  }
+  /** Abort one operation and its descendants without poisoning a shared research
+   * root. Inherited workers cancel only their own subtree. The owner key follows
+   * delegated work across recovery, while continuation operations have new keys. */
+  async cancelOperation() {
+    if (this.nodeId) return this.cancel();
+    await this.withPath(undefined, (path) => withFileWriteLock(path, async () => {
+      const budget = (await readBudget(path))!;
+      (budget.cancelledOperations ??= {})[hash(this.owner)] = true;
+      budget.scopeLocked = true;
+      await writeJsonAtomic(path, budget);
+    }));
   }
   async cancel(childId?: string) {
     await this.withPath(undefined, (path) => withFileWriteLock(path, async () => {
@@ -113,7 +128,7 @@ export class ExecutionBudgetLedger {
     if (!Number.isSafeInteger(units) || units < 1 || units > MAX_EXECUTIONS) throw new Error("Invalid execution reservation");
     await this.withPath(undefined, (path) => withFileWriteLock(path, async () => {
       const budget = (await readBudget(path))!; const nodes = this.ancestors(budget);
-      if (nodes.some((node) => node.cancelled)) throw new Error("Execution task cancelled");
+      if (this.isCancelled(budget, nodes)) throw new Error("Execution task cancelled");
       if (nodes.some((node) => node.deadline <= Date.now())) throw new Error("Execution time budget exhausted");
       const key = hash(JSON.stringify([this.nodeId, kind, operationId, invocationId]));
       if (budget.reservations?.[key]) return;

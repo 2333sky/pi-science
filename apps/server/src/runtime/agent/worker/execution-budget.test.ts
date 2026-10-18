@@ -84,3 +84,33 @@ it("rejects late scope binding and refuses to recreate a missing inherited budge
   const child = executionBudgetTools(cwd, "missing-owner");
   await expect(child.tool.execute("setup", {}, () => {}, env, invocation("setup"), BACKGROUND_CONTEXT)).rejects.toThrow("Missing inherited");
 });
+
+
+it("cancels an operation and restored descendants while a shared research continuation retains its allowance", async () => {
+  const cwd = await workspace();
+  const first = executionBudgetTools(cwd).ledger("operation-a");
+  await first.configure({ max_executions: 5 }, "shared-study");
+  const child = await first.createChild("child-a");
+  await child.reserve("bash", "child-operation", "one");
+  await first.cancelOperation();
+  expect(await first.status()).toMatchObject({ cancelled: true, global_used: 1 });
+  const restored = executionBudgetTools(cwd, "operation-a", "child-a").ledger("child-operation");
+  await expect(restored.reserve("bash", "child-operation", "two")).rejects.toThrow("cancelled");
+  await expect(first.createChild("later-child")).rejects.toThrow("cancelled");
+  const next = executionBudgetTools(cwd).ledger("operation-b");
+  await next.configure({}, "shared-study");
+  expect(await next.status()).toMatchObject({ cancelled: false, global_used: 1, remaining_executions: 4 });
+  await next.reserve("bash", "operation-b", "one");
+  expect(await next.status()).toMatchObject({ global_used: 2, remaining_executions: 3 });
+});
+
+it("limits an inherited worker abort to its subtree", async () => {
+  const cwd = await workspace(); const parent = executionBudgetTools(cwd).ledger("parent");
+  const child = await parent.createChild("child");
+  const grandchild = await child.createChild("grandchild");
+  const sibling = await parent.createChild("sibling");
+  await child.cancelOperation();
+  expect(await grandchild.status()).toMatchObject({ cancelled: true });
+  await sibling.reserve("bash", "sibling", "one");
+  expect(await parent.status()).toMatchObject({ cancelled: false, global_used: 1 });
+});
