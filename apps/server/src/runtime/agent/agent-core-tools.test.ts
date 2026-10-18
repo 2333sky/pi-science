@@ -62,7 +62,8 @@ async function modelFixture(answer: (body: { messages: Array<{ role: string; con
 }
 
 describe("agent-core product tools", () => {
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("runs main and authorized child Bash without any enabled Skill", async () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].includes(process.platform))("runs main and authorized child Bash without any enabled Skill", async () => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const fixture = await modelFixture((body) => {
       if (body.messages[0]!.content.includes("You are an isolated runner")) return body.messages.some((message) => message.role === "tool") ? "Child isolated." : { name: "bash", args: { command: "printf child > child.txt; ! cat .pi-science/protected; echo child-isolated" } };
       const tools = body.messages.filter((message) => message.role === "tool");
@@ -82,7 +83,8 @@ describe("agent-core product tools", () => {
     expect((await executionRepository.list(fixture.cwd)).filter((record) => record.producer === "bash").map((record) => record.status)).toEqual(["succeeded", "succeeded"]);
   }, 45_000);
 
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("repairs a candidate through universal Bash, independently evaluates it and obtains Reviewer stop advice", async () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].includes(process.platform))("repairs a candidate through universal Bash, independently evaluates it and obtains Reviewer stop advice", async () => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     let repairs = 0; let score: number | undefined;
     const fixture = await modelFixture(async (body) => {
       const system = body.messages[0]!.content;
@@ -264,7 +266,7 @@ describe("agent-core product tools", () => {
     expect(await runHiddenPrompt(parent, "Generate candidate code", "unbound-once", Date.now() + 20000)).toBe("Protected code-generation mode.");
   }, 30000);
 
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform !== "linux")("keeps an explicit legacy role compatible through real Worker IPC, repair and the shared budget", async () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].includes(process.platform))("keeps an explicit legacy role compatible through real Worker IPC, repair and the shared budget", async () => {
     vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1");
     let childRuns = 0;
     const fixture = await modelFixture((body) => {

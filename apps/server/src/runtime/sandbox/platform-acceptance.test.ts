@@ -31,7 +31,9 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
   it("runs real Bash, denies credentials/outside writes/network and captures ordinary output", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("OPENAI_API_KEY", "must-not-be-inherited");
     await writeFile(join(cwd, ".netrc"), "SECRET");
-    const result = await execute(cwd, ["/bin/bash", "-c", "set -e; test -z \"$OPENAI_API_KEY\"; test ! -r /etc/passwd; test ! -r .netrc; printf success > result.txt; if curl -sS --max-time 2 https://example.com >/dev/null 2>&1; then exit 77; fi; echo isolated"]);
+    const result = await execute(cwd, ["/bin/bash", "-c", "set -e; test -z \"$OPENAI_API_KEY\"; test ! -s /etc/passwd; test ! -s .netrc; printf success > result.txt; if curl -sS --max-time 2 https://example.com >/dev/null 2>&1; then exit 77; fi; echo isolated"]);
+    // Linux masks denied files with empty files; macOS returns permission errors.
+    expect(await readFile(join(cwd, ".netrc"), "utf8")).toBe("SECRET");
     expect(result, result.stderr).toMatchObject({ code: 0, stdout: "isolated\n" }); expect(await readFile(join(cwd, "result.txt"), "utf8")).toBe("success");
   }, 30_000);
   it("removes descendants which detach and outlive the original command", async () => {

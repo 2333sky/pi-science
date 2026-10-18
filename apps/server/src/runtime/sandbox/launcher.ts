@@ -23,8 +23,22 @@ writeFileSync(manifest.settings, JSON.stringify(configured), { mode: 0o600 });
 const runtimeArgs = [manifest.cli, "--settings", manifest.settings, "--", "/bin/sh", "-c",
   'exec /usr/bin/env -i HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" ALL_PROXY="$ALL_PROXY" http_proxy="$http_proxy" https_proxy="$https_proxy" all_proxy="$all_proxy" NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" "$@"',
   "sandbox-env", ...envArgs, ...manifest.argv, ...shellArgs];
-const child = spawn(manifest.supervisor ?? process.execPath, manifest.supervisor ? [String(manifest.timeoutSeconds + 1), manifest.lifecycleTag!, manifest.deniedLifecycleTag!, process.execPath, ...runtimeArgs] : runtimeArgs,
-  { shell: false, stdio: ["inherit", "inherit", "inherit"], env: process.env, ...(manifest.supervisor ? { detached: true } : {}) });
+let linuxManager: typeof import("@anthropic-ai/sandbox-runtime").SandboxManager | undefined;
+let linuxLaunch: { argv: string[]; env: NodeJS.ProcessEnv } | undefined;
+if (process.platform === "linux") {
+  const { SandboxManager } = await import("@anthropic-ai/sandbox-runtime");
+  linuxManager = SandboxManager;
+  await SandboxManager.initialize(configured);
+  await SandboxManager.waitForNetworkInitialization();
+  // SRT mounts its bridge sockets before applying filesystem masks. Preserve
+  // exactly those sockets under the root deny, never their private parent.
+  const sockets = [SandboxManager.getLinuxHttpSocketPath(), SandboxManager.getLinuxSocksSocketPath()].filter((path): path is string => !!path);
+  SandboxManager.updateConfig({ ...configured, filesystem: { ...configured.filesystem, allowRead: [...configured.filesystem.allowRead, ...sockets.map((path) => ({ path, literal: true }))] } });
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  linuxLaunch = await SandboxManager.wrapWithSandboxArgv(runtimeArgs.slice(4).map(quote).join(" "));
+}
+const child = spawn(linuxLaunch?.argv[0] ?? manifest.supervisor ?? process.execPath, linuxLaunch ? linuxLaunch.argv.slice(1) : manifest.supervisor ? [String(manifest.timeoutSeconds + 1), manifest.lifecycleTag!, manifest.deniedLifecycleTag!, process.execPath, ...runtimeArgs] : runtimeArgs,
+  { shell: false, stdio: ["inherit", "inherit", "inherit"], env: linuxLaunch?.env ?? process.env, ...(manifest.supervisor ? { detached: true } : {}) });
 // Signal the real bridge, not the CLI (whose startup interrupt terminates srt).
 const interrupt = (pid: number) => {
   try {
@@ -51,4 +65,4 @@ const interrupt = (pid: number) => {
 };
 process.on("message", (message) => { if (message === "interrupt" && child.pid) interrupt(child.pid); });
 child.once("error", kill);
-child.once("close", (code) => { clearInterval(ownerTimer); clearTimeout(deadline); void network.close().finally(() => process.exit(code ?? 1)); });
+child.once("close", (code) => { clearInterval(ownerTimer); clearTimeout(deadline); void Promise.all([network.close(), linuxManager?.reset()]).finally(() => process.exit(code ?? 1)); });

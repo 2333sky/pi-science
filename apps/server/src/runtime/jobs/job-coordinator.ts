@@ -71,13 +71,18 @@ export class JobCoordinator {
     const environment = { ...(surface.startsWith("research") ? restrictResearchEnvironment(baseEnvironment, platform) : restrictLocalJobEnvironment(baseEnvironment, platform)), ...requestedEnvironment };
     let executionCwd = typeof body.execution_cwd === "string" ? resolve(body.execution_cwd) : resolve(cwd);
     const executionRelative = relative(resolve(cwd), executionCwd);
-    if (isAbsolute(executionRelative) || executionRelative === ".." || executionRelative.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`)) throw new Error("execution cwd escapes the workspace");
+    if (isAbsolute(executionRelative) || executionRelative === ".." || executionRelative.startsWith("../") || executionRelative.startsWith("..\\")) throw new Error("execution cwd escapes the workspace");
     const now = this.now();
     const ownership = this.leases.createOwnership(now);
     const jobId = `job_${randomUUID().replaceAll("-", "").slice(0, 16)}`;
     const executionId = executionIdFor("job", resolve(cwd), jobId);
     const admittedRoot = operatorExecutionMode() === "required" ? await realpath(cwd) : undefined;
-    if (admittedRoot) { executionCwd = await realpath(executionCwd); if (!isWithin(admittedRoot, executionCwd)) throw new Error("Job execution cwd escapes the workspace"); }
+    if (admittedRoot) {
+      // Resolve only a workspace-relative path after lexical containment checks;
+      // then reject symlinks whose canonical destination leaves that workspace.
+      executionCwd = await realpath(join(admittedRoot, executionRelative));
+      if (!isWithin(admittedRoot, executionCwd)) throw new Error("Job execution cwd escapes the workspace");
+    }
     const admission = admittedRoot ? identifyPolicy({ ...await workspacePolicy(admittedRoot, baseEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID), cwd: executionCwd }) : undefined;
     const record: JobRecord = { job_id: jobId, execution_id: executionId, command, cwd, ...(executionCwd !== resolve(cwd) ? { execution_cwd: executionCwd } : {}), surface, status: "pending", created_at: new Date(now).toISOString(), stdout: "", stderr: "", artifact_ids: [], environment: { platform: process.platform, node: process.version, prefix: baseEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX, revision: baseEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID, npm_prefix: environment.npm_config_prefix,
       ...(admission ? { sandbox: SANDBOX_RUNTIME, sandbox_policy_id: admission.id, execution_mode: "required" } : { execution_mode: "trusted-host" }) }, requirement, ownership };
@@ -256,6 +261,10 @@ export class JobCoordinator {
     try {
       await this.hooks.beforeSpawn?.(record);
       if (this.cancelled.has(record.job_id)) { Object.assign(record, transitionJobStatus(record, "cancelled")); return; }
+      const validateExecutionMode = () => {
+        if (record.environment.execution_mode !== operatorExecutionMode()) throw new Error("Job execution mode changed after admission; resubmit the job");
+      };
+      validateExecutionMode();
       if (record.environment.execution_mode === "required") {
         const root = await realpath(record.cwd);
         const cwd = await canonicalDirectory(await realpath(record.execution_cwd ?? record.cwd));
@@ -276,6 +285,7 @@ export class JobCoordinator {
           if (!current || isTerminal(current.status) || !this.ownershipMatches(current.ownership, record.ownership)) { if (current) Object.assign(record, current); return false; }
           await this.hooks.testBeforeAuthorizedSpawn?.(record);
           if (this.cancelled.has(record.job_id)) { Object.assign(record, transitionJobStatus(record, "cancelled")); return false; }
+          validateExecutionMode();
           spawnedProcess = this.processes.spawn(record.job_id, launchCommand, record.execution_cwd ?? record.cwd, launchEnvironment, Math.max(1, Number(record.requirement.timeout_seconds ?? 3600)) * 1000);
           child = spawnedProcess.child;
           const updatedOwnership = { ...current.ownership!, child: { ...spawnedProcess.identity, ownership_generation: current.ownership!.generation, ownership_token: current.ownership!.token } };
@@ -298,6 +308,7 @@ export class JobCoordinator {
           // spawn() returns synchronously. Authorization, process creation, durable
           // child identity and local registration therefore share one per-job
           // critical section; another coordinator cannot cancel between them.
+          validateExecutionMode();
           spawnedProcess = this.processes.spawn(record.job_id, launchCommand, record.execution_cwd ?? record.cwd, launchEnvironment, Math.max(1, Number(record.requirement.timeout_seconds ?? 3600)) * 1000);
           child = spawnedProcess.child;
           current.ownership = { ...current.ownership!, child: { ...spawnedProcess.identity, ownership_generation: current.ownership!.generation, ownership_token: current.ownership!.token } };

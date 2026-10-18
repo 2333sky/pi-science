@@ -129,7 +129,7 @@ it.skipIf(["linux", "darwin"].includes(process.platform))("keeps unsupported pla
 });
 
 const realSandbox = process.env.PI_SCIENCE_SANDBOX_TEST === "1";
-describe.skipIf(!realSandbox || process.platform !== "linux")("real srt isolation (no mocks)", () => {
+describe.skipIf(!realSandbox || !["darwin", "linux"].includes(process.platform))("real srt isolation (no mocks)", () => {
   const installation: SandboxInstallation = { python: process.env.PI_SCIENCE_SANDBOX_PYTHON!, pythonRoot: process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT!, socat: process.env.PI_SCIENCE_SANDBOX_SOCAT, ripgrep: process.env.PI_SCIENCE_SANDBOX_RIPGREP };
   it("runs NumPy, publishes real artifacts, repairs errors, and replays without executing again", async () => {
     const { identity, cwd, directory } = await fixture(); const tool = sandboxRunTool(identity, installation);

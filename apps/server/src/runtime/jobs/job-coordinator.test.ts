@@ -62,6 +62,17 @@ async function linuxStartTicks(pid: number): Promise<string | null> {
 async function processExists(pid: number): Promise<boolean> { try { process.kill(pid, 0); return true; } catch { return false; } }
 
 describe("job coordinator", () => {
+  it.each(["beforeSpawn", "testBeforeAuthorizedSpawn"] as const)("refuses a persisted host-mode job when required mode is enabled at %s", async (barrier) => {
+    const cwd = await workspace();
+    const coordinator = jobCoordinator({ PATH: process.env.PATH }, {
+      [barrier]: async () => { vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); },
+    });
+    const submitted = await coordinator.submit(cwd, { command: [process.execPath, "-e", "require('node:fs').writeFileSync('unsafe.txt','escaped')"] });
+    const record = await waitFor(() => coordinator.get(cwd, submitted.job_id), terminal);
+    expect(record).toMatchObject({ status: "failed", stderr: expect.stringContaining("execution mode changed after admission") });
+    await expect(readFile(join(cwd, "unsafe.txt"))).rejects.toThrow();
+  });
+
   it("parses command strings without a backtracking regular expression", () => {
     expect(parseCommand(`python -c "print('hello world')" --label='quoted value'`)).toEqual(["python", "-c", "print('hello world')", "--label=quoted value"]);
     expect(parseCommand("node -e 'process.stdout.write(\\\"ok\\\")'" )).toEqual(["node", "-e", "process.stdout.write(\\\"ok\\\")"]);
