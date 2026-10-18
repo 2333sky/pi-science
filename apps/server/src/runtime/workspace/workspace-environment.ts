@@ -620,7 +620,7 @@ export class WorkspaceEnvironmentService {
       // removed before the revision is marked failed.
       const cache = configPath(join("micromamba", "pkgs"));
       await runEnvironmentProcess(micromamba, ["create", "--yes", "--prefix", finalPrefix, "--channel", "conda-forge", "--strict-channel-priority", ...input.packages], finalPrefix, cache, 20 * 60_000,
-        { MAMBA_ROOT_PREFIX: configPath("micromamba"), CONDA_PKGS_DIRS: cache, MAMBA_NO_RC: "true" });
+        { MAMBA_ROOT_PREFIX: join(cache, "root"), CONDA_PKGS_DIRS: cache, MAMBA_NO_RC: "true" });
       await this.runHealthCheck(finalPrefix, input.language);
       revision = { ...revision, status: "ready", integrity_snapshot: await integritySnapshot(finalPrefix) };
       await this.upsert(revision);
