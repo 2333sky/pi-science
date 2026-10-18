@@ -47,7 +47,7 @@ export function clientHelloServerName(records: Buffer): string | null | undefine
   return undefined;
 }
 
-export function domainAllowed(host: string, port: number, network: SandboxPolicy["network"]): boolean {
+export function domainAllowed(host: string, port: number, network: SandboxPolicy["network"], transport: "http" | "https" = "https"): boolean {
   if (network.mode !== "allowlist") return false;
   host = host.toLowerCase().replace(/\.$/, "");
   if (!/^[a-z0-9.-]+$/.test(host) || !host.includes(".")) return false;
@@ -56,7 +56,7 @@ export function domainAllowed(host: string, port: number, network: SandboxPolicy
     if (rawPort && Number(rawPort) !== port) return false;
     return name === host || name?.startsWith("*.") && host.endsWith(name.slice(1)) && host !== name.slice(2);
   };
-  return !network.deniedDomains.some(matches) && network.allowedDomains.some(matches);
+  return !network.deniedDomains.some(matches) && (network.allowedDomains.some(matches) || transport === "https" && (network.httpsOnlyDomains ?? []).some(matches));
 }
 
 /** Per-launch proxies: no shared mutable global policy and no host proxy inheritance.
@@ -65,14 +65,14 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
   // Reads precede every new connection. Polling also tears down already-open
   // tunnels on revocation without killing the owning Python/R kernel.
   let refreshing: Promise<void> | undefined;
-  const bindings = new Map<Socket, { host: string; port: number }>();
+  const bindings = new Map<Socket, { host: string; port: number; transport: "http" | "https" }>();
   let closed = false;
   const refresh = () => {
     if (!source || closed) return Promise.resolve();
     const next = (refreshing ?? Promise.resolve()).then(async () => {
       try { network = await source(); }
       catch { network = { mode: "none" }; } // Corrupt/unreadable state never widens access.
-      for (const [socket, target] of bindings) if (!domainAllowed(target.host, target.port, network)) socket.destroy();
+      for (const [socket, target] of bindings) if (!domainAllowed(target.host, target.port, network, target.transport)) socket.destroy();
     });
     refreshing = next;
     void next.finally(() => { if (refreshing === next) refreshing = undefined; });
@@ -114,14 +114,14 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
       if (closed || req.socket.destroyed) return;
       const url = new URL(req.url ?? "");
       const port = Number(url.port || 80);
-      if (url.protocol !== "http:" || url.username || url.password || !domainAllowed(url.hostname, port, network)) { res.writeHead(403).end("Blocked by sandbox network policy"); return; }
-      bindings.set(req.socket, { host: url.hostname, port });
+      if (url.protocol !== "http:" || url.username || url.password || !domainAllowed(url.hostname, port, network, "http")) { res.writeHead(403).end("Blocked by sandbox network policy"); return; }
+      bindings.set(req.socket, { host: url.hostname, port, transport: "http" });
       const headers: IncomingHttpHeaders = { ...req.headers, host: url.host };
       for (const key of Object.keys(headers)) if (/^(?:connection|proxy-.*|forwarded|x-forwarded-.*|x-host|x-original-host|upgrade|http2-settings|te|keep-alive|trailer)$/i.test(key)) delete headers[key];
       const upstream = httpRequest({ hostname: url.hostname, port, method: req.method, path: url.pathname + url.search, headers, lookup: guard.lookupFor(port), timeout: 30_000 }, (response) => {
         res.writeHead(response.statusCode ?? 502, response.headers); response.pipe(res);
       });
-      upstream.on("socket", (socket) => { watch(socket); bindings.set(socket, { host: url.hostname, port }); socket.once("close", () => { if (!res.writableEnded) res.destroy(); }); }); upstream.on("timeout", () => upstream.destroy());
+      upstream.on("socket", (socket) => { watch(socket); bindings.set(socket, { host: url.hostname, port, transport: "http" }); socket.once("close", () => { if (!res.writableEnded) res.destroy(); }); }); upstream.on("timeout", () => upstream.destroy());
       upstream.on("error", () => { if (!res.headersSent) res.writeHead(502).end("Sandbox upstream connection failed"); else res.destroy(); });
       res.once("close", () => upstream.destroy()); req.pipe(upstream);
     } catch { res.writeHead(400).end("Invalid proxy request"); }
@@ -133,7 +133,7 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
     if (closed || client.destroyed) return;
     const match = /^([a-zA-Z0-9.-]+):(\d+)$/.exec(req.url ?? "");
     if (!match || !domainAllowed(match[1]!, Number(match[2]), network)) { client.end("HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\nBlocked by sandbox network policy"); return; }
-    bindings.set(client, { host: match[1]!, port: Number(match[2]) });
+    bindings.set(client, { host: match[1]!, port: Number(match[2]), transport: "https" });
     client.write("HTTP/1.1 200 Connection Established\r\n\r\n");
     tunnel(client, match[1]!, Number(match[2]), head);
   });
@@ -157,7 +157,7 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
       if (client.destroyed) return;
       const host = buffer.subarray(5, size).toString("ascii"), port = buffer.readUInt16BE(size);
       if (!domainAllowed(host, port, network)) { client.end(Buffer.from([5, 2, 0, 1, 0, 0, 0, 0, 0, 0])); return; }
-      bindings.set(client, { host, port });
+      bindings.set(client, { host, port, transport: "https" });
       client.off("data", received); client.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
       tunnel(client, host, port, buffer.subarray(size + 2)); client.resume();
     };

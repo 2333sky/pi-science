@@ -26,7 +26,9 @@ async function workspace() {
   const cwd = await mkdtemp(join(tmpdir(), "pi-science-core-tools-"));
   cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi-science"));
-  vi.stubEnv("PI_SCIENCE_HOME", join(cwd, ".test-settings"));
+  const settings = await mkdtemp(join(tmpdir(), "pi-science-core-settings-"));
+  cleanup.push(() => rm(settings, { recursive: true, force: true }));
+  vi.stubEnv("PI_SCIENCE_HOME", settings);
   return cwd;
 }
 

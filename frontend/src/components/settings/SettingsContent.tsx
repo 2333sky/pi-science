@@ -168,7 +168,7 @@ export function SettingsContent({ scope, onClose }: { scope: string | null; onCl
           ))}
         </nav>
         <div className="mt-4 hidden border-t border-border px-3 py-4 md:block">
-          <p className="flex items-center gap-2 text-ui-caption font-medium text-text"><Icon icon={scope && tab !== "network" ? FolderOpen : Globe2} size={14} />{scope ? t("settings.scope.workspace") : t("settings.scope.global")}</p>
+          <p className="flex items-center gap-2 text-ui-caption font-medium text-text"><Icon icon={scope && tab !== "network" ? FolderOpen : Globe2} size={14} />{scope && tab !== "network" ? t("settings.scope.workspace") : t("settings.scope.global")}</p>
           <p title={scope ?? undefined} className="mt-2 break-words text-ui-meta leading-relaxed text-muted">{(tab === "network" ? null : scope) || t("settings.redesign.globalScopeHelp")}</p>
         </div>
       </aside>

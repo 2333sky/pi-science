@@ -13,7 +13,7 @@ export interface SandboxPolicy {
   readPaths: string[];
   writePaths: string[];
   denyPaths: string[];
-  network: { mode: "none" } | { mode: "allowlist"; allowedDomains: string[]; deniedDomains: string[] };
+  network: { mode: "none" } | { mode: "allowlist"; allowedDomains: string[]; httpsOnlyDomains?: string[]; deniedDomains: string[] };
   profile?: SandboxProfile;
   profilePolicyId?: string;
   environmentRevision?: string;

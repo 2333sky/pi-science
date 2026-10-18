@@ -14,14 +14,16 @@ export function networkGrantsPath() {
   return join(directory, "grants.json");
 }
 export const readNetworkGrants = (path = networkGrantsPath()) => readNetworkGrantFile(path);
-export function domainMatches(domain: string, pattern: string): boolean {
-  const host = pattern.split(":")[0]!.toLowerCase();
+export function domainMatches(domain: string, pattern: string, port = 443): boolean {
+  const [name, rawPort] = pattern.split(":");
+  if (rawPort && Number(rawPort) !== port) return false;
+  const host = name!.toLowerCase();
   return host === domain || host.startsWith("*.") && domain.endsWith(host.slice(1));
 }
 export async function assertGrantable(profile: NetworkGrantProfile, domain: string) {
   networkDomain.parse(domain);
   const config = await profileConfiguration();
-  if ([...BUILTIN_DENIED_DOMAINS, ...(config.profiles[profile]?.deniedDomains ?? [])].some((pattern) => domainMatches(domain, pattern))) throw new Error("Domain is blocked by the operator network policy");
+  if ([...BUILTIN_DENIED_DOMAINS, ...(config.profiles[profile]?.deniedDomains ?? [])].some((pattern) => domainMatches(domain, pattern, 443))) throw new Error("Domain is blocked by the operator network policy");
 }
 /** Service-owned durable decisions. Revision fencing prevents a pending approval
  * from overwriting a newer denial/revocation recorded in Settings. */

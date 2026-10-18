@@ -1,6 +1,7 @@
 import { connect } from "node:net";
 import { afterEach, expect, it } from "vitest";
 import { clientHelloServerName, domainAllowed, startSandboxNetwork } from "./network.js";
+import { grantedNetwork, type NetworkGrants } from "./network-grant-state.js";
 
 function hello(host: string) {
   const name = Buffer.from(host); const sni = Buffer.alloc(9 + name.length);
@@ -30,13 +31,24 @@ afterEach(async () => { await proxy?.close(); proxy = undefined; });
 const exchange = (port: number, data: string | Buffer) => new Promise<Buffer>((resolve, reject) => {
   const socket = connect(port, "127.0.0.1"); const output: Buffer[] = [];
   socket.setTimeout(2000, () => socket.destroy(new Error("proxy test timeout")));
-  socket.on("error", reject); socket.on("data", (chunk) => { output.push(chunk); socket.end(); }); socket.on("close", () => resolve(Buffer.concat(output))); socket.once("connect", () => socket.write(data));
+  socket.on("error", reject); socket.on("data", (chunk) => { output.push(chunk); socket.destroy(); }); socket.on("close", () => resolve(Buffer.concat(output))); socket.once("connect", () => socket.write(data));
 });
 it("blocks unknown HTTP/CONNECT destinations and rejects SOCKS authentication it does not implement", async () => {
   proxy = await startSandboxNetwork({ mode: "none" });
   expect((await exchange(proxy.httpPort, "GET http://example.com/ HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n")).toString()).toContain("403");
   expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
   expect(await exchange(proxy.socksPort, Buffer.from([5, 1, 2]))).toEqual(Buffer.from([5, 255]));
+});
+it.each(["analysis", "mcp"] as const)("refuses plaintext HTTP on port 443 authorized only by a %s user grant", async (profile) => {
+  const state: NetworkGrants = { schemaVersion: 1, revision: 1, rules: [{ profile, domain: "api.example.org", decision: "allow", source: "settings", createdAt: new Date().toISOString() }] };
+  const network = grantedNetwork({ mode: "none" }, state, profile);
+  proxy = await startSandboxNetwork(network);
+  expect((await exchange(proxy.httpPort, "GET http://api.example.org:443/ HTTP/1.1\r\nHost: api.example.org:443\r\nConnection: close\r\n\r\n")).toString()).toContain("403");
+  expect((await exchange(proxy.httpPort, "CONNECT api.example.org:443 HTTP/1.1\r\nHost: api.example.org:443\r\n\r\n")).toString()).toContain("200 Connection Established");
+  expect(domainAllowed("api.example.org", 443, network, "http")).toBe(false);
+  const operatorNetwork = grantedNetwork({ mode: "allowlist", allowedDomains: ["api.example.org:443"], deniedDomains: [] }, state, profile);
+  expect(domainAllowed("api.example.org", 443, operatorNetwork, "http")).toBe(true);
+  expect(domainAllowed("api.example.org", 443, grantedNetwork({ mode: "allowlist", allowedDomains: ["api.example.org:443"], deniedDomains: ["api.example.org"] }, state, profile), "http")).toBe(false);
 });
 it("refuses domain fronting before any upstream connection", async () => {
   proxy = await startSandboxNetwork({ mode: "allowlist", allowedDomains: ["example.com:443"], deniedDomains: [] });

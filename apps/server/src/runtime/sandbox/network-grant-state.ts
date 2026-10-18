@@ -24,9 +24,11 @@ export async function readNetworkGrantFile(path: string): Promise<NetworkGrants>
 
 export function grantedNetwork(base: SandboxPolicy["network"], state: NetworkGrants, profile: NetworkGrantProfile): SandboxPolicy["network"] {
   const rules = state.rules.filter((rule) => rule.profile === profile);
-  const allowedDomains = [...new Set([...(base.mode === "allowlist" ? base.allowedDomains : []), ...rules.filter((rule) => rule.decision === "allow").map((rule) => `${rule.domain}:443`)])];
+  const allowedDomains = base.mode === "allowlist" ? base.allowedDomains : [];
+  // User approvals permit TLS tunnels only; operator allows can also permit HTTP.
+  const httpsOnlyDomains = [...new Set([...(base.mode === "allowlist" ? base.httpsOnlyDomains ?? [] : []), ...rules.filter((rule) => rule.decision === "allow").map((rule) => `${rule.domain}:443`)])];
   const deniedDomains = [...new Set([...BUILTIN_DENIED_DOMAINS, ...(base.mode === "allowlist" ? base.deniedDomains : []), ...rules.filter((rule) => rule.decision === "deny").map((rule) => rule.domain)])];
-  return { mode: "allowlist", allowedDomains, deniedDomains };
+  return { mode: "allowlist", allowedDomains, httpsOnlyDomains, deniedDomains };
 }
 
 

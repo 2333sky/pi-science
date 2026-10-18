@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { changeNetworkGrant, grantedNetwork, networkDomain, networkGrantsPath, networkGrantSource, readNetworkGrants, revokeNetworkGrant } from "./network-grants.js";
 import { workspacePolicy } from "./policy.js";
 import { domainAllowed } from "./network.js";
+import { prepareSandbox } from "./process.js";
 let root: string;
 beforeEach(async () => { root = await realpath(await mkdtemp(join(tmpdir(), "network-grants-"))); vi.stubEnv("PI_SCIENCE_HOME", root); vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", ""); });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
@@ -24,6 +25,26 @@ it("fences a pending approval against newer revocations and denials", async () =
   await changeNetworkGrant({ profile: "analysis", domain: "api.example.org", decision: "deny" }, "settings");
   await expect(changeNetworkGrant({ profile: "analysis", domain: "api.example.org", decision: "allow" }, "approval", initial.revision)).rejects.toThrow("changed while approval");
   expect((await readNetworkGrants()).rules[0]?.decision).toBe("deny");
+});
+it.each(["analysis", "mcp"] as const)("rejects %s permissions inside a writable sandbox workspace", async (profile) => {
+  vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+  const workspace = join(root, "workspace"); await mkdir(workspace);
+  vi.stubEnv("PI_SCIENCE_HOME", join(workspace, ".test-settings"));
+  const policy = await workspacePolicy(workspace, undefined, profile);
+  await expect(prepareSandbox(policy, ["true"], [], 1)).rejects.toThrow("Network permissions must be outside writable sandbox paths");
+});
+it.each(["analysis", "mcp"] as const)("allows %s HTTPS approval when an operator deny applies only to port 80", async (profile) => {
+  const config = join(root, "profiles.json");
+  await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { [profile]: { deniedDomains: ["api.example.org:80", "*.example.org:80"] } } }), { mode: 0o600 });
+  vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", config);
+  await changeNetworkGrant({ profile, domain: "api.example.org", decision: "allow" }, "approval");
+  const network = grantedNetwork({ mode: "allowlist", allowedDomains: [], deniedDomains: ["api.example.org:80", "*.example.org:80"] }, await readNetworkGrants(), profile);
+  expect(domainAllowed("api.example.org", 443, network)).toBe(true);
+  expect(domainAllowed("api.example.org", 80, network)).toBe(false);
+  for (const deny of ["api.example.org:443", "*.example.org:443", "api.example.org", "*.example.org"]) {
+    await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { [profile]: { deniedDomains: [deny] } } }), { mode: 0o600 });
+    await expect(changeNetworkGrant({ profile, domain: "api.example.org", decision: "allow" }, "settings")).rejects.toThrow("operator");
+  }
 });
 it("denies override static allows and built-in/operator denials cannot be approved", async () => {
   await expect(changeNetworkGrant({ profile: "analysis", domain: "pastebin.com", decision: "allow" }, "settings")).rejects.toThrow("operator");

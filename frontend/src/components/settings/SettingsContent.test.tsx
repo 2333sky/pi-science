@@ -160,6 +160,19 @@ describe("SettingsContent", () => {
     expect(await screen.findByText("Model services")).toBeInTheDocument();
   });
 
+  it("shows global Network scope when opened from a workspace and restores workspace scope on other tabs", async () => {
+    renderContent("/lab/project");
+    const aside = (await screen.findByRole("tablist", { name: "Settings" })).closest("aside")!;
+    expect(within(aside).getByText("Workspace settings")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Network" }));
+    expect(within(aside).getByText("Global settings")).toBeInTheDocument();
+    expect(within(aside).queryByText("Workspace settings")).not.toBeInTheDocument();
+    expect(within(aside).queryByText("/lab/project")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "General" }));
+    expect(within(aside).getByText("Workspace settings")).toBeInTheDocument();
+    expect(within(aside).getByText("/lab/project")).toBeInTheDocument();
+  });
+
   it("shows separate Built-in and User Skills tables inside Settings", async () => {
     renderContent(null);
     await screen.findByRole("tablist", { name: "Settings" });
