@@ -79,9 +79,45 @@ active workloads before revoking grants. The existing shared
 `PI_SCIENCE_SANDBOX_READ_POLICY` independently bounds dependency reads and protects
 service-owned data.
 
+## User-approved network access
+
+Settings → Network manages persistent domain decisions for `analysis` and local
+`mcp` independently. Decisions apply to every workspace served by this user’s
+server. An allow grants only the exact hostname over HTTPS/443; a block denies
+that hostname on every port and overrides configured allows. Removing a decision
+restores the operator baseline. Operator and built-in deny rules always win.
+Candidate, install, control and BYOC processes do not inherit these decisions.
+
+The main agent exposes `request_network_access({ domain, profile?, reason? })`.
+Its browser permission card offers **Always allow**, **Deny this request**, and
+**Never allow**. The profile defaults to `analysis`. Candidate and delegated
+workers cannot request their own network approvals. Invalid targets, URLs,
+ports, wildcards, IP literals and internal hostnames are rejected. DNS resolution
+is still checked by the existing resolved-address guard at connection time.
+
+Decisions are atomically persisted to the service-owned `network-permissions/grants.json`
+in `PI_SCIENCE_HOME`, with cross-process locking and revision fencing. A settings
+change while a prompt is pending invalidates that approval. This file and its
+parent directory must remain outside writable sandbox grants; file tools cannot
+modify it. Corrupt/unreadable state closes access. A running proxy also refuses
+a removed or rolled-back ledger instead of silently restoring broader access.
+
+Each eligible launcher reads these decisions before new proxy connections and
+checks open connections every 200 ms. Revocations close affected HTTP and SOCKS
+connections, while the kernel and its Python variables remain alive. The dynamic
+decisions do not change kernel identity. Proxies launched before this feature
+must be restarted once to gain this update support. Operator configuration
+changes still follow the restart rules above.
+
+The authenticated settings API exposes `GET /api/settings/network`,
+`POST /api/settings/network` with `{ profile, domain, decision: "allow" | "deny" }`,
+and `DELETE /api/settings/network` with `{ profile, domain }`. The GET response
+includes the read-only operator baseline as well as saved user decisions.
+
 ## Network and credentials
 
-Every launch owns HTTP and SOCKS proxies with its immutable role policy. Linux
+Every launch owns HTTP and SOCKS proxies with its role policy and, for analysis
+and local MCP, the current user-approved network decisions. Linux
 uses SRT's Unix-socket/socat bridge into a fresh network namespace; macOS permits
 only the assigned proxy ports. Raw outbound, arbitrary loopback access and
 arbitrary Unix sockets remain blocked. Proxies pin connections to DNS answers

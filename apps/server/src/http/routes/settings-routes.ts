@@ -1,3 +1,4 @@
+import { registerNetworkGrantRoutes } from "./network-grant-routes.js";
 import { discoverAgentDefinitions } from "../../runtime/agent/agent-definitions.js";
 import { registerModelSelectionRoutes } from "./model-selection-routes.js";
 import { readFile } from "node:fs/promises";
@@ -487,6 +488,7 @@ async function discoverProvider(baseUrl: string, apiKey: string, api: string, al
 }
 
 export function registerSettingsRoutes(app: FastifyInstance, nodeSessionService: NodeSessionService, settingsStore: SettingsStore, modelResources?: ModelResourceService, runtimeCatalog?: Pick<RuntimeCatalogService, "getCatalog">, mcp?: McpConnectorService): void {
+  registerNetworkGrantRoutes(app);
   const load = () => settingsStore.read();
   const mutate = <T>(operation: (config: Settings) => T | Promise<T>) => settingsStore.update(operation, { skipUnchanged: true });
   // Direct API clients may save without calling the discovery endpoint first.

@@ -48,3 +48,26 @@ it("refuses domain fronting before any upstream connection", async () => {
     socket.once("connect", () => socket.write("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n"));
   });
 });
+
+it("rechecks dynamic decisions for new connections and closes an existing tunnel when access is revoked", async () => {
+  let allowed = false;
+  proxy = await startSandboxNetwork({ mode: "none" }, async () => ({ mode: "allowlist", allowedDomains: allowed ? ["example.com:443"] : [], deniedDomains: [] }));
+  expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
+  allowed = true;
+  const client = connect(proxy.httpPort, "127.0.0.1");
+  const closed = new Promise<void>((resolve, reject) => { client.once("close", () => resolve()); client.once("error", reject); });
+  client.setTimeout(2000, () => client.destroy(new Error("revocation timeout")));
+  await new Promise<void>((resolve, reject) => {
+    client.once("error", reject);
+    client.once("data", (chunk) => { expect(chunk.toString()).toContain("200 Connection Established"); resolve(); });
+    client.once("connect", () => client.write("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n"));
+  });
+  allowed = false;
+  await closed;
+  expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
+});
+
+it("closes connections and refuses new requests when the dynamic permission source becomes unreadable", async () => {
+  proxy = await startSandboxNetwork({ mode: "allowlist", allowedDomains: ["example.com:443"], deniedDomains: [] }, async () => { throw new Error("corrupt ledger"); });
+  expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
+});

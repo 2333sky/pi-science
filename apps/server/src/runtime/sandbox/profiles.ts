@@ -1,3 +1,5 @@
+import { BUILTIN_DENIED_DOMAINS } from "./network-grant-state.js";
+export { BUILTIN_DENIED_DOMAINS } from "./network-grant-state.js";
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 import { homedir } from "node:os";
@@ -18,7 +20,6 @@ const schema = z.object({
   userWritePaths: z.array(z.string().min(1)).max(128).default([]),
   profiles: z.object({ analysis: role.optional(), mcp: role.optional(), install: role.optional(), control: role.optional(), byoc: role.optional() }).strict().default({}),
 }).strict();
-export const BUILTIN_DENIED_DOMAINS = ["pastebin.com", "*.pastebin.com", "webhook.site", "*.webhook.site", "api.telegram.org", "hooks.slack.com", "metadata.google.internal"];
 export const DEFAULT_PACKAGE_DOMAINS = ["conda.anaconda.org:443", "repo.anaconda.com:443", "pypi.org:443", "files.pythonhosted.org:443"];
 export async function profileConfiguration() {
   const file = process.env.PI_SCIENCE_SANDBOX_PROFILES;
@@ -48,6 +49,6 @@ export async function applySandboxProfile(policy: SandboxPolicy, profile: Sandbo
   const network = config.profiles[profile] ?? (profile === "install" ? { allowedDomains: DEFAULT_PACKAGE_DOMAINS, deniedDomains: [] } : undefined);
   return identifyPolicy({ ...policy, profile, profilePolicyId: config.id,
     readPaths: [...new Set([...policy.readPaths, ...reads, ...writes])], writePaths: [...new Set([...policy.writePaths, ...writes])], denyPaths: [...new Set(denied)].sort(),
-    network: network?.allowedDomains.length ? { mode: "allowlist", allowedDomains: network.allowedDomains.map(defaultPort), deniedDomains: [...BUILTIN_DENIED_DOMAINS, ...network.deniedDomains] } : { mode: "none" },
+    network: network && (network.allowedDomains.length || network.deniedDomains.length) ? { mode: "allowlist", allowedDomains: network.allowedDomains.map(defaultPort), deniedDomains: [...BUILTIN_DENIED_DOMAINS, ...network.deniedDomains] } : { mode: "none" },
   });
 }

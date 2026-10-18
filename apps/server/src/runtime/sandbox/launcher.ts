@@ -1,8 +1,9 @@
 /** Trusted watchdog. This file and its manifest are never writable by sandbox code. */
+import type { NetworkGrantProfile } from "./network-grant-state.js";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 const [manifestPath, ...shellArgs] = process.argv.slice(2);
-const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string };
+const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; networkGrants?: { path: string; profile: NetworkGrantProfile } };
 if (process.platform === "darwin" && !manifest.supervisor) throw new Error("macOS sandbox requires the native descendant supervisor");
 const owner = process.ppid;
 const kill = () => { try { process.kill(-process.pid, "SIGKILL"); } catch { process.exit(1); } };
@@ -12,16 +13,19 @@ const deadline = setTimeout(kill, (manifest.timeoutSeconds + 1) * 1000);
 const envArgs = Object.entries(manifest.env).map(([key, value]) => `${key}=${value}`);
 const { startSandboxNetwork } = await import(new URL(import.meta.url.endsWith(".ts") ? "./network.ts" : "./network.js", import.meta.url).href);
 const configured = JSON.parse(readFileSync(manifest.settings, "utf8"));
-const network = await startSandboxNetwork(configured.network.allowedDomains.length
-  ? { mode: "allowlist", allowedDomains: configured.network.allowedDomains, deniedDomains: configured.network.deniedDomains }
-  : { mode: "none" });
+const baseNetwork = !configured.network.deniedDomains.includes("*")
+  ? { mode: "allowlist" as const, allowedDomains: configured.network.allowedDomains, deniedDomains: configured.network.deniedDomains }
+  : { mode: "none" as const };
+const { networkGrantSource } = await import(new URL(import.meta.url.endsWith(".ts") ? "./network-grant-state.ts" : "./network-grant-state.js", import.meta.url).href) as typeof import("./network-grant-state.js");
+const network = await startSandboxNetwork(baseNetwork, manifest.networkGrants ? networkGrantSource(baseNetwork, manifest.networkGrants.path, manifest.networkGrants.profile) : undefined);
 configured.network.httpProxyPort = network.httpPort;
 configured.network.socksProxyPort = network.socksPort;
 writeFileSync(manifest.settings, JSON.stringify(configured), { mode: 0o600 });
 // Keep only SRT's proxy endpoints when rebuilding the workload environment.
+// Numeric proxy hosts avoid libc DNS/hosts lookups inside the confined kernel.
 // Expansions are fixed shell code; all workload arguments remain positional.
 const runtimeArgs = [manifest.cli, "--settings", manifest.settings, "--", "/bin/sh", "-c",
-  'exec /usr/bin/env -i HTTP_PROXY="$HTTP_PROXY" HTTPS_PROXY="$HTTPS_PROXY" ALL_PROXY="$ALL_PROXY" http_proxy="$http_proxy" https_proxy="$https_proxy" all_proxy="$all_proxy" NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" "$@"',
+  'proxy_ip() { case "$1" in *://localhost:*) printf "%s://127.0.0.1:%s" "${1%%://*}" "${1#*://localhost:}" ;; *) printf "%s" "$1" ;; esac; }; exec /usr/bin/env -i HTTP_PROXY="$(proxy_ip "$HTTP_PROXY")" HTTPS_PROXY="$(proxy_ip "$HTTPS_PROXY")" ALL_PROXY="$(proxy_ip "$ALL_PROXY")" http_proxy="$(proxy_ip "$http_proxy")" https_proxy="$(proxy_ip "$https_proxy")" all_proxy="$(proxy_ip "$all_proxy")" NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" "$@"',
   "sandbox-env", ...envArgs, ...manifest.argv, ...shellArgs];
 let linuxManager: typeof import("@anthropic-ai/sandbox-runtime").SandboxManager | undefined;
 let linuxLaunch: { argv: string[]; env: NodeJS.ProcessEnv } | undefined;

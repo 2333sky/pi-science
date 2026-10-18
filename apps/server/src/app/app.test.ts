@@ -123,6 +123,7 @@ describe("Node control plane", () => {
     const app = buildApp(config("http://127.0.0.1:1", { internalToken: "test-control-token", requireInternalToken: true }));
     openApps.push(app);
 
+    expect((await app.inject({ method: "POST", url: "/api/settings/network", payload: { profile: "analysis", domain: "example.org", decision: "allow" } })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/health" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/health", headers: { "x-pi-science-internal-token": "test-control-token" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/api/health", headers: { cookie: "pi-science-internal=test-control-token" } })).statusCode).toBe(200);

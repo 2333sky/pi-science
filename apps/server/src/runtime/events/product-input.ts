@@ -22,7 +22,7 @@ export const productInputSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool.completed"), ...tool, result: z.unknown(), isError: z.boolean() }).passthrough(),
   z.object({ type: z.enum(["compaction.start", "compaction.end", "compaction.error", "retry.start", "retry.end", "retry.update", "model.turn.started"]), ...identity }).passthrough(),
   z.object({ type: z.literal("runtime.error"), message: z.string() }).passthrough(),
-  z.object({ type: z.literal("interaction.requested"), id: z.string().min(1), method: z.enum(["input", "confirm"]), title: z.string() }).passthrough(),
+  z.object({ type: z.literal("interaction.requested"), id: z.string().min(1), method: z.enum(["input", "confirm", "select"]), title: z.string() }).passthrough(),
   z.object({ type: z.literal("subagent.requested"), id: z.string().min(1), params: z.record(z.string(), z.unknown()), operationId: z.string(), invocationId: z.string() }).passthrough(),
   z.object({ type: z.literal("capability.requested"), id: z.string().min(1), tool: z.string().min(1) }).passthrough(),
   z.object({ type: z.literal("subagent.control"), id: z.string().min(1), params: z.record(z.string(), z.unknown()) }).passthrough(),

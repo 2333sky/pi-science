@@ -11,7 +11,7 @@ export class InteractionBridge {
 
   get hasPending(): boolean { return this.pending.size > 0; }
 
-  request(title: string, prefill: string, signal?: AbortSignal, options: { method?: "input" | "confirm"; kind?: "permission"; message?: string } = {}): Promise<string | null> {
+  request(title: string, prefill: string, signal?: AbortSignal, options: { method?: "input" | "confirm" | "select"; kind?: "permission"; message?: string; options?: Array<{ label: string; value: string }> } = {}): Promise<string | null> {
     if (signal?.aborted) return Promise.resolve(null);
     const id = randomUUID();
     return new Promise<string | null>((resolve, reject) => {
@@ -21,7 +21,7 @@ export class InteractionBridge {
       signal?.addEventListener("abort", onAbort, { once: true });
       this.pending.set(id, { resolve, reject, cleanup: () => signal?.removeEventListener("abort", onAbort) });
       this.publish({ type: "interaction.requested", id, method: options.method ?? "input", title, prefill,
-        ...(options.kind ? { kind: options.kind } : {}), ...(options.message ? { message: options.message } : {}) });
+        ...(options.options ? { options: options.options } : {}), ...(options.kind ? { kind: options.kind } : {}), ...(options.message ? { message: options.message } : {}) });
     });
   }
 

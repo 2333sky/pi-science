@@ -1,0 +1,42 @@
+import { z } from "zod";
+import type { SandboxPolicy } from "./policy.js";
+
+export const BUILTIN_DENIED_DOMAINS = ["pastebin.com", "*.pastebin.com", "webhook.site", "*.webhook.site", "api.telegram.org", "hooks.slack.com", "metadata.google.internal"];
+export const networkGrantProfile = z.enum(["analysis", "mcp"]);
+export type NetworkGrantProfile = z.infer<typeof networkGrantProfile>;
+export const networkDomain = z.string().trim().toLowerCase().max(253).refine((domain) => {
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/.test(domain)) return false;
+  if (/^[\d.]+$/.test(domain) || domain.split(".").every((part) => /^(?:0x[0-9a-f]+|\d+)$/i.test(part))) return false;
+  return !["localhost", "local", "internal", "localdomain", "home.arpa"].some((suffix) => domain === suffix || domain.endsWith(`.${suffix}`));
+}, "Enter a public hostname without a scheme, path, port, IP address or wildcard");
+const rule = z.object({ profile: networkGrantProfile, domain: networkDomain, decision: z.enum(["allow", "deny"]), createdAt: z.string().datetime(), source: z.enum(["settings", "approval"]), reason: z.string().max(2000).optional() }).strict();
+export const networkGrantsSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), rules: z.array(rule).max(512) }).strict();
+export type NetworkGrants = z.infer<typeof networkGrantsSchema>;
+export const networkRuleInput = rule.pick({ profile: true, domain: true, decision: true });
+
+export const emptyNetworkGrants = (): NetworkGrants => ({ schemaVersion: 1, revision: 0, rules: [] });
+export async function readNetworkGrantFile(path: string): Promise<NetworkGrants> {
+  // Launchers run as plain Node TypeScript in development, without a TS loader.
+  const { readOperatorConfig } = await import(new URL(import.meta.url.endsWith(".ts") ? "./operator-config.ts" : "./operator-config.js", import.meta.url).href) as typeof import("./operator-config.js");
+  try { return networkGrantsSchema.parse(await readOperatorConfig(path, 2 * 1024 * 1024)); }
+  catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return emptyNetworkGrants(); throw error; }
+}
+
+export function grantedNetwork(base: SandboxPolicy["network"], state: NetworkGrants, profile: NetworkGrantProfile): SandboxPolicy["network"] {
+  const rules = state.rules.filter((rule) => rule.profile === profile);
+  const allowedDomains = [...new Set([...(base.mode === "allowlist" ? base.allowedDomains : []), ...rules.filter((rule) => rule.decision === "allow").map((rule) => `${rule.domain}:443`)])];
+  const deniedDomains = [...new Set([...BUILTIN_DENIED_DOMAINS, ...(base.mode === "allowlist" ? base.deniedDomains : []), ...rules.filter((rule) => rule.decision === "deny").map((rule) => rule.domain)])];
+  return { mode: "allowlist", allowedDomains, deniedDomains };
+}
+
+
+/** A running launcher never accepts a deleted or rolled-back decision ledger. */
+export function networkGrantSource(base: SandboxPolicy["network"], path: string, profile: NetworkGrantProfile) {
+  let revision = 0;
+  return async () => {
+    const state = await readNetworkGrantFile(path);
+    if (state.revision < revision) throw new Error("Network permission state was removed or rolled back");
+    revision = state.revision;
+    return grantedNetwork(base, state, profile);
+  };
+}

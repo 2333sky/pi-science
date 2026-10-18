@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT, type AgentLane, type AgentHarness, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { SessionRuntime } from "./session-runtime.js";
 import { AgentMcpTools } from "./mcp-tools.js";
+import { networkGrantsPath, readNetworkGrants } from "../../sandbox/network-grants.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 
 const roots: string[] = [];
@@ -107,6 +108,29 @@ describe("agent-core worker mutations", () => {
       .toMatchObject({ success: false, code: "invalid_model" });
     expect(await instance.command("get_state", {})).toMatchObject({ success: true,
       data: { model: { provider: "openai", modelId: "gpt-4.1-mini" }, thinkingLevel: "off" } });
+  });
+
+  it("round trips network approval through the runtime browser channel", async () => {
+    const home = await realpath(await mkdtemp(join(tmpdir(), "runtime-network-home-"))); roots.push(home); vi.stubEnv("PI_SCIENCE_HOME", home);
+    const { instance, parts, events } = await runtime();
+    const tool = (await parts.harness.getTools(context)).find((tool) => tool.name === "request_network_access")!;
+    expect(tool).toBeDefined();
+    const pending = tool.execute("network-1", { domain: "api.example.org", reason: "Read research data" }, () => {}, { env: parts.executionEnv }, {} as never, context);
+    await vi.waitFor(() => expect(events.some((event) => event.type === "interaction.requested")).toBe(true));
+    const event = events.find((event) => event.type === "interaction.requested")!;
+    expect(await instance.command("get_state", {})).toMatchObject({ data: { pendingInteraction: true } });
+    expect(instance.notify("extension_ui_response", { id: event.id, value: "allow" })).toMatchObject({ success: true });
+    expect(await pending).toMatchObject({ details: { status: "granted" } });
+    expect((await readNetworkGrants()).rules).toMatchObject([{ profile: "analysis", domain: "api.example.org", decision: "allow" }]);
+    expect(networkGrantsPath()).toContain(home);
+  });
+
+  it.each([{ sandboxCandidateId: "candidate-test" }, { delegatedAgent: "worker" }])("withholds direct network approvals from confined/delegated workers: %j", async (binding) => {
+    const cwd = resolve(await mkdtemp(join(tmpdir(), "runtime-network-confined-"))); roots.push(cwd);
+    const instance = await SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science", "agent-sessions"), allowedTools: ["read", "request_network_access"], ...binding,
+      model: { provider: "openai", modelId: "gpt-4.1-mini" } }, () => {}, (error) => { throw error; });
+    runtimes.push(instance);
+    expect(await instance.command("get_state", {})).toMatchObject({ data: { activeTools: ["read"] } });
   });
 
   it("keeps abort reachable while a configuration mutation is waiting", async () => {

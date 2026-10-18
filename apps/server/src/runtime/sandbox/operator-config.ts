@@ -1,20 +1,20 @@
 import { constants } from "node:fs";
-import { lstat, open } from "node:fs/promises";
-import { dirname, isAbsolute, resolve } from "node:path";
-import { canonicalDirectory } from "./policy.js";
+import { lstat, open, realpath } from "node:fs/promises";
+import { dirname, isAbsolute, resolve, relative } from "node:path";
 
 /** Service-owned configuration must never come from an agent-writable file. */
-export async function readOperatorConfig(file: string): Promise<unknown> {
+export async function readOperatorConfig(file: string, maxBytes = 64 * 1024): Promise<unknown> {
   if (!isAbsolute(file) || resolve(file) !== file) throw new Error("Operator sandbox config requires a canonical absolute path");
-  await canonicalDirectory(dirname(file));
+  if (relative(dirname(file), await realpath(dirname(file))) !== "") throw new Error("Operator config directory aliases and symlinks are forbidden");
   for (let directory = dirname(file); dirname(directory) !== directory; directory = dirname(directory)) {
     const info = await lstat(directory);
-    if ((info.mode & 0o022) && !(info.mode & 0o1000)) throw new Error("Operator sandbox config has a writable ancestor");
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Operator config directory aliases and symlinks are forbidden");
+    if (process.platform !== "win32" && (info.mode & 0o022) && !(info.mode & 0o1000)) throw new Error("Operator sandbox config has a writable ancestor");
   }
   const handle = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const before = await handle.stat({ bigint: true });
-    if (!before.isFile() || before.nlink !== 1n || before.size > 64n * 1024n || (before.mode & 0o077n) || before.uid !== BigInt(process.getuid!())) throw new Error("Operator sandbox config must be a private single-link regular file");
+    if (!before.isFile() || before.nlink !== 1n || before.size > BigInt(maxBytes) || (process.platform !== "win32" && ((before.mode & 0o077n) || before.uid !== BigInt(process.getuid!())))) throw new Error("Operator sandbox config must be a private single-link regular file");
     const buffer = Buffer.alloc(Number(before.size) + 1);
     let length = 0;
     while (length < buffer.length) {

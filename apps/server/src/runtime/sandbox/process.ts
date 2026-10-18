@@ -1,8 +1,9 @@
+import { networkGrantsPath } from "./network-grants.js";
 import { mkdtemp, mkdir, rm, writeFile, stat, realpath, copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { identifyPolicy, isWithin, type SandboxPolicy } from "./policy.js";
+import { canonicalDirectory, identifyPolicy, isWithin, type SandboxPolicy } from "./policy.js";
 import { processSettings, srtCli, type RuntimeInstallation } from "./settings.js";
 import { prepareMacosSupervisor } from "./platform.js";
 
@@ -15,6 +16,9 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     for (const root of [...policy.readPaths, ...policy.writePaths, ...dependencies]) {
       if (isWithin(await realpath(root), control)) throw new Error("Sandbox grants overlap the private launcher control directory");
     }
+    const networkGrants = policy.scope !== "candidate" && (policy.profile === "analysis" || policy.profile === "mcp") ? { path: networkGrantsPath(), profile: policy.profile } : undefined;
+    if (networkGrants) await canonicalDirectory(dirname(networkGrants.path));
+    if (networkGrants && policy.writePaths.some((root) => isWithin(root, dirname(networkGrants.path)))) throw new Error("Network permissions must be outside writable sandbox paths");
     const scratch = join(control, "scratch"); await mkdir(scratch, { mode: 0o700 });
     const settings = await processSettings(identifyPolicy({ ...policy, readPaths: [...policy.readPaths, scratch], writePaths: [...policy.writePaths, scratch] }), dependencies, installation);
     const lifecycleTag = `pi-science.lifecycle.${randomUUID()}`;
@@ -35,7 +39,7 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     const settingsPath = join(control, "settings.json"); const manifest = join(control, "launch.json"); const shell = join(control, "bash");
     await writeFile(settingsPath, JSON.stringify(settings), { mode: 0o600 });
     const supervisor = await prepareMacosSupervisor(control);
-    await writeFile(manifest, JSON.stringify({ cli: srtCli, settings: settingsPath, argv, env, timeoutSeconds, kernelBridge, supervisor, lifecycleTag, deniedLifecycleTag }), { mode: 0o600 });
+    await writeFile(manifest, JSON.stringify({ cli: srtCli, settings: settingsPath, argv, env, timeoutSeconds, kernelBridge, supervisor, lifecycleTag, deniedLifecycleTag, networkGrants }), { mode: 0o600 });
     await writeFile(shell, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(launcherPath)} ${shellQuote(manifest)} "$@"\n`, { mode: 0o700 });
     // srt's own temporary/proxy state is separate from the code's scratch directory.
     return { manifest, shell, env: { PATH: "/usr/bin:/bin", HOME: control, TMPDIR: control, LANG: "C.UTF-8" }, cleanup: () => rm(control, { recursive: true, force: true }) };

@@ -1,6 +1,7 @@
+import { networkGrantsPath } from "./network-grants.js";
 import { constants } from "node:fs";
 import { access, readFile, realpath } from "node:fs/promises";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isWithin, type SandboxPolicy } from "./policy.js";
 import { pathsOverlap, runtimeDependencyGrants, runtimeReadPolicy, runtimeReadPolicyId, sandboxRuntimeRoot } from "./read-grants.js";
@@ -55,12 +56,13 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
   }
   const literal = (path: string) => ({ path, literal: true as const });
   const credentialNames = [".npmrc", ".pypirc", ".netrc", "_netrc", ".git-credentials", ".modal.toml", "credentials.json", "credentials.toml", ".env", ".env.*"];
+  const permissionRoot = dirname(networkGrantsPath());
   const credentials = [...new Set([...policy.readPaths, ...policy.writePaths])].flatMap((root) => credentialNames.map((name) => join(root, "**", name)));
   return {
     network: { allowedDomains: policy.network.mode === "allowlist" ? policy.network.allowedDomains : [], deniedDomains: policy.network.mode === "allowlist" ? policy.network.deniedDomains : ["*"], strictAllowlist: true,
       allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
-    filesystem: { denyRead: [...["/", ...readPolicy.protectedRoots, ...policy.denyPaths].map(literal), ...credentials], allowRead: [...new Set([...reads, join(root, "vendor/seccomp"), ...(installation.socat ? [installation.socat] : []), ...policy.readPaths])].map(literal),
-      allowWrite: policy.writePaths.map(literal), denyWrite: [...[...readPolicy.protectedRoots, ...policy.denyPaths, ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), ...credentials], allowGitConfig: false },
+    filesystem: { denyRead: [...["/", permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths].map(literal), ...credentials], allowRead: [...new Set([...reads, join(root, "vendor/seccomp"), ...(installation.socat ? [installation.socat] : []), ...policy.readPaths])].map(literal),
+      allowWrite: policy.writePaths.map(literal), denyWrite: [...[permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths, ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), ...credentials], allowGitConfig: false },
     enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
     ripgrep: { command: installation.ripgrep ?? "/usr/bin/rg" }, ...(installation.socat ? { socatPath: installation.socat } : {}),
   };

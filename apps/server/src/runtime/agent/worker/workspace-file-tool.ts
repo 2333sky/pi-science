@@ -1,8 +1,9 @@
+import { networkGrantsPath } from "../../sandbox/network-grants.js";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { lstat, mkdir, open, rename, unlink, type FileHandle } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { relative, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { ok, type AgentHarnessTool, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { canonicalDirectory, isSensitiveWorkspaceName, isWithin } from "../../sandbox/policy.js";
 import { runtimeReadPolicy, pathsOverlap } from "../../sandbox/read-grants.js";
@@ -17,6 +18,7 @@ export function workspaceFileTool(original: Tool, cwd: string, skillRoots: strin
     const protectedRoots = (await runtimeReadPolicy()).protectedRoots;
     const check = (path: string, write = false) => {
       path = resolve(cwd, path);
+      if (isWithin(dirname(networkGrantsPath()), path)) throw new Error("Network permissions are service-owned");
       if (write && pathsOverlap(fileURLToPath(new URL("../../../../", import.meta.url)), path)) throw new Error("Trusted server installation is not writable by file tools");
       if (protectedRoots.some((root) => pathsOverlap(root, path))) throw new Error("Protected service data is unavailable to file tools");
       if (write && skillRoots.some((root) => pathsOverlap(root, path))) throw new Error("Skill resources are read-only");

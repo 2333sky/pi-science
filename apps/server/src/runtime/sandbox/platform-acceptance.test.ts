@@ -2,6 +2,8 @@ import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { changeNetworkGrant, revokeNetworkGrant, networkGrantsPath } from "./network-grants.js";
+import type { SandboxProfile } from "./profiles.js";
 import { workspacePolicy } from "./policy.js";
 import { killSandboxGroup, launcherPath, prepareSandbox } from "./process.js";
 import { NodeKernelManager } from "../kernel/node-kernel-manager.js";
@@ -18,8 +20,8 @@ const roots: string[] = [];
 const managers: NodeKernelManager[] = [];
 afterEach(async () => { await Promise.all(managers.splice(0).map((manager) => manager.shutdownAll())); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function fixture() { const root = await mkdtemp(join(await realpath("/tmp"), "ps-accept-")); roots.push(root); return root; }
-async function execute(cwd: string, argv: string[], dependencies: string[] = [], timeoutSeconds = 10) {
-  const prepared = await prepareSandbox(await workspacePolicy(cwd), argv, dependencies, timeoutSeconds);
+async function execute(cwd: string, argv: string[], dependencies: string[] = [], timeoutSeconds = 10, profile: SandboxProfile = "analysis") {
+  const prepared = await prepareSandbox(await workspacePolicy(cwd, undefined, profile), argv, dependencies, timeoutSeconds);
   let stdout = "", stderr = "";
   const child = spawn(process.execPath, [launcherPath, prepared.manifest], { cwd, env: prepared.env, detached: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });
   child.stdout!.on("data", (chunk) => stdout += chunk); child.stderr!.on("data", (chunk) => stderr += chunk);
@@ -68,6 +70,25 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     expect(await manager.execute({ ...options, code: "print(state+2)" })).toMatchObject({ ok: true, stdout: "42\n" });
     expect(await manager.execute({ ...options, code: `import os\ntry:\n open(${JSON.stringify(join(prefix, "forbidden-by-sandbox"))},'w'); raise AssertionError('environment writable')\nexcept OSError: pass\nprint('readonly')` })).toMatchObject({ ok: true, stdout: "readonly\n" });
   }, 30_000);
+  it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("grants and revokes network access in a running Python kernel without losing state", async () => {
+    const cwd = await fixture(), home = await fixture();
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("PI_SCIENCE_HOME", home); vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", "");
+    const prefix = process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT!;
+    const manager = new NodeKernelManager(); managers.push(manager);
+    const options = { cwd, language: "python" as const, environment: { ready: true, workspace: cwd, prefix, python: join(prefix, "bin/python3"), pip: join(prefix, "bin/pip"), npm: { local_prefix: cwd, global_prefix: cwd, cache: cwd } }, timeoutMs: 20_000 };
+    const blocked = "import urllib.request\ntry:\n urllib.request.urlopen('https://example.com',timeout=10)\nexcept Exception:\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
+    expect(await manager.execute({ ...options, code: "state=42\nimport os\noriginal_pid=os.getpid()\n" + blocked })).toMatchObject({ ok: true, stdout: "blocked\n" });
+    await changeNetworkGrant({ profile: "analysis", domain: "example.com", decision: "allow" }, "settings");
+    const granted = await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\nprint(urllib.request.urlopen('https://example.com',timeout=15).status)" });
+    expect(granted, JSON.stringify(granted)).toMatchObject({ ok: true, stdout: "200\n" });
+    for (const profile of ["mcp", "control"] as const) {
+      const confined = await execute(cwd, ["/bin/bash", "-c", "if curl -sS --fail --max-time 2 https://example.com >/dev/null 2>&1; then exit 77; fi; echo role-isolated"], [], 5, profile);
+      expect(confined, confined.stderr).toMatchObject({ code: 0, stdout: "role-isolated\n" });
+    }
+    await revokeNetworkGrant("analysis", "example.com");
+    expect(await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\n" + blocked })).toMatchObject({ ok: true, stdout: "blocked\n" });
+    expect(await manager.execute({ ...options, code: `try:\n open(${JSON.stringify(networkGrantsPath())}).read()\nexcept OSError:\n print('permissions-protected')\nelse:\n raise AssertionError('permission state exposed')` })).toMatchObject({ ok: true, stdout: "permissions-protected\n" });
+  }, 60_000);
   it("confines installer writes to its new prefix and cache", async () => {
     const root = await fixture(), prefix = join(root, "env"), cache = join(root, "pkgs"), workspace = join(root, "workspace");
     await mkdir(workspace); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");

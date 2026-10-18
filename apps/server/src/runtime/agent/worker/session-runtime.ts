@@ -1,3 +1,4 @@
+import { networkAccessTool } from "./network-access-tool.js";
 import { workspaceFileTool } from "./workspace-file-tool.js";
 import { executionBudgetTools, watchExecutionDeadline } from "./execution-budget.js";
 import { sandboxBashTool } from "./sandbox-bash.js";
@@ -170,7 +171,7 @@ export class SessionRuntime {
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [budgets.tool, candidateReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }), budgets.wrap(sandboxRunTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, sandboxInstallation())), budgets.wrap(sandboxBashTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
+        tools: [...(!options.sandboxCandidateId && !options.delegatedAgent ? [networkAccessTool(interactions)] : []), budgets.tool, candidateReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }), budgets.wrap(sandboxRunTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, sandboxInstallation())), budgets.wrap(sandboxBashTool({ cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
           todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent }).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => !options.allowedTools || options.allowedTools.includes(tool.name))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
@@ -200,6 +201,7 @@ export class SessionRuntime {
       // revoked tools before recovery; add supervision for existing delegates.
       const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
       const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
+      if (available.has("request_network_access") && !activeTools.includes("request_network_access")) activeTools.push("request_network_access");
       if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
       if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
       // A restored lane keeps its durable model, and the seed only applies to a lane that has
