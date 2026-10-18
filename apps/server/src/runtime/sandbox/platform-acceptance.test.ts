@@ -71,7 +71,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
   it("confines installer writes to its new prefix and cache", async () => {
     const root = await fixture(), prefix = join(root, "env"), cache = join(root, "pkgs"), workspace = join(root, "workspace");
     await mkdir(workspace); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
-    await runEnvironmentProcess("/bin/bash", ["-c", `set -e; test -s "$CONDA_SSL_VERIFY"; test "$CONDA_SSL_VERIFY" = "$MAMBA_SSL_VERIFY"; touch installed; touch '${cache}/cached'; if touch '${workspace}/escaped' 2>/dev/null; then exit 77; fi`], prefix, cache, 10_000);
+    await runEnvironmentProcess("/bin/bash", ["-c", `set -e; test -s "$CONDA_SSL_VERIFY"; test "$CONDA_SSL_VERIFY" = "$MAMBA_SSL_VERIFY"; test -z "$(ls -A '${prefix}')"; touch '${prefix}/installed'; touch '${cache}/cached'; if touch '${workspace}/escaped' 2>/dev/null; then exit 77; fi`], prefix, cache, 10_000);
     expect(await readFile(join(prefix, "installed"), "utf8")).toBe(""); await expect(readFile(join(workspace, "escaped"))).rejects.toThrow();
   }, 30_000);
   it("confines a real MCP server while passing only its own explicitly bound credential", async () => {
