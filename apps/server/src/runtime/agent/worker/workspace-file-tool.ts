@@ -1,3 +1,4 @@
+import { executionGrantsDirectory } from "../../sandbox/execution-grants.js";
 import { networkGrantsPath } from "../../sandbox/network-grants.js";
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
@@ -16,8 +17,10 @@ type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 export function workspaceFileTool(original: Tool, cwd: string, skillRoots: string[]): Tool {
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
     const protectedRoots = (await runtimeReadPolicy()).protectedRoots;
+    const executionGrantsRoot = await executionGrantsDirectory();
     const check = (path: string, write = false) => {
       path = resolve(cwd, path);
+      if (isWithin(executionGrantsRoot, path)) throw new Error("Execution grants are service-owned");
       if (isWithin(dirname(networkGrantsPath()), path)) throw new Error("Network permissions are service-owned");
       if (write && pathsOverlap(fileURLToPath(new URL("../../../../", import.meta.url)), path)) throw new Error("Trusted server installation is not writable by file tools");
       if (protectedRoots.some((root) => pathsOverlap(root, path))) throw new Error("Protected service data is unavailable to file tools");

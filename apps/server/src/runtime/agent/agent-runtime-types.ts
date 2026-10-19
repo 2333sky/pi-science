@@ -1,5 +1,5 @@
 /** Service-bound execution restriction, independent of a Skill or role name. */
-export type ExecutionScope = "workspace" | "candidate";
+export type ExecutionScope = "workspace" | "confined" | "candidate";
 
 export interface RuntimeResult<T = unknown> {
   success: boolean;

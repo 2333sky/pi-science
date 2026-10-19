@@ -22,7 +22,7 @@ export function bashDependencies(): string[] {
 /** Exact-version platform configuration shared by one-shot and persistent processes. */
 export async function processSettings(policy: SandboxPolicy, dependencies: string[], installation = runtimeInstallation()) {
   requireSandboxPlatform();
-  if (policy.scope === "candidate" && (policy.network.mode !== "none" || policy.profile && policy.profile !== "candidate")) throw new Error("Candidate sandbox cannot inherit a broader execution profile");
+  if ((policy.scope === "candidate" || policy.scope === "confined") && (policy.network.mode !== "none" || policy.profile && policy.profile !== "candidate")) throw new Error("Candidate sandbox cannot inherit a broader execution profile");
   if (policy.profilePolicyId && policy.profilePolicyId !== (await profileConfiguration()).id) throw new Error("Sandbox profile configuration changed after admission");
   const root = sandboxRuntimeRoot;
   // Workloads must not rewrite the launcher/service code or its runtime and gain

@@ -5,7 +5,8 @@ import { executionIdFor, executionRepository } from "../../executions/execution-
 import { identifyPolicy, workspacePolicy } from "../../sandbox/policy.js";
 import { prepareSandbox, type PreparedSandbox } from "../../sandbox/process.js";
 import { bashDependencies, SANDBOX_RUNTIME } from "../../sandbox/settings.js";
-import { sandboxCandidate, type SandboxIdentity } from "./sandbox-tool.js";
+import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
+import { type SandboxIdentity } from "./sandbox-tool.js";
 import { toolEnvironment } from "../agent-runtime-environment.js";
 import { snapshotSandboxOutputs, sandboxArtifactCapture } from "../../sandbox/artifacts.js";
 import { diffWorkspaceSnapshots } from "../../artifacts/workspace-artifact-snapshot.js";
@@ -16,16 +17,17 @@ type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Record<string, string> = toolEnvironment(process.env)): Tool {
   const original = createBashTool();
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
-    const candidate = identity.candidateId ? await sandboxCandidate(identity, invocation.operationId, identity.candidateId) : undefined;
-    if (identity.executionScope === "candidate" && !candidate) throw new Error("Candidate execution requires a server-bound candidate");
+    const confined = !!identity.executionGrantId || !!identity.candidateId || identity.executionScope === "candidate" || identity.executionScope === "confined";
+    if (confined && !identity.executionGrantId) throw new Error("Candidate execution requires a server-bound candidate or generic execution grant");
     const revision = hostEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID;
-    const policy = candidate ? identifyPolicy({ mode: "required", scope: "candidate", cwd: candidate.work, readPaths: [candidate.input, candidate.work], writePaths: [candidate.work], denyPaths: [], network: { mode: "none" }, ...(revision ? { environmentRevision: revision } : {}) }) : await workspacePolicy(identity.cwd, revision);
+    const policy = confined ? await executionGrantPolicy(identity, revision, "bash") : await workspacePolicy(identity.cwd, revision);
+    const binding = confined ? { directory: policy.cwd } : undefined;
     const values = params as { command: string; timeout?: number };
     const timeout = values.timeout ?? 600;
     if (!Number.isFinite(timeout) || timeout <= 0) throw new Error("Invalid timeout: must be a finite number of seconds");
     const run = async () => {
       context.abortSignal?.throwIfAborted();
-      if (candidate) await sandboxCandidate(identity, invocation.operationId, identity.candidateId!);
+      if (binding) await executionGrantPolicy(identity, revision, "bash");
       const executionId = executionIdFor("bash", identity.sessionId, invocation.operationId, invocation.invocationId);
       let prepared: PreparedSandbox | undefined;
       let env: NodeExecutionEnv | undefined;
@@ -45,7 +47,7 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
       try {
         if (await executionRepository.get(identity.cwd, executionId)) throw new Error("Bash invocation already recorded; inspect its result before issuing a new invocation");
         await executionRepository.start(identity.cwd, { execution_id: executionId, kind: "tool", surface: "local", producer: "bash", correlation: { session_id: identity.sessionId, operation_id: invocation.operationId, tool_call_id: invocation.invocationId, ...(identity.candidateId ? { candidate_id: identity.candidateId } : {}) },
-          request: { ...(candidate ? { research_id: candidate.researchId } : {}), command: ["/bin/bash", "-c", values.command], timeout_seconds: Math.min(timeout, 600) }, runtime: { sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host", sandbox_policy_id: policy.id, execution_mode: policy.mode, ...(revision ? { environment_revision_id: revision } : {}) } });
+          request: { ...(policy.executionGrant ? { execution_grant_id: policy.executionGrant.id } : {}), command: ["/bin/bash", "-c", values.command], timeout_seconds: Math.min(timeout, 600) }, runtime: { sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host", sandbox_policy_id: policy.id, execution_mode: policy.mode, ...(revision ? { environment_revision_id: revision } : {}) } });
         started = true;
         const dependencies = [...new Set([...(hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX ? [hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX] : []), ...bashDependencies()])];
         prepared = policy.mode === "required" ? await prepareSandbox(policy, ["/bin/bash", "--noprofile", "--norc"], dependencies, Math.min(timeout, 600)) : undefined;
@@ -66,7 +68,7 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
           output_preview: result.content.filter((part) => part.type === "text").map((part) => part.type === "text" ? part.text : "").join("\n").slice(0, 16 * 1024),
           ...(evidence.failures.length ? { artifact_publish_errors: evidence.failures } : {}) }, files: evidence.files, artifacts: evidence.artifacts });
         const references = { execution_id: executionId, artifact_refs: evidence.artifacts };
-        return candidate || evidence.artifacts.length ? { ...result, content: [...result.content, { type: "text" as const, text: JSON.stringify(references) }], details: { ...result.details, ...references } } : result;
+        return binding || evidence.artifacts.length ? { ...result, content: [...result.content, { type: "text" as const, text: JSON.stringify(references) }], details: { ...result.details, ...references } } : result;
       } catch (error) {
         const timedOut = outcome.errorCode === "timeout" || context.abortSignal?.reason instanceof Error && context.abortSignal.reason.message === "Execution time budget exhausted";
         if (started) {
@@ -78,6 +80,7 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
         throw error;
       } finally { await env?.cleanup(context); await prepared?.cleanup(); }
     };
-    return candidate ? withFileWriteLock(workspaceFile(identity.cwd, `sandbox-candidates/${createHash("sha256").update(candidate.directory).digest("hex")}.json`), run) : run();
+    // Retain the legacy lock filename so old/new producers cannot race on one root.
+    return binding ? withFileWriteLock(workspaceFile(identity.cwd, `sandbox-candidates/${createHash("sha256").update(binding.directory).digest("hex")}.json`), run) : run();
   } };
 }

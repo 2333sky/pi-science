@@ -1,9 +1,10 @@
+import { assertExecutionGrantTool } from "../../sandbox/execution-grants.js";
 import { childToolAllowance } from "../agent-definitions.js";
 import { networkAccessTool } from "./network-access-tool.js";
 import { workspaceFileTool } from "./workspace-file-tool.js";
 import { executionBudgetTools, watchExecutionDeadline } from "./execution-budget.js";
 import { sandboxBashTool } from "./sandbox-bash.js";
-import { sandboxRunTool, sandboxInstallation, candidateReadTool, type SandboxIdentity } from "./sandbox-tool.js";
+import { sandboxRunTool, sandboxInstallation, confinedReadTool, type SandboxIdentity } from "./sandbox-tool.js";
 import { randomUUID } from "node:crypto";
 import { decodeCommand, decodeNotification } from "./command-contract.js";
 import { isAbsolute, join, resolve } from "node:path";
@@ -156,8 +157,8 @@ export class SessionRuntime {
       const discovered = await loadSkills(executionEnv, skillPaths, context);
       const templates = await loadPromptTemplates(executionEnv, join(options.cwd, ".pi", "prompts"), context);
       const subagents = new SubagentBridge(emit);
-      const candidateScoped = !!options.sandboxCandidateId || options.executionScope === "candidate";
-      const sandboxIdentity: SandboxIdentity = { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, delegatedAgent: options.delegatedAgent, executionScope: candidateScoped ? "candidate" : "workspace" };
+      const candidateScoped = !!options.executionGrantId || !!options.sandboxCandidateId || options.executionScope === "candidate" || options.executionScope === "confined";
+      const sandboxIdentity: SandboxIdentity = { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId, delegatedAgent: options.delegatedAgent, executionScope: options.executionScope ?? (candidateScoped ? "confined" : "workspace") };
       // Capability checks precede discovery: a tool-free worker must not spawn
       // connectors, open connections, or materialize their credentials.
       if (!candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name.startsWith("mcp__")))) {
@@ -174,10 +175,11 @@ export class SessionRuntime {
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions)] : []), budgets.tool, candidateReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), sandboxIdentity), budgets.wrap(sandboxRunTool(sandboxIdentity, sandboxInstallation())), budgets.wrap(sandboxBashTool(sandboxIdentity, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
+        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), sandboxIdentity), budgets.wrap(sandboxRunTool(sandboxIdentity, sandboxInstallation())), budgets.wrap(sandboxBashTool(sandboxIdentity, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
           todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
+            if (options.executionGrantId) await assertExecutionGrantTool(sandboxIdentity, tool.name);
             const permission = await subagents.request({ tool: tool.name }, context.abortSignal, "capability.requested");
             if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
             return tool.execute(id, params, update, ctx, invocation, context);

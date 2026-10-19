@@ -1,3 +1,4 @@
+import { createExecutionGrant } from "./execution-grants.js";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile, symlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -203,7 +204,9 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
     await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
     await writeFile(join(directory, "input/value.txt"), "approved");
     await executionBudgetTools(cwd).tool.execute("budget", { research_id: "study", max_seconds: 60, max_executions: 10 }, () => {}, { env: new NodeExecutionEnv({ cwd }) }, invocation("budget"), BACKGROUND_CONTEXT);
-    const identity = { cwd, sessionId: "candidate-worker", budgetOperationId: "op", candidateId: "one", delegatedAgent: "optimizer", executionScope: "candidate" as const };
+    const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+    const grantBudget = await new ExecutionBudgetLedger(cwd, "op", true).createChild("candidate-worker");
+    const identity = { cwd, sessionId: "candidate-worker", budgetNodeId: "candidate-worker", budgetOperationId: "op", candidateId: "one", delegatedAgent: "optimizer", executionScope: "candidate" as const, executionGrantId: await createExecutionGrant({ workspace: cwd, workerKey: "candidate-worker", budgetOwner: "op", deadline: (await grantBudget.status()).deadline, tools: ["read", "bash", "notebook_read", "notebook_run"], selection: { cwd: join(directory, "work"), read_paths: [join(directory, "input")], write_paths: [join(directory, "work")] }, parentPolicy: await workspacePolicy(cwd) }) };
     const grant = candidateKernelGrant(identity, "op", "test-secret");
     const manager = new NodeKernelManager(); managers.push(manager);
     const app = Fastify();

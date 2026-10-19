@@ -8,7 +8,7 @@ import { applySandboxProfile, type SandboxProfile } from "./profiles.js";
 export interface SandboxPolicy {
   id: string;
   mode: "required" | "trusted-host";
-  scope: "workspace" | "candidate";
+  scope: "workspace" | "confined" | "candidate";
   cwd: string;
   readPaths: string[];
   writePaths: string[];
@@ -19,7 +19,7 @@ export interface SandboxPolicy {
   environmentRevision?: string;
   operatorReadPolicyId?: string;
   owner?: string;
-  researchId?: string;
+  executionGrant?: { id: string; sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } };
 }
 export const isWithin = (root: string, path: string) => { const part = relative(root, path); return part === "" || part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
 export async function canonicalDirectory(path: string): Promise<string> {

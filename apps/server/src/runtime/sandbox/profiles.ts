@@ -30,7 +30,7 @@ const defaultPort = (domain: string) => domain.includes(":") ? domain : `${domai
 
 /** Called only by trusted execution entry points. Role names are never tool args. */
 export async function applySandboxProfile(policy: SandboxPolicy, profile: SandboxProfile): Promise<SandboxPolicy> {
-  if (policy.scope === "candidate") {
+  if ((policy.scope === "candidate" || policy.scope === "confined")) {
     if (profile !== "candidate" || policy.network.mode !== "none") throw new Error("Candidate sandbox cannot inherit a broader execution profile");
     return identifyPolicy({ ...policy, profile });
   }

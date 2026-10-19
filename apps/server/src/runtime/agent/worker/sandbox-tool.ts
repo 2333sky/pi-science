@@ -15,6 +15,7 @@ import { withFileWriteLock, workspaceFile } from "../../../storage/persistence.j
 import { executionIdFor, executionRepository } from "../../executions/execution-repository.js";
 import { publishWorkspaceArtifacts } from "../../artifacts/workspace-artifact-publisher.js";
 
+import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
 import type { ExecutionScope } from "../agent-runtime-types.js";
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
@@ -23,10 +24,11 @@ const inputSchema = z.object({ candidate_id: z.string().regex(CANDIDATE_PATTERN)
 const MAX_LOG_BYTES = 64 * 1024;
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024;
 const producer = "sandbox_run";
-class InvalidSandboxOutput extends Error {}
+import { boundCandidate, sandboxCandidate, validateTree, InvalidSandboxOutput } from "../../../skill-adapters/legacy-auto-research.js";
+export { sandboxCandidate } from "../../../skill-adapters/legacy-auto-research.js";
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const inside = (root: string, path: string) => path !== root && !relative(root, path).startsWith("..") && !isAbsolute(relative(root, path));
-export interface SandboxIdentity { cwd: string; sessionId: string; budgetOperationId?: string; candidateId?: string; executionScope?: ExecutionScope; delegatedAgent?: string }
+export interface SandboxIdentity { cwd: string; sessionId: string; budgetOperationId?: string; candidateId?: string; budgetNodeId?: string; executionGrantId?: string; executionScope?: ExecutionScope; delegatedAgent?: string }
 export interface SandboxInstallation { python: string; pythonRoot: string; socat?: string; ripgrep?: string }
 export interface SandboxProcessResult { status: "succeeded" | "failed" | "cancelled" | "timed_out"; exit_code: number | null; stdout: string; stderr: string; limitations: string[] }
 
@@ -39,56 +41,22 @@ export function sandboxInstallation(): SandboxInstallation | undefined {
     ...(process.env.PI_SCIENCE_SANDBOX_SOCAT ? { socat: process.env.PI_SCIENCE_SANDBOX_SOCAT } : {}) };
 }
 
-/** No aliases or symlink components are accepted for candidate data. Hard links are also excluded. */
-async function validateTree(root: string, limit = 4096): Promise<void> {
-  let entries = 0;
-  const visit = async (path: string): Promise<void> => {
-    for (const item of await readdir(path, { withFileTypes: true })) {
-      if (++entries > limit) throw new InvalidSandboxOutput("Sandbox candidate tree exceeds entry limit");
-      const file = join(path, item.name); const info = await lstat(file);
-      if (info.isSymbolicLink() || !info.isDirectory() && (!info.isFile() || info.nlink !== 1)) throw new InvalidSandboxOutput("Sandbox candidate contains links or special files");
-      if (info.isDirectory()) await visit(file);
-    }
-  };
-  await visit(root);
-}
-async function boundCandidate(identity: SandboxIdentity, operationId: string, candidateId: string) {
-  if (!CANDIDATE_PATTERN.test(candidateId)) throw new Error("Invalid candidate_id");
-  if ((identity.delegatedAgent || identity.executionScope === "candidate" || identity.candidateId) && identity.candidateId !== candidateId) throw new Error("Candidate is not authorized for this child");
-  const owner = identity.budgetOperationId ?? operationId;
-  const binding = z.object({ researchId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/) }).strict()
-    .parse(JSON.parse(await readFile(workspaceFile(identity.cwd, `execution-budget-scopes/${hash(owner)}.json`), "utf8")));
-  // A research ID is one literal component, including rejection of '.' and '..'.
-  if ([".", ".."].includes(binding.researchId)) throw new Error("Invalid research identity");
-  await canonicalDirectory(identity.cwd);
-  const directory = await canonicalDirectory(join(identity.cwd, "research", binding.researchId, "candidates", candidateId));
-  const input = await canonicalDirectory(join(directory, "input"));
-  const work = await canonicalDirectory(join(directory, "work"));
-  await validateTree(input);
-  return { directory, input, work, researchId: binding.researchId };
-}
-export async function sandboxCandidate(identity: SandboxIdentity, operationId: string, candidateId: string) {
-  const candidate = await boundCandidate(identity, operationId, candidateId);
-  await validateTree(candidate.work);
-  return candidate;
-}
-
 /** Keep the restricted worker's existing read capability inside its assigned candidate as well. */
-export function candidateReadTool(original: Tool, identity: SandboxIdentity): Tool {
-  if (!identity.candidateId && identity.executionScope !== "candidate") return original;
+export function confinedReadTool(original: Tool, identity: SandboxIdentity): Tool {
+  if (!identity.executionGrantId && !identity.candidateId && identity.executionScope !== "candidate" && identity.executionScope !== "confined") return original;
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
-    if (!identity.candidateId) throw new Error("Candidate read requires a bound candidate_id; use supplied task text for code generation");
-    const candidate = await sandboxCandidate(identity, invocation.operationId, identity.candidateId!);
+    if (!identity.executionGrantId) throw new Error("Candidate read requires a bound candidate_id and server-bound execution grant; use supplied task text for code generation");
+    const policy = await executionGrantPolicy(identity, undefined, "read");
+    const candidate = { directory: policy.cwd, input: policy.readPaths.find((path) => !policy.writePaths.includes(path)) ?? policy.cwd, work: policy.cwd };
     const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(candidate.directory)}.json`);
     return withFileWriteLock(lock, async () => {
       context.abortSignal?.throwIfAborted();
-      await sandboxCandidate(identity, invocation.operationId, identity.candidateId!);
+      await executionGrantPolicy(identity, undefined, "read");
       const values = params as { path: string };
       const path = resolve(identity.cwd, values.path);
-      if ((!inside(candidate.input, path) && !inside(candidate.work, path)) || await realpath(path) !== path) throw new Error("Read is outside the assigned candidate");
+      if (!policy.readPaths.some((root) => inside(root, path)) || await realpath(path) !== path) throw new Error("Read is outside the assigned candidate");
       const info = await lstat(path);
       if (!info.isFile() || info.nlink !== 1 || info.size > MAX_ARTIFACT_BYTES) throw new Error("Candidate read requires a bounded regular file");
-      const policy = identifyPolicy({ mode: "required", scope: "candidate", cwd: candidate.work, readPaths: [candidate.input, candidate.work], writePaths: [candidate.work], denyPaths: [], network: { mode: "none" } });
       if (!["linux", "darwin"].includes(process.platform)) return original.execute(id, { ...values, path }, update, ctx, invocation, context);
       const bytes = await readSandboxFile(policy, path);
       const env = new Proxy(ctx.env, { get(target, property) {
@@ -244,3 +212,6 @@ export function sandboxRunTool(identity: SandboxIdentity, installation: SandboxI
     },
   };
 }
+
+/** Legacy import alias; all new callers enforce generic grants. */
+export const candidateReadTool = confinedReadTool;

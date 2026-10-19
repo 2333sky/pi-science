@@ -65,6 +65,58 @@ async function modelFixture(answer: (body: { messages: Array<{ role: string; con
 }
 
 describe("agent-core product tools", () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["linux", "darwin"].includes(process.platform))("appends Skill-owned decisions and rebuilds the index through real sandboxed Parent Bash", async () => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    vi.stubEnv("PI_SCIENCE_SANDBOX_RUNTIME_PATHS", JSON.stringify([process.execPath]));
+    const { shellQuote } = await import("../sandbox/process.js");
+    const fixture = await modelFixture((body) => {
+      if (!body.messages.some((message) => message.role === "tool")) return { name: "bash", args: { command: `${shellQuote(process.execPath)} helpers/research-journal.mjs append study event.json && ${shellQuote(process.execPath)} helpers/research-journal.mjs rebuild study` } };
+      expect(body.messages.at(-1)!.content).toContain('"event_count":1');
+      return "Research decision committed and index rebuilt.";
+    });
+    await mkdir(join(fixture.cwd, "helpers")); await mkdir(join(fixture.cwd, "study"));
+    for (const name of ["research-journal.mjs", "validate-manifest.mjs"]) await writeFile(join(fixture.cwd, "helpers", name), await readFile(new URL(`../../../../../skills/auto-research/scripts/${name}`, import.meta.url), "utf8"));
+    await writeFile(join(fixture.cwd, "event.json"), JSON.stringify({ schema_version: 1, event_id: "created-one", research_id: "study", type: "candidate_created", payload: { candidate_id: "one", hypothesis: "A bounded hypothesis" } }));
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const parent = await openHiddenTask(manager, "journal-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["bash"], skillPolicy: { mode: "none" } }, "journal-owner");
+    expect(await runHiddenPrompt(parent, "Append research decisions", "journal-once", Date.now() + 30_000)).toBe("Research decision committed and index rebuilt.");
+    const manifest = JSON.parse(await readFile(join(fixture.cwd, "study/manifest.json"), "utf8"));
+    expect(manifest.candidates.one).toEqual({ path: "candidates/one", hypothesis: "A bounded hypothesis" });
+    expect((await readFile(join(fixture.cwd, "study/research-events.jsonl"), "utf8")).trim().split("\n")).toHaveLength(1);
+  }, 45_000);
+
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["linux", "darwin"].includes(process.platform))("delegates a generic Draft grant without a research binding or Candidate authority", async () => {
+    const fixture = await modelFixture((body) => {
+      const results = body.messages.filter((message) => message.role === "tool");
+      if (body.messages[0]!.content.includes("You are a draft maker")) {
+        expect((body.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)).toEqual(["read", "bash"]);
+        if (!results.length) return { name: "read", args: { path: "drafts/one/input/approved.txt" } };
+        if (results.length === 1) { expect(results[0]!.content).toContain("approved"); return { name: "bash", args: { command: "cat ../input/approved.txt > output.txt; test ! -r ../../../evaluator/private.txt; test ! -r ../../../.pi-science/protected; ! (printf tamper > ../../../research-events.jsonl); echo draft-isolated" } }; }
+        expect(results.at(-1)!.content).toContain("draft-isolated");
+        return "Draft created with real isolated execution.";
+      }
+      if (!results.length) return { name: "subagent", args: { agent: "draft-maker", candidate_id: "correlation-only", sandbox: { cwd: "drafts/one/work", read_paths: ["drafts/one/input"], write_paths: ["drafts/one/work"] }, task: "Create the draft from the authorized input." } };
+      expect(results.at(-1)!.content).toContain("Draft created"); return "Generic Draft completed.";
+    });
+    await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+    await writeFile(join(fixture.cwd, ".pi/agents/draft-maker.md"), "---\nexecution_scope: confined\ntools: [read, bash, write, subagent]\n---\nYou are a draft maker.");
+    await mkdir(join(fixture.cwd, "drafts/one/input"), { recursive: true }); await mkdir(join(fixture.cwd, "drafts/one/work"));
+    await writeFile(join(fixture.cwd, "drafts/one/input/approved.txt"), "approved");
+    await mkdir(join(fixture.cwd, "evaluator")); await writeFile(join(fixture.cwd, "evaluator/private.txt"), "PRIVATE");
+    await writeFile(join(fixture.cwd, ".pi-science/protected"), "CONTROL");
+    await writeFile(join(fixture.cwd, "research-events.jsonl"), "parent-only");
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const parent = await openHiddenTask(manager, "generic-draft", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "write", "subagent"], skillPolicy: { mode: "none" } }, "draft-owner");
+    expect(await runHiddenPrompt(parent, "Create a Draft", "draft-once", Date.now() + 30_000)).toBe("Generic Draft completed.");
+    expect(await readFile(join(fixture.cwd, "drafts/one/work/output.txt"), "utf8")).toBe("approved");
+    expect(await readFile(join(fixture.cwd, "research-events.jsonl"), "utf8")).toBe("parent-only");
+    const { executionRepository } = await import("../executions/execution-repository.js");
+    const records = await executionRepository.list(fixture.cwd);
+    expect(records).toEqual([expect.objectContaining({ status: "succeeded", correlation: expect.objectContaining({ candidate_id: "correlation-only" }), request: expect.objectContaining({ execution_grant_id: expect.stringMatching(/^[a-f0-9]{64}$/) }), runtime: expect.objectContaining({ execution_mode: "required" }) })]);
+    const { readdir } = await import("node:fs/promises");
+    expect(await readdir(join(fixture.cwd, ".pi-science/execution-budget-scopes"))).toEqual([]);
+  }, 45_000);
+
   it("returns actionable missing-scope guidance for an unrelated Skill through Worker IPC", async () => {
     const fixture = await modelFixture((body) => {
       const results = body.messages.filter((message) => message.role === "tool");

@@ -1,14 +1,27 @@
 /** Trusted watchdog. This file and its manifest are never writable by sandbox code. */
+import { createHash } from "node:crypto";
 import type { NetworkGrantProfile } from "./network-grant-state.js";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 const [manifestPath, ...shellArgs] = process.argv.slice(2);
-const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; networkGrants?: { path: string; profile: NetworkGrantProfile } };
+const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; executionGrant?: { sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } }; networkGrants?: { path: string; profile: NetworkGrantProfile } };
 if (process.platform === "darwin" && !manifest.supervisor) throw new Error("macOS sandbox requires the native descendant supervisor");
 const owner = process.ppid;
 const kill = () => { try { process.kill(-process.pid, "SIGKILL"); } catch { process.exit(1); } };
 process.once("disconnect", kill);
-const ownerTimer = setInterval(() => { if (process.ppid !== owner || process.ppid === 1) kill(); }, 250);
+const validGrant = () => {
+  try {
+    const grant = manifest.executionGrant; if (!grant) return true;
+    if (Date.now() >= grant.deadline || !grant.sources.every(({ path, sha256 }) => createHash("sha256").update(readFileSync(path)).digest("hex") === sha256)) return false;
+    const budget = JSON.parse(readFileSync(grant.budget.path, "utf8"));
+    if (budget.cancelledOperations?.[grant.budget.ownerHash] || budget.cancelled || budget.deadline <= Date.now()) return false;
+    let node = grant.budget.nodeId; const seen = new Set();
+    while (node) { if (seen.has(node) || !budget.nodes?.[node]) return false; seen.add(node); const value = budget.nodes[node]; if (value.cancelled || value.deadline <= Date.now()) return false; node = value.parent; }
+    return true;
+  } catch { return false; }
+};
+if (!validGrant()) throw new Error("Execution grant revoked or expired before launch");
+const ownerTimer = setInterval(() => { if (process.ppid !== owner || process.ppid === 1 || !validGrant()) kill(); }, 250);
 const deadline = setTimeout(kill, (manifest.timeoutSeconds + 1) * 1000);
 const envArgs = Object.entries(manifest.env).map(([key, value]) => `${key}=${value}`);
 const { startSandboxNetwork } = await import(new URL(import.meta.url.endsWith(".ts") ? "./network.ts" : "./network.js", import.meta.url).href);
@@ -41,6 +54,7 @@ if (process.platform === "linux") {
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
   linuxLaunch = await SandboxManager.wrapWithSandboxArgv(runtimeArgs.slice(4).map(quote).join(" "));
 }
+if (!validGrant()) throw new Error("Execution grant revoked before process start");
 const child = spawn(linuxLaunch?.argv[0] ?? manifest.supervisor ?? process.execPath, linuxLaunch ? linuxLaunch.argv.slice(1) : manifest.supervisor ? [String(manifest.timeoutSeconds + 1), manifest.lifecycleTag!, manifest.deniedLifecycleTag!, process.execPath, ...runtimeArgs] : runtimeArgs,
   { shell: false, stdio: ["inherit", "inherit", "inherit"], env: linuxLaunch?.env ?? process.env, ...(manifest.supervisor ? { detached: true } : {}) });
 // Signal the real bridge, not the CLI (whose startup interrupt terminates srt).

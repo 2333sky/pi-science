@@ -1,3 +1,5 @@
+import { createExecutionGrant } from "../../sandbox/execution-grants.js";
+import { workspacePolicy } from "../../sandbox/policy.js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:net";
@@ -23,7 +25,11 @@ async function fixture() {
   await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
   const budget = executionBudgetTools(cwd);
   await budget.tool.execute("setup", { research_id: "study-1", max_seconds: 120, max_executions: 30 }, () => {}, env, invocation("setup"), BACKGROUND_CONTEXT);
-  const identity: SandboxIdentity = { cwd, sessionId: "session", budgetOperationId: "owner", delegatedAgent: "optimizer", executionScope: "candidate", candidateId: "candidate-001" };
+  const home = await mkdtemp(join(tmpdir(), "grant-home-")); roots.push(home); vi.stubEnv("PI_SCIENCE_HOME", home);
+  const identity: SandboxIdentity = { cwd, sessionId: "session", budgetOperationId: "owner", budgetNodeId: "session", delegatedAgent: "optimizer", executionScope: "candidate", candidateId: "candidate-001" };
+  const { ExecutionBudgetLedger } = await import("../../executions/execution-budget.js");
+  const grantBudget = await new ExecutionBudgetLedger(cwd, "owner", true).createChild("session");
+  identity.executionGrantId = await createExecutionGrant({ workspace: cwd, workerKey: identity.sessionId, budgetOwner: "owner", deadline: (await grantBudget.status()).deadline, tools: ["read", "bash", "notebook_read", "notebook_run"], selection: { cwd: join(directory, "work"), read_paths: [join(directory, "input")], write_paths: [join(directory, "work")] }, parentPolicy: await workspacePolicy(cwd) });
   return { cwd, directory, budget, identity };
 }
 const execute = (tool: ReturnType<typeof sandboxRunTool>, id: string, code: string, context = BACKGROUND_CONTEXT, timeout_seconds = 10) => tool.execute(id, { candidate_id: "candidate-001", code, timeout_seconds }, () => {}, env, invocation(id), context);
@@ -59,7 +65,7 @@ it("refuses disabled execution, invalid paths, unknown candidate and unassigned 
   await expect(execute(sandboxRunTool(identity, undefined), "disabled", "print(1)")).rejects.toThrow("Sandbox unavailable");
   for (const id of ["../candidate-001", "/tmp", ".", "a/b", "a.b", "a\\b"]) await expect(sandboxCandidate(identity, "owner", id)).rejects.toThrow("Invalid candidate");
   await expect(sandboxCandidate(identity, "owner", "candidate-002")).rejects.toThrow("not authorized");
-  await expect(sandboxCandidate({ ...identity, candidateId: undefined }, "owner", "candidate-001")).rejects.toThrow("not authorized");
+  await expect(sandboxCandidate({ ...identity, candidateId: undefined, executionGrantId: undefined }, "owner", "candidate-001")).rejects.toThrow("not authorized");
   await expect(sandboxCandidate({ ...identity, budgetOperationId: "missing" }, "owner", "candidate-001")).rejects.toThrow();
 });
 it("rejects malformed tool inputs before execution or record creation", async () => {
@@ -105,11 +111,11 @@ it.each(["0", "1"])("refuses unbound Experimenter reads even with sandbox enable
   vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", enabled);
   const { identity, budget } = await fixture();
   const execute = vi.fn(); const original = { ...budget.tool, name: "read", execute };
-  const read = candidateReadTool(original, { ...identity, candidateId: undefined });
+  const read = candidateReadTool(original, { ...identity, candidateId: undefined, executionGrantId: undefined });
   for (const path of ["research/study-1/evaluation.yaml", "research/study-1/evaluator/hidden.json", "research/study-1/candidates/candidate-002/work/data.txt"])
     await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("bound candidate_id");
   expect(execute).not.toHaveBeenCalled();
-  expect(candidateReadTool(original, { ...identity, delegatedAgent: "auditor", executionScope: "workspace", candidateId: undefined })).toBe(original);
+  expect(candidateReadTool(original, { ...identity, delegatedAgent: "auditor", executionScope: "workspace", candidateId: undefined, executionGrantId: undefined })).toBe(original);
 });
 it.skipIf(process.platform !== "linux")("uses a root read deny and never accepts workspace Python or a broad Python root", async () => {
   const { cwd } = await fixture();

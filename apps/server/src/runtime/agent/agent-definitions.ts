@@ -39,7 +39,7 @@ export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkill
         if (!AGENT_NAME_PATTERN.test(name) || !namespace && name.includes("/")) continue;
         const tools = Array.isArray(meta.tools) ? meta.tools : typeof meta.tools === "string" ? meta.tools.split(",").map((v: string) => v.trim()) : ["read"];
         if (!tools.every((v: unknown) => typeof v === "string")) continue;
-        if (meta.execution_scope !== undefined && !["workspace", "candidate"].includes(meta.execution_scope)) continue;
+        if (meta.execution_scope !== undefined && !["workspace", "confined", "candidate"].includes(meta.execution_scope)) continue;
         // Old Skill-local roles must not acquire workspace access when name checks disappear.
         agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, executionScope: meta.execution_scope ?? (namespace ? "candidate" : "workspace"), scopeMigrationRequired: !!namespace && meta.execution_scope === undefined, path: relative(cwd, path).replaceAll("\\", "/") });
       }
@@ -68,7 +68,7 @@ export async function resolveAgentDefinition(cwd: string, name: string, policy?:
 export function childToolAllowance(tools: string[], parent: string[] = [], scope?: ExecutionScope): string[] {
   // The builtin role declares Bash/Notebook. Keep sandbox_run in the ceiling only
   // for explicit legacy role definitions; never inject it into a new role.
-  return tools.filter((name) => (scope !== "candidate" || ["read", "sandbox_run", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
+  return tools.filter((name) => (scope !== "candidate" && scope !== "confined" || ["read", "sandbox_run", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
 }
 
 export class ScopeMigrationRequiredError extends Error {
@@ -78,6 +78,7 @@ export class ScopeMigrationRequiredError extends Error {
 
 /** Any assigned/inherited restriction wins; definitions can only narrow it. */
 export function childExecutionScope(definition: AgentDefinition, inherited?: ExecutionScope, candidateId?: string): ExecutionScope {
-  if (definition.scopeMigrationRequired) throw new ScopeMigrationRequiredError(`Skill-local agent ${definition.name} is missing execution_scope in ${definition.path ?? "its role file"}. Review its access and explicitly declare execution_scope: workspace or execution_scope: candidate; Candidate execution also requires a server-bound candidate_id. Then dispatch a new task. No workspace access was inferred.`);
+  if (definition.scopeMigrationRequired) throw new ScopeMigrationRequiredError(`Skill-local agent ${definition.name} is missing execution_scope in ${definition.path ?? "its role file"}. Review its access and explicitly declare execution_scope: workspace or execution_scope: confined (legacy candidate is also supported); confined execution requires a server-bound grant. Then dispatch a new task. No workspace access was inferred.`);
+  if (inherited === "confined" || definition.executionScope === "confined") return "confined";
   return candidateId || inherited === "candidate" || definition.executionScope === "candidate" ? "candidate" : "workspace";
 }

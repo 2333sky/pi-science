@@ -93,7 +93,7 @@ export function registerKernelExecutionRoutes(app: FastifyInstance, config: Serv
       return reply.code(409).send({ error: "Requested environment revision is not bound to this workspace" });
     }
     let policy: SandboxPolicy;
-    try { policy = await authorizeKernelPolicy(cwd, environment.revision_id, request.headers[SANDBOX_GRANT_HEADER], config.internalToken); }
+    try { policy = await authorizeKernelPolicy(cwd, environment.revision_id, request.headers[SANDBOX_GRANT_HEADER], config.internalToken, "notebook_run"); }
     catch (error) { return reply.code(403).send({ error: error instanceof Error ? error.message : String(error) }); }
     if (policy.owner) body.session_id = policy.owner;
     const controller = new AbortController();
@@ -124,7 +124,7 @@ export function registerKernelExecutionRoutes(app: FastifyInstance, config: Serv
         ...(body.cell_id ? { cell_id: body.cell_id } : {}),
       },
       runtime: {
-        ...(policy.researchId ? { research_id: policy.researchId } : {}), sandbox_policy_id: policy.id, execution_mode: policy.mode, sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host",
+        ...(policy.executionGrant ? { execution_grant_id: policy.executionGrant.id } : {}), sandbox_policy_id: policy.id, execution_mode: policy.mode, sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host",
         cwd,
         gateway_timeout_ms: kernelTimeoutMs,
         environment_id: environment.environment_id ?? "legacy-venv",
@@ -208,7 +208,7 @@ export function registerKernelExecutionRoutes(app: FastifyInstance, config: Serv
       return reply.code(409).send({ error: "Requested environment revision is not bound to this workspace" });
     }
     let policy: SandboxPolicy;
-    try { policy = await authorizeKernelPolicy(cwd, environment.revision_id, request.headers[SANDBOX_GRANT_HEADER], config.internalToken); }
+    try { policy = await authorizeKernelPolicy(cwd, environment.revision_id, request.headers[SANDBOX_GRANT_HEADER], config.internalToken, "notebook_run"); }
     catch (error) { return reply.code(403).send({ error: error instanceof Error ? error.message : String(error) }); }
     if (policy.owner) body.session_id = policy.owner;
     const controller = new AbortController();
@@ -229,7 +229,7 @@ export function registerKernelExecutionRoutes(app: FastifyInstance, config: Serv
         ...(body.notebook_path ? { notebook_path: body.notebook_path } : {}), ...(body.cell_id ? { cell_id: body.cell_id } : {}),
       },
       runtime: {
-        ...(policy.researchId ? { research_id: policy.researchId } : {}), sandbox_policy_id: policy.id, execution_mode: policy.mode, sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host",
+        ...(policy.executionGrant ? { execution_grant_id: policy.executionGrant.id } : {}), sandbox_policy_id: policy.id, execution_mode: policy.mode, sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host",
         cwd, gateway_timeout_ms: kernelTimeoutMs, environment_id: environment.environment_id ?? "legacy-venv",
         environment_revision_id: environment.revision_id ?? "legacy-venv", environment_prefix: environment.prefix,
         ...(body.kernel_instance_id ? { kernel_instance_id: body.kernel_instance_id } : {}),

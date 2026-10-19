@@ -4,8 +4,9 @@ import registerNotebookTools from "../../shared/extensions/pi-science-notebook.j
 import { realpath, lstat } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { isWithin } from "../../sandbox/policy.js";
-import { candidateKernelGrant, workerKernelGrant } from "../../sandbox/kernel-authorization.js";
-import { sandboxCandidate, type SandboxIdentity } from "./sandbox-tool.js";
+import { confinedKernelGrant, workerKernelGrant } from "../../sandbox/kernel-authorization.js";
+import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
+import { type SandboxIdentity } from "./sandbox-tool.js";
 
 type LegacyNotebookTool = {
   name: string;
@@ -26,13 +27,13 @@ export function notebookHarnessTools(cwd: string, sessionId: string, identity?: 
     parameters: tool.parameters,
     async execute(toolCallId, params, onUpdate, _context, invocation, context) {
       let sandboxGrant: string | undefined;
-      if (identity?.candidateId || identity?.executionScope === "candidate") {
-        if (!identity.candidateId) throw new Error("Candidate notebook requires a bound candidate_id");
-        const candidate = await sandboxCandidate(identity, invocation.operationId, identity.candidateId);
+      if (identity?.executionGrantId || identity?.candidateId || identity?.executionScope === "candidate" || identity?.executionScope === "confined") {
+        if (!identity.executionGrantId) throw new Error("Candidate notebook requires a bound candidate_id and server-bound execution grant");
+        const policy = await executionGrantPolicy(identity, undefined, tool.name);
         const path = resolve(cwd, String((params as { path?: unknown })?.path ?? ""));
-        if (tool.name === "notebook_edit" || !isWithin(candidate.work, path) && (tool.name !== "notebook_read" || !isWithin(candidate.input, path)) || await realpath(path) !== path || !(await lstat(path)).isFile()) throw new Error("Notebook path is outside the assigned candidate work/input");
-        if (!(tool.name === "notebook_read" ? [candidate.input, candidate.work] : [candidate.work]).includes(dirname(path))) throw new Error("Candidate notebooks must be top-level input/work files");
-        sandboxGrant = candidateKernelGrant(identity, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
+        if (tool.name === "notebook_edit" || !(tool.name === "notebook_read" ? policy.readPaths : policy.writePaths).some((root) => isWithin(root, path)) || await realpath(path) !== path || !(await lstat(path)).isFile()) throw new Error("Notebook path is outside the assigned candidate work/input");
+        if (!(tool.name === "notebook_read" ? policy.readPaths : policy.writePaths).includes(dirname(path))) throw new Error("Candidate notebooks must be top-level input/work files");
+        sandboxGrant = confinedKernelGrant(identity, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
       } else if (tool.name === "notebook_run" && process.env.PI_SCIENCE_INTERNAL_TOKEN) {
         sandboxGrant = workerKernelGrant(identity ?? { cwd, sessionId }, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
       }

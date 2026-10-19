@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
@@ -11,10 +11,10 @@ import type { AgentRuntimeManager } from "./agent-runtime-manager.js";
 const hidden = vi.hoisted(() => ({ open: vi.fn(), run: vi.fn() }));
 vi.mock("./hidden-agent-task.js", () => ({ openHiddenTask: hidden.open, runHiddenPrompt: hidden.run }));
 const cleanup: Array<() => Promise<unknown>> = [];
-afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); });
+afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); vi.restoreAllMocks(); vi.unstubAllEnvs(); });
 
 it("aborts a collect wait promptly while background work remains collectible and drains without its old timer", async () => {
-  const cwd = await mkdtemp(join(tmpdir(), "pi-science-collect-abort-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "pi-science-collect-abort-")));
   cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi/agents"), { recursive: true });
   await writeFile(join(cwd, ".pi/agents/runner.md"), "---\nname: runner\ntools: []\n---\nRunner");
@@ -62,10 +62,17 @@ it.each([
   { declaration: "execution_scope: workspace\n", candidate_id: undefined, inherited: "candidate" as const },
 ])("binds a generic restricted role at dispatch: %j", async ({ declaration, candidate_id, inherited }) => {
   hidden.open.mockClear(); hidden.run.mockClear();
-  const cwd = await mkdtemp(join(tmpdir(), "pi-science-scope-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "pi-science-scope-")));
   cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi/agents"), { recursive: true });
   await writeFile(join(cwd, ".pi/agents/optimizer.md"), `---\n${declaration}tools: [read, bash, write, subagent, mcp__science__execute]\n---\nOptimizer`);
+  if (candidate_id) {
+    const home = await mkdtemp(join(tmpdir(), "dispatch-grant-home-")); cleanup.push(() => rm(home, { recursive: true, force: true })); vi.stubEnv("PI_SCIENCE_HOME", home);
+    await mkdir(join(cwd, "research/study/candidates/one/input"), { recursive: true });
+    await mkdir(join(cwd, "research/study/candidates/one/work"));
+    const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+    await new ExecutionBudgetLedger(cwd, "op").configure({}, "study");
+  }
   const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })) });
   hidden.open.mockResolvedValue(child); hidden.run.mockResolvedValue("Proposed implementation.");
   const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
@@ -90,7 +97,7 @@ it.each([
 it.each(["bound", "unknown", "committed"])("keeps recovered tasks restricted after role metadata is removed: %s", async (scenario) => {
   const recorded = scenario === "bound";
   hidden.open.mockClear(); hidden.run.mockClear();
-  const cwd = await mkdtemp(join(tmpdir(), "pi-science-scope-recovery-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "pi-science-scope-recovery-"))); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi/agents"), { recursive: true });
   await writeFile(join(cwd, ".pi/agents/optimizer.md"), "---\ntools: [read, bash, write]\n---\nRole now requests workspace access");
   const { createHash } = await import("node:crypto");
@@ -135,7 +142,7 @@ it.each(["bound", "unknown", "committed"])("keeps recovered tasks restricted aft
 
 it("reports missing Skill scope before dispatch and admits it only after an explicit migration", async () => {
   hidden.open.mockClear(); hidden.run.mockClear();
-  const cwd = await mkdtemp(join(tmpdir(), "skill-scope-migration-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "skill-scope-migration-"))); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi/skills/document-audit/agents"), { recursive: true });
   await writeFile(join(cwd, ".pi/skills/document-audit/SKILL.md"), "---\nname: document-audit\ndescription: Audit\nlicense: MIT\n---\nAudit");
   const path = join(cwd, ".pi/skills/document-audit/agents/auditor.md");
@@ -162,7 +169,7 @@ it("reports missing Skill scope before dispatch and admits it only after an expl
 
 it.each(["single", "chain", "parallel"])("persists a non-resumable migration outcome for legacy workspace tasks: %s", async (mode) => {
   hidden.open.mockClear(); hidden.run.mockClear();
-  const cwd = await mkdtemp(join(tmpdir(), "task-scope-migration-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "task-scope-migration-"))); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi/agents"), { recursive: true });
   const rolePath = join(cwd, ".pi/agents/auditor.md");
   await writeFile(rolePath, "---\nexecution_scope: workspace\ntools: [read, write]\n---\nAuditor");

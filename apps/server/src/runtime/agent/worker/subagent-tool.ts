@@ -36,15 +36,17 @@ export class SubagentBridge {
   }
 }
 
+const sandboxSelectionParameters = Type.Object({ cwd: Type.String(), read_paths: Type.Array(Type.String(), { maxItems: 8 }), write_paths: Type.Array(Type.String(), { minItems: 1, maxItems: 8 }) });
 export function subagentHarnessTool(bridge: SubagentBridge): AgentHarnessTool<{ env: NodeExecutionEnv }> {
   return {
-    name: "subagent", label: "Subagent", description: "Delegate a task to a named workspace agent (single), a sequential chain, or a bounded parallel group. The parent synthesizes the results. For sandbox execution, assign candidate_id on each Experimenter task; the child cannot change this assignment. wait_seconds bounds only waiting (0 dispatches in the background). Execution deadlines and local budgets still apply; use subagent_control to inspect, collect, resume or stop your tasks.",
+    name: "subagent", label: "Subagent", description: "Delegate a task to a named workspace agent (single), a sequential chain, or a bounded parallel group. The parent synthesizes the results. For confined execution, provide sandbox={cwd,read_paths,write_paths}; the server validates these selections against your existing permissions and binds an immutable grant. Child/model paths never authorize access directly. candidate_id is optional correlation metadata; candidate-only requests retain the legacy research adapter. wait_seconds bounds only waiting (0 dispatches in the background). Execution deadlines and local budgets still apply; use subagent_control to inspect, collect, resume or stop your tasks.",
     parameters: Type.Object({
       wait_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 600 })),
       tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters),
+      sandbox: Type.Optional(sandboxSelectionParameters),
       agent: Type.Optional(Type.String()), task: Type.Optional(Type.String()), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })),
-      chain: Type.Optional(Type.Array(Type.Object({ agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 8 })),
-      tasks: Type.Optional(Type.Array(Type.Object({ agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 4 })),
+      chain: Type.Optional(Type.Array(Type.Object({ sandbox: Type.Optional(sandboxSelectionParameters), agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 8 })),
+      tasks: Type.Optional(Type.Array(Type.Object({ sandbox: Type.Optional(sandboxSelectionParameters), agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 4 })),
     }),
     async execute(_id, params, onUpdate, _ctx, invocation, context) {
       const cached = await invocation.getMemo("subagent-result");

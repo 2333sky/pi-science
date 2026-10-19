@@ -1,3 +1,6 @@
+import { createExecutionGrant, executionGrantPolicy, executionSelectionSchema } from "../sandbox/execution-grants.js";
+import { workspacePolicy } from "../sandbox/policy.js";
+import { sandboxCandidate as legacyResearchBinding } from "../../skill-adapters/legacy-auto-research.js";
 import { AGENT_NAME_PATTERN, resolveAgentDefinition, childToolAllowance, childExecutionScope, ScopeMigrationRequiredError } from "./agent-definitions.js";
 import { z } from "zod";
 import { readdir } from "node:fs/promises";
@@ -10,11 +13,11 @@ import type { AgentCoreRuntimeClient } from "./agent-runtime-client.js";
 import type { AgentRuntimeStartOptions } from "./worker/protocol.js";
 import type { ExecutionScope, RuntimeEvent } from "./agent-runtime-types.js";
 
-const task = z.object({ agent: z.string().regex(AGENT_NAME_PATTERN), task: z.string().min(1).max(200_000), candidate_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).optional(), tools: z.array(z.string()).max(500).optional(), budget: budgetLimitsSchema.optional() }).strict();
+const task = z.object({ sandbox: executionSelectionSchema.optional(), agent: z.string().regex(AGENT_NAME_PATTERN), task: z.string().min(1).max(200_000), candidate_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).optional(), tools: z.array(z.string()).max(500).optional(), budget: budgetLimitsSchema.optional() }).strict();
 const wait = { wait_seconds: z.number().finite().min(0).max(600).optional() };
 const paramsSchema = z.union([task.extend(wait).strict(), z.object({ chain: z.array(task).min(1).max(8), ...wait }).strict(), z.object({ tasks: z.array(task).min(1).max(4), ...wait }).strict()]);
 const controlSchema = z.object({ action: z.enum(["list", "status", "collect", "stop"]), task_id: z.string().regex(/^[a-f0-9]{64}$/).optional(), ...wait }).strict();
-const recordSchema = z.object({ task_id: z.string(), owner: z.string(), operationId: z.string(), invocationId: z.string(), budget_owner: z.string(), params: paramsSchema, executionScopes: z.array(z.enum(["workspace", "candidate"])).optional(), deadline: z.number(), status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]), result: z.record(z.string(), z.unknown()).optional(), error: z.string().optional(), error_code: z.literal("scope_migration_required").optional() }).strict();
+const recordSchema = z.object({ task_id: z.string(), owner: z.string(), operationId: z.string(), invocationId: z.string(), budget_owner: z.string(), params: paramsSchema, executionScopes: z.array(z.enum(["workspace", "confined", "candidate"])).optional(), deadline: z.number(), status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]), result: z.record(z.string(), z.unknown()).optional(), error: z.string().optional(), error_code: z.literal("scope_migration_required").optional() }).strict();
 type TaskRecord = z.infer<typeof recordSchema>;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 /** Authenticated ownership is the session IPC channel, never model-supplied IDs. */
@@ -74,7 +77,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
     const ledger = new ExecutionBudgetLedger(options.cwd, record.budget_owner, true, options.budgetNodeId);
     const execute = async (item: z.infer<typeof task>, index: number, previous = "") => {
       if (record.deadline <= Date.now()) throw new Error("Execution time budget exhausted");
-      if (options.sandboxCandidateId && item.candidate_id && options.sandboxCandidateId !== item.candidate_id) throw new Error("Child cannot widen its inherited candidate sandbox");
+      if (!options.executionGrantId && options.sandboxCandidateId && item.candidate_id && options.sandboxCandidateId !== item.candidate_id) throw new Error("Child cannot widen its inherited candidate sandbox");
       const key = `subagent:${options.cwd}:${parent.sessionId}:${event.operationId}:${event.invocationId}:${index}`;
       const resultPath = workspaceFile(options.cwd, `agent-task-results/${createHash("sha256").update(key).digest("hex")}.json`);
       return withFileWriteLock(resultPath, async () => {
@@ -93,17 +96,31 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         const state = await parent.sendCommand("get_state");
         if (!state.success || !state.data) throw new Error("Cannot establish parent tool permissions");
         if (!state.data.activeTools.includes("subagent")) throw new Error("Delegation permission revoked; interrupted tasks cannot resume");
-        const scope = childExecutionScope(definition, record.executionScopes?.[index] !== "workspace" ? "candidate" : options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
+        const scope = childExecutionScope(definition, record.executionScopes?.[index] ?? options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
         const ceiling = childToolAllowance(definition.tools, state.data.activeTools, scope);
         const allowedTools = item.tools ?? ceiling;
         if (allowedTools.some((tool) => !ceiling.includes(tool))) throw new Error("Delegated tool permissions were revoked or exceed the role ceiling");
         if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");
         const childBudget = await ledger.createChild(key, { ...item.budget, max_seconds: Math.min(600, item.budget?.max_seconds ?? 600, Math.max(1, Math.ceil((deadline - Date.now()) / 1000))) });
         const childDeadline = Math.min(deadline, (await childBudget.status()).deadline);
+        let executionGrantId: string | undefined;
+        if (scope !== "workspace" && (item.sandbox || options.executionGrantId || item.candidate_id || options.sandboxCandidateId)) {
+          const parentPolicy = options.executionGrantId
+            ? await executionGrantPolicy({ cwd: options.cwd, sessionId: parent.sessionId, budgetOperationId: options.budgetOperationId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId })
+            : await workspacePolicy(options.cwd);
+          let selection = item.sandbox;
+          if (!selection && options.executionGrantId) selection = { cwd: parentPolicy.cwd, read_paths: parentPolicy.readPaths.filter((path) => !parentPolicy.writePaths.includes(path)), write_paths: parentPolicy.writePaths };
+          if (!selection) {
+            // Explicit compatibility boundary. New tasks supply business-independent sandbox selections.
+            const legacy = await legacyResearchBinding({ cwd: options.cwd, sessionId: parent.sessionId, budgetOperationId: record.budget_owner }, event.operationId, options.sandboxCandidateId ?? item.candidate_id!);
+            selection = { cwd: legacy.work, read_paths: [legacy.input], write_paths: [legacy.work] };
+          }
+          executionGrantId = await createExecutionGrant({ workspace: options.cwd, workerKey: key, budgetOwner: record.budget_owner, deadline: childDeadline, tools: allowedTools, selection, parentPolicy, ...(options.executionGrantId ? { parentId: options.executionGrantId } : {}) });
+        }
         keys.add(key);
         try {
           const child = await openHiddenTask(manager, key, { ...options, sessionId: undefined, systemPrompt: prompt,
-            depth: (options.depth ?? 0) + 1, allowedTools, executionScope: scope, delegatedAgent: item.agent, sandboxCandidateId: options.sandboxCandidateId ?? item.candidate_id,
+            depth: (options.depth ?? 0) + 1, allowedTools, executionScope: scope, executionGrantId, delegatedAgent: item.agent, sandboxCandidateId: options.sandboxCandidateId ?? item.candidate_id,
             budgetOperationId: record.budget_owner, budgetNodeId: key, skillPolicy: policy ?? { mode: "inherit" } }, parent.sessionId);
           if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");
           const authorize = (request: RuntimeEvent) => {
@@ -240,7 +257,8 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         const executionScopes: ExecutionScope[] = [];
         for (const item of items) {
           const definition = await resolveAgentDefinition(options.cwd, item.agent, resources.data?.policy);
-          const scope = childExecutionScope(definition, options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
+          const declaredScope = childExecutionScope(definition, options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
+          const scope = item.sandbox || options.executionGrantId ? "confined" : declaredScope;
           const ceiling = childToolAllowance(definition.tools, state.data.activeTools, scope);
           if (item.tools?.some((tool) => !ceiling.includes(tool))) throw new Error("Delegated tools exceed the role or parent ceiling");
           item.tools ??= ceiling;

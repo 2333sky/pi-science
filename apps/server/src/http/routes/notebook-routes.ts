@@ -92,14 +92,14 @@ function responseDocument(document: NotebookDocument, includeOutputs: boolean): 
 /** Candidate notebook files are top-level regular files under immutable input/work roots.
  * No-follow opens prevent an idle untrusted kernel from swapping a file for a link. */
 function assertCandidateNotebookPath(target: string, policy: SandboxPolicy | undefined, write: boolean): void {
-  if (policy?.scope !== "candidate") return;
+  if (!policy || policy.scope === "workspace") return;
   if (!(write ? policy.writePaths : policy.readPaths).includes(dirname(target))) throw new Error("Notebook path escapes the assigned candidate top-level input/work");
 }
 async function readNotebookFile(target: string, policy?: SandboxPolicy) {
   const file = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const metadata = await file.stat();
-    if (!metadata.isFile() || policy?.scope === "candidate" && metadata.nlink !== 1) throw new Error("Notebook requires a single-link regular file");
+    if (!metadata.isFile() || policy && policy.scope !== "workspace" && metadata.nlink !== 1) throw new Error("Notebook requires a single-link regular file");
     if (metadata.size > MAX_NOTEBOOK_BYTES) throw new Error(`Notebook is too large to read (${metadata.size} bytes)`);
     const bytes = Buffer.alloc(metadata.size); let offset = 0;
     while (offset < bytes.length) { const read = await file.read(bytes, offset, bytes.length - offset, offset); if (!read.bytesRead) break; offset += read.bytesRead; }
@@ -231,7 +231,7 @@ export function registerNotebookRoutes(app: FastifyInstance, notebooks: Notebook
     }
     try {
       const grant = request.headers[SANDBOX_GRANT_HEADER];
-      const policy = grant === undefined ? undefined : await authorizeKernelPolicy(root, undefined, grant, internalToken);
+      const policy = grant === undefined ? undefined : await authorizeKernelPolicy(root, undefined, grant, internalToken, "notebook_read");
       const notebook = await readNotebook(root, path, policy);
       return {
         path: notebook.path,
@@ -270,7 +270,7 @@ export function registerNotebookRoutes(app: FastifyInstance, notebooks: Notebook
 
     try {
       const grant = request.headers[SANDBOX_GRANT_HEADER];
-      const policy = grant === undefined ? undefined : await authorizeKernelPolicy(root, undefined, grant, internalToken);
+      const policy = grant === undefined ? undefined : await authorizeKernelPolicy(root, undefined, grant, internalToken, "notebook_edit");
       const target = await resolveWorkspaceFile(root, path);
       assertCandidateNotebookPath(target, policy, true);
       const result = await withFileWriteLock(target, async () => {
@@ -343,7 +343,7 @@ export function registerNotebookRoutes(app: FastifyInstance, notebooks: Notebook
 
     try {
       const grant = request.headers[SANDBOX_GRANT_HEADER];
-      const policy = grant === undefined ? undefined : await authorizeKernelPolicy(root, undefined, grant, internalToken);
+      const policy = grant === undefined ? undefined : await authorizeKernelPolicy(root, undefined, grant, internalToken, "notebook_run");
       const target = await resolveWorkspaceFile(root, path);
       assertCandidateNotebookPath(target, policy, true);
       const result = await withFileWriteLock(target, async () => {

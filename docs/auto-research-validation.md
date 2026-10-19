@@ -84,3 +84,14 @@ The opt-in live comparison now withholds execution_budget from both literature m
 For a baseline or regression comparison, keep model/settings/task inputs fixed, run at least five paired repetitions, retain incomplete trials and report completion rate plus median/range of cost ratios. Record human corrections and claim/citation errors through independent report review; do not infer them from keyword checks. Require the fixture quality gates before interpreting any cost reduction. Set project-specific cost thresholds only after repeated baseline observations; there is no universal research quality score or hard-coded token target.
 
 The historical cost table above is unchanged. The live API comparison has not been rerun for this change; no token reduction or improved scientific quality is claimed. The live test remains opt-in and uses the reproduction command above.
+
+
+## Generic grants and research decision journal
+
+New execution authority is a private service-issued grant of canonical roots, offline network, exact tools and task-budget/deadline identity. Candidate IDs are correlation metadata on this path. Old research directory resolution lives in an explicit Skill compatibility adapter; new Draft/Patch executions require no research scope or Candidate directory convention. The existing sandbox_run producer remains compatibility-only.
+
+The Skill now appends stable-ID decisions to research-events.jsonl and rebuilds optional v1 manifests. The helper uses Node's built-in SQLite solely for crash-released writer locking; JSONL holds the research history. Tests cover process concurrency and lock-owner death, lost acknowledgements/partial batches, projection corruption/rebuild, frozen evaluated experiments, malformed committed records, preserved/recovered torn tails, link rejection and idempotent legacy import with exact-byte snapshots. A real Parent sandbox test executes the helper rather than mocking filesystem commits.
+
+Grant regression includes arbitrary business layouts, Worker/budget binding, denied root/identity changes, protected data and raw policy injection, parent root/tool/deadline/ancestry limits, signed Notebook grants, and real watchdog termination on grant or budget revocation. A real child test verifies Candidate correlation cannot select directories, read evaluator/control data or write the Parent's decision log. Existing scientific repair, legacy executor and persistent Notebook tests remain required. No paid model cost/quality claim is added; the historical comparison table is unchanged.
+
+Local final verification for this stage: server **1,046 passed / 58 configured skips**; real Linux grant/Worker/Notebook/legacy isolation **71 passed / 1 platform skip**; Skills **46 passed**. Workspace typecheck and production build passed; the existing frontend large-chunk warning remains. Native macOS/Windows acceptance and the paid API comparison were not run locally.
