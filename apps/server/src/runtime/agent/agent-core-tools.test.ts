@@ -367,43 +367,18 @@ describe("agent-core product tools", () => {
     expect(await runHiddenPrompt(parent, "Generate candidate code", "unbound-once", Date.now() + 20000)).toBe("Protected code-generation mode.");
   }, 30000);
 
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].includes(process.platform))("keeps an explicit legacy role compatible through real Worker IPC, repair and the shared budget", async () => {
-    vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1");
-    let childRuns = 0;
+  it("does not expose the retired sandbox_run tool through Worker IPC", async () => {
     const fixture = await modelFixture((body) => {
-      const tools = body.messages.filter((message) => message.role === "tool");
-      if (body.messages[0]!.content.includes("You are an experimenter subagent")) {
-        expect((body.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)).toEqual(["read", "sandbox_run"]);
-        if (!tools.length) { childRuns++; return { name: "sandbox_run", args: { candidate_id: "candidate-001", code: "raise ValueError('repair-candidate')" } }; }
-        if (tools.length === 1) {
-          expect(JSON.stringify(tools)).toContain("repair-candidate"); childRuns++;
-          return { name: "sandbox_run", args: { candidate_id: "candidate-001", code: "import numpy as np, pathlib\nprint(float(np.mean([1,2,3])))\npathlib.Path('output.json').write_text('42')" } };
-        }
-        expect(JSON.stringify(tools)).toContain("succeeded");
-        return "Candidate repaired using actual sandbox logs.";
-      }
-      if (!tools.length) return { name: "execution_budget", args: { research_id: "ipc-study", max_seconds: 60, max_executions: 3 } };
-      if (tools.length === 1) return { name: "subagent", args: { agent: "auto-research/experimenter", candidate_id: "candidate-001", task: "Run assigned candidate and repair from logs." } };
-      expect(JSON.stringify(tools)).toContain("Candidate repaired");
-      return "Bounded experiment completed.";
+      const names = (body.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name);
+      expect(names).toContain("read");
+      expect(names).not.toContain("sandbox_run");
+      return "Legacy tool removed.";
     });
-    const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
-    const directory = join(fixture.cwd, "research/ipc-study/candidates/candidate-001");
-    const role = join(fixture.cwd, ".pi/skills/auto-research/agents/experimenter.md");
-    await writeFile(role, (await readFile(role, "utf8")).replace("tools: [read, bash, notebook_read, notebook_run]", "tools: [read, sandbox_run]"));
-    await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
-    const parent = await openHiddenTask(manager, "sandbox-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"),
-      model: fixture.model, thinking: "off", allowedTools: ["read", "execution_budget", "sandbox_run", "subagent"] }, "sandbox-owner");
-    expect(await runHiddenPrompt(parent, "Run experiment", "sandbox-once", Date.now() + 45000)).toBe("Bounded experiment completed.");
-    expect(childRuns).toBe(2); expect(await readFile(join(directory, "work/output.json"), "utf8")).toBe("42");
-    const { executionRepository } = await import("../executions/execution-repository.js");
-    const records = (await executionRepository.list(fixture.cwd)).filter((record) => record.producer === "sandbox_run");
-    expect(records.map((record) => record.status).sort()).toEqual(["failed", "succeeded"]);
-    const { workspaceFile } = await import("../../storage/persistence.js"); const { createHash } = await import("node:crypto");
-    const budget = JSON.parse(await readFile(workspaceFile(fixture.cwd, `execution-budgets/${createHash("sha256").update("research:ipc-study").digest("hex")}.json`), "utf8"));
-    expect(budget.used).toBe(3);
-  }, 60000);
+    const parent = await openHiddenTask(manager, "retired-tool-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"),
+      model: fixture.model, thinking: "off", allowedTools: ["read", "sandbox_run"] }, "retired-tool-owner");
+    expect(await runHiddenPrompt(parent, "Inspect tools", "retired-tool-once", Date.now() + 20000)).toBe("Legacy tool removed.");
+  }, 30000);
 
   it("runs literature research with parallel skill-local roles under the parent's permissions", async () => {
     const observed: Array<{ system: string; tools: unknown[] }> = [];

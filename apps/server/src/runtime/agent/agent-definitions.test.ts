@@ -57,7 +57,8 @@ it("delegates only exact MCP capabilities in the effective parent set", () => {
 
 it("caps any candidate worker at candidate-bound tools even if a project role declares writes or MCP", () => {
   const tools = ["read", "sandbox_run", "write", "edit", "bash", "notebook_run", "mcp__science__execute", "subagent"];
-  expect(childToolAllowance(tools, tools, "candidate")).toEqual(["read", "sandbox_run", "bash", "notebook_run"]);
+  expect(childToolAllowance(["sandbox_run"], ["sandbox_run"], "workspace")).toEqual([]);
+  expect(childToolAllowance(tools, tools, "candidate")).toEqual(["read", "bash", "notebook_run"]);
   expect(childToolAllowance(tools, ["read", "bash"], "candidate")).toEqual(["read", "bash"]);
 });
 
@@ -75,7 +76,7 @@ it("discovers only Bash/Notebook for the default Experimenter and preserves expl
   expect(() => childExecutionScope(legacy)).toThrow("missing execution_scope");
   await put(cwd, path, "---\nname: experimenter\nexecution_scope: candidate\ntools: [read, sandbox_run, write]\n---\nExplicitly migrated legacy declaration");
   const migrated = await resolveAgentDefinition(cwd, "auto-research/experimenter");
-  expect(childToolAllowance(migrated.tools, parent, childExecutionScope(migrated))).toEqual(["read", "sandbox_run"]);
+  expect(childToolAllowance(migrated.tools, parent, childExecutionScope(migrated))).toEqual(["read"]);
 });
 
 it("derives restrictions from arbitrary role metadata, binding and inheritance", async () => {

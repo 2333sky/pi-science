@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { executionGrantPolicy } from "./execution-grants.js";
-import { type SandboxIdentity } from "../agent/worker/sandbox-tool.js";
+import { type SandboxIdentity } from "../agent/worker/confined-read-tool.js";
 import { identifyPolicy, workspacePolicy } from "./policy.js";
 import { bindRuntimeReadPolicy } from "./read-grants.js";
 

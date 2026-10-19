@@ -6,7 +6,7 @@ import { identifyPolicy, workspacePolicy } from "../../sandbox/policy.js";
 import { prepareSandbox, type PreparedSandbox } from "../../sandbox/process.js";
 import { bashDependencies, SANDBOX_RUNTIME } from "../../sandbox/settings.js";
 import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
-import { type SandboxIdentity } from "./sandbox-tool.js";
+import { type SandboxIdentity } from "./confined-read-tool.js";
 import { toolEnvironment } from "../agent-runtime-environment.js";
 import { snapshotSandboxOutputs, sandboxArtifactCapture } from "../../sandbox/artifacts.js";
 import { diffWorkspaceSnapshots } from "../../artifacts/workspace-artifact-snapshot.js";

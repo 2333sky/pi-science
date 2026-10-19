@@ -3,13 +3,14 @@ import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 import { authorizeKernelPolicy, workerKernelGrant } from "./kernel-authorization.js";
 import { sandboxBashTool } from "../agent/worker/sandbox-bash.js";
 import { notebookHarnessTools } from "../agent/worker/notebook-tools.js";
-import { candidateReadTool, sandboxCandidate, type SandboxIdentity } from "../agent/worker/sandbox-tool.js";
+import { sandboxCandidate } from "../../skill-adapters/legacy-auto-research.js";
+import { confinedReadTool, type SandboxIdentity } from "../agent/worker/confined-read-tool.js";
 
 it("denies unbound restricted reads, Bash and Notebook regardless of role name", async () => {
   const identity: SandboxIdentity = { cwd: "/workspace", sessionId: "child", delegatedAgent: "lab/optimizer", executionScope: "candidate" };
   const tools = [sandboxBashTool(identity), ...notebookHarnessTools(identity.cwd, identity.sessionId, identity)];
   const original = tools[0]!;
-  tools.push(candidateReadTool({ ...original, name: "read" }, identity));
+  tools.push(confinedReadTool({ ...original, name: "read" }, identity));
   for (const tool of tools) {
     await expect(tool.execute("call", {}, () => {}, {} as never, { operationId: "op" } as never, BACKGROUND_CONTEXT)).rejects.toThrow(/bound candidate|server-bound candidate/);
   }

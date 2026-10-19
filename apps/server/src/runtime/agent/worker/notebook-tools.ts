@@ -6,7 +6,7 @@ import { resolve, dirname } from "node:path";
 import { isWithin } from "../../sandbox/policy.js";
 import { confinedKernelGrant, workerKernelGrant } from "../../sandbox/kernel-authorization.js";
 import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
-import { type SandboxIdentity } from "./sandbox-tool.js";
+import { type SandboxIdentity } from "./confined-read-tool.js";
 
 type LegacyNotebookTool = {
   name: string;

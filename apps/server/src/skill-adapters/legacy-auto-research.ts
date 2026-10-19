@@ -1,11 +1,11 @@
-/** Read-only compatibility for pre-grant Auto Research layouts and historical sandbox_run. */
+/** Read-only compatibility for pre-grant Auto Research layouts. */
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import { workspaceFile } from "../storage/persistence.js";
 import { canonicalDirectory } from "../runtime/sandbox/policy.js";
-import type { SandboxIdentity } from "../runtime/agent/worker/sandbox-tool.js";
+import type { SandboxIdentity } from "../runtime/agent/worker/confined-read-tool.js";
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const CANDIDATE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 export class InvalidSandboxOutput extends Error {}

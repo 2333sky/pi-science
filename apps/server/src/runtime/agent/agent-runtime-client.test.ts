@@ -69,12 +69,12 @@ describe("AgentCoreRuntimeClient", () => {
     } finally { vi.unstubAllEnvs(); }
   });
   it("forwards operator sandbox settings while rejecting workspace and credential overrides", () => {
-    vi.stubEnv("PI_SCIENCE_SANDBOX_ENABLED", "1"); vi.stubEnv("PI_SCIENCE_SANDBOX_PYTHON", "/trusted/python");
+    vi.stubEnv("PI_SCIENCE_SANDBOX_PYTHON", "/trusted/python");
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     try {
-      const environment = workerEnvironment({ PI_SCIENCE_SANDBOX_ENABLED: "0", PI_SCIENCE_SANDBOX_PYTHON: "/workspace/evil", PI_SCIENCE_EXECUTION_MODE: "trusted-host" }, ["PI_SCIENCE_SANDBOX_PYTHON", "PI_SCIENCE_EXECUTION_MODE"]);
-      expect(environment).toMatchObject({ PI_SCIENCE_SANDBOX_ENABLED: "1", PI_SCIENCE_SANDBOX_PYTHON: "/trusted/python", PI_SCIENCE_EXECUTION_MODE: "required" });
-      expect(toolEnvironment(environment)).not.toHaveProperty("PI_SCIENCE_SANDBOX_ENABLED");
+      const environment = workerEnvironment({ PI_SCIENCE_SANDBOX_PYTHON: "/workspace/evil", PI_SCIENCE_EXECUTION_MODE: "trusted-host" }, ["PI_SCIENCE_SANDBOX_PYTHON", "PI_SCIENCE_EXECUTION_MODE"]);
+      expect(environment).toMatchObject({ PI_SCIENCE_SANDBOX_PYTHON: "/trusted/python", PI_SCIENCE_EXECUTION_MODE: "required" });
+      expect(toolEnvironment(environment)).not.toHaveProperty("PI_SCIENCE_SANDBOX_PYTHON");
     } finally { vi.unstubAllEnvs(); }
   });
   it("creates a durable session in a child process and reopens it", async () => {
