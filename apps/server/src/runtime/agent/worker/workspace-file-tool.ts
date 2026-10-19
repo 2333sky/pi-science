@@ -1,3 +1,8 @@
+import { homedir } from "node:os";
+import { realpath } from "node:fs/promises";
+import { configRoot } from "../../../storage/persistence.js";
+import { workspacePolicy } from "../../sandbox/policy.js";
+import { sessionMode } from "../../sandbox/session-approval.js";
 import { executionGrantsDirectory } from "../../sandbox/execution-grants.js";
 import { networkGrantsPath } from "../../sandbox/network-grants.js";
 import { randomUUID } from "node:crypto";
@@ -14,19 +19,22 @@ import { writeSandboxFile } from "../../sandbox/file-write.js";
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 /** Tools may manage research protocol/candidate files, but never service-private
  * state, protected assets or aliases escaping the workspace. Skill roots are read-only. */
-export function workspaceFileTool(original: Tool, cwd: string, skillRoots: string[]): Tool {
+export function workspaceFileTool(original: Tool, cwd: string, skillRoots: string[], sessionId?: string): Tool {
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
+    const full = await sessionMode(cwd, sessionId) === "full";
+    const home = full ? await realpath(homedir()) : cwd;
     const protectedRoots = (await runtimeReadPolicy()).protectedRoots;
     const executionGrantsRoot = await executionGrantsDirectory();
     const check = (path: string, write = false) => {
       path = resolve(cwd, path);
+      if (isWithin(configRoot(), path)) throw new Error("Application state is service-owned");
       if (isWithin(executionGrantsRoot, path)) throw new Error("Execution grants are service-owned");
       if (isWithin(dirname(networkGrantsPath()), path)) throw new Error("Network permissions are service-owned");
       if (write && pathsOverlap(fileURLToPath(new URL("../../../../", import.meta.url)), path)) throw new Error("Trusted server installation is not writable by file tools");
       if (protectedRoots.some((root) => pathsOverlap(root, path))) throw new Error("Protected service data is unavailable to file tools");
       if (write && skillRoots.some((root) => pathsOverlap(root, path))) throw new Error("Skill resources are read-only");
       const readRoot = !write ? skillRoots.find((root) => isWithin(root, path)) : undefined;
-      const root = readRoot ?? cwd;
+      const root = readRoot ?? (full && isWithin(home, path) ? home : cwd);
       if (!isWithin(root, path) || relative(root, path).split(/[\\/]/).some(isSensitiveWorkspaceName)) throw new Error("File access is outside authorized workspace data");
       return path;
     };
@@ -39,18 +47,19 @@ export function workspaceFileTool(original: Tool, cwd: string, skillRoots: strin
       };
       if (property === "writeFile") return async (requested: string, bytes: string | Uint8Array) => {
         const path = check(requested, true);
-        await canonicalDirectory(cwd);
+        const writeRoot = full && isWithin(home, path) ? home : cwd;
+        await canonicalDirectory(writeRoot);
         if (process.platform === "darwin") {
           try { const info = await lstat(path); if (!info.isFile() || info.nlink !== 1) throw new Error("Writes require a single-link regular workspace file"); }
           catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-          await writeSandboxFile(cwd, path, bytes, context.abortSignal); return ok(undefined);
+          await writeSandboxFile(writeRoot, path, bytes, context.abortSignal, full ? await workspacePolicy(cwd, undefined, "analysis", sessionId) : undefined); return ok(undefined);
         }
-        const parts = relative(cwd, path).split(/[\\/]/); const handles: FileHandle[] = [];
+        const parts = relative(writeRoot, path).split(/[\\/]/); const handles: FileHandle[] = [];
         let temporary: string | undefined;
         try {
-          let parentPath = cwd;
+          let parentPath = writeRoot;
           let parent: FileHandle | undefined;
-          if (process.platform === "linux") { parent = await open(cwd, constants.O_RDONLY | constants.O_DIRECTORY); handles.push(parent); parentPath = `/proc/self/fd/${parent.fd}`; }
+          if (process.platform === "linux") { parent = await open(writeRoot, constants.O_RDONLY | constants.O_DIRECTORY); handles.push(parent); parentPath = `/proc/self/fd/${parent.fd}`; }
           for (const part of parts.slice(0, -1)) {
             const child = resolve(parentPath, part); await mkdir(child).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
             if (process.platform === "linux") { parent = await open(child, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); handles.push(parent); parentPath = `/proc/self/fd/${parent.fd}`; }

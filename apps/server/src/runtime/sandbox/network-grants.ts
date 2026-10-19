@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { configRoot, withFileWriteLock, writeJsonAtomic } from "../../storage/persistence.js";
 import { profileConfiguration } from "./profiles.js";
-import { BUILTIN_DENIED_DOMAINS, networkDomain, networkGrantsSchema, networkRuleInput, readNetworkGrantFile, type NetworkGrantProfile } from "./network-grant-state.js";
+import { BUILTIN_DENIED_DOMAINS, networkGrantTargetKey, networkDomain, networkGrantsSchema, networkRuleInput, readNetworkGrantFile, type NetworkGrantProfile } from "./network-grant-state.js";
 export * from "./network-grant-state.js";
 
 export function networkGrantsPath() {
@@ -27,16 +27,20 @@ export async function assertGrantable(profile: NetworkGrantProfile, domain: stri
 }
 /** Service-owned durable decisions. Revision fencing prevents a pending approval
  * from overwriting a newer denial/revocation recorded in Settings. */
-export async function changeNetworkGrant(input: z.infer<typeof networkRuleInput>, source: "settings" | "approval", expectedRevision?: number, reason?: string) {
+export async function changeNetworkGrant(input: z.infer<typeof networkRuleInput>, source: "settings" | "approval", expectedRevision?: number | { targetRevision: number }, reason?: string) {
   const value = networkRuleInput.parse(input);
   if (value.decision === "allow") await assertGrantable(value.profile, value.domain);
   const path = networkGrantsPath();
   return withFileWriteLock(path, async () => {
     const state = await readNetworkGrants(path);
-    if (expectedRevision !== undefined && state.revision !== expectedRevision) throw new Error("Network permissions changed while approval was pending; request access again");
+    const targetKey = networkGrantTargetKey(value.profile, value.domain);
+    const changed = typeof expectedRevision === "number" ? state.revision !== expectedRevision
+      : expectedRevision !== undefined && (state.targetRevisions[targetKey] ?? 0) !== expectedRevision.targetRevision;
+    if (changed) throw new Error("Network permissions changed while approval was pending; request access again");
     state.rules = state.rules.filter((rule) => rule.profile !== value.profile || rule.domain !== value.domain);
     state.rules.push({ ...value, source, createdAt: new Date().toISOString(), ...(reason ? { reason: reason.slice(0, 2000) } : {}) });
     state.revision++;
+    state.targetRevisions[targetKey] = state.revision;
     networkGrantsSchema.parse(state);
     if (Buffer.byteLength(JSON.stringify(state, null, 2)) > 2 * 1024 * 1024) throw new Error("Network permission ledger is full; remove unused permissions first");
     await writeJsonAtomic(path, state, { mode: 0o600 });
@@ -49,6 +53,7 @@ export async function revokeNetworkGrant(profile: NetworkGrantProfile, domain: s
     const state = await readNetworkGrants(path);
     state.rules = state.rules.filter((rule) => rule.profile !== profile || rule.domain !== domain);
     state.revision++;
+    state.targetRevisions[networkGrantTargetKey(profile, domain)] = state.revision;
     await writeJsonAtomic(path, state, { mode: 0o600 });
     return state;
   });

@@ -1,3 +1,4 @@
+import type { SandboxPolicy } from "./policy.js";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { identifyPolicy, workspacePolicy, protectedPaths, isWithin } from "./policy.js";
@@ -5,11 +6,11 @@ import { prepareSandbox, launcherPath, killSandboxGroup } from "./process.js";
 
 /** Darwin lacks Node's /proc/self/fd directory traversal. Perform the commit
  * inside an OS-confined helper so a parent swap cannot redirect a host write. */
-export async function writeSandboxFile(cwd: string, target: string, bytes: string | Uint8Array, signal?: AbortSignal): Promise<void> {
+export async function writeSandboxFile(cwd: string, target: string, bytes: string | Uint8Array, signal?: AbortSignal, grantedPolicy?: SandboxPolicy): Promise<void> {
   if (!isWithin(cwd, target)) throw new Error("Write escapes the workspace");
   if (Buffer.byteLength(bytes) > 16 * 1024 * 1024) throw new Error("File write exceeds 16 MiB");
   signal?.throwIfAborted();
-  const base = await workspacePolicy(cwd);
+  const base = grantedPolicy ?? await workspacePolicy(cwd);
   const policy = identifyPolicy({ ...base, mode: "required", profile: "control", readPaths: [cwd], writePaths: [cwd], denyPaths: base.mode === "required" ? base.denyPaths : await protectedPaths(cwd), network: { mode: "none" } });
   const helper = fileURLToPath(new URL("./file-write-helper.mjs", import.meta.url));
   const prepared = await prepareSandbox(policy, [process.execPath, helper, target], [process.execPath, helper], 30);

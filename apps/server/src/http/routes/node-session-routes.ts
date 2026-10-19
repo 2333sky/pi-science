@@ -1,5 +1,6 @@
+import { readSessionApproval } from "../../runtime/sandbox/session-approval.js";
 import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../../runtime/workspace/workspace-lifecycle.js";
-import { createSessionRequestSchema } from "@pi-science/contracts";
+import { updateSessionApprovalSchema, createSessionRequestSchema } from "@pi-science/contracts";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { NodeSessionService } from "../../runtime/node/node-session-service.js";
 import type { SessionRepository } from "../../runtime/node/session-repository.js";
@@ -216,6 +217,18 @@ export function registerNodeSessionRoutes(
     const result = await nodeSessionService.command(request.params.session_id, cwd(request), "abort");
     return result.success ? { ok: true } : sendFailure(reply, result);
     });
+  });
+
+  app.get<{ Params: { session_id: string } }>("/api/sessions/:session_id/approval-mode", async (request, reply) => {
+    const workspace = await validateWorkspaceCwd(cwd(request));
+    if (!await nodeSessionService.exists(request.params.session_id, workspace)) return reply.code(404).send({ error: "Session not found" });
+    return readSessionApproval(workspace, request.params.session_id);
+  });
+  app.put<{ Params: { session_id: string } }>("/api/sessions/:session_id/approval-mode", async (request, reply) => {
+    const parsed = updateSessionApprovalSchema.safeParse(request.body);
+    if (!parsed.success || parsed.data.mode === "full" && !parsed.data.acknowledgeFullAccess) return reply.code(400).send({ error: "Invalid mode or missing full-access acknowledgement" });
+    const result = await nodeSessionService.setApprovalMode(request.params.session_id, cwd(request), parsed.data.mode, parsed.data.revision);
+    return result.success ? result.data : sendFailure(reply, result);
   });
 
   app.get<{ Params: { session_id: string } }>("/api/sessions/:session_id/state", async (request, reply) => {

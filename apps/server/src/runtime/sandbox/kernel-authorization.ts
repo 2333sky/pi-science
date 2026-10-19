@@ -33,7 +33,7 @@ async function authorizedKernelPolicy(cwd: string, revision: string | undefined,
   if (binding.delegatedAgent && !binding.executionScope) throw new Error("Legacy delegated kernel authorization requires a fresh scope binding");
   if (binding.executionGrantId) return executionGrantPolicy(binding, revision, tool);
   if (binding.candidateId || binding.executionScope === "candidate" || binding.executionScope === "confined") throw new Error("Candidate notebook requires a bound candidate_id and server-bound execution grant; migrate the task binding");
-  return identifyPolicy({ ...await workspacePolicy(cwd, revision), owner: binding.sessionId });
+  return identifyPolicy({ ...await workspacePolicy(cwd, revision, "analysis", binding.delegatedAgent ? undefined : binding.sessionId), owner: binding.sessionId });
 }
 
 /** Historical API alias; Candidate IDs alone no longer authorize kernels. */

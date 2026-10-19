@@ -11,6 +11,29 @@ import { CredentialStore } from "../../model-resources/credential-store.js";
 import { AgentRuntimeExitedError, AgentRuntimeTimeoutError } from "./agent-runtime-errors.js";
 import { EventEmitter } from "node:events";
 
+it("refuses mode changes during a task and rebuilds only the idle session", async () => {
+  const root = await mkdtemp(join(tmpdir(), "approval-mode-service-"));
+  vi.stubEnv("PI_SCIENCE_HOME", join(root, "private"));
+  try {
+    const { realpath } = await import("node:fs/promises");
+    const cwd = await realpath(root);
+    const service = new AgentCoreSessionService({} as never, {} as never);
+    const internals = service as unknown as { live: Map<string, unknown>; stopForReload: (item: unknown) => Promise<void> };
+    const item = { busy: true, runtime: { cwd, sessionId: "session-a", isClosed: false } };
+    internals.live.set(`${workspaceIdentity(cwd)}\0session-a`, item);
+    const stop = vi.spyOn(internals, "stopForReload").mockResolvedValue(undefined);
+    expect(await service.setApprovalMode(cwd, "session-a", "full", 0)).toMatchObject({ success: false, code: "busy" });
+    expect(stop).not.toHaveBeenCalled();
+    item.busy = false;
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ success: true, data: { mode: "auto", revision: 1 } });
+    expect(stop).toHaveBeenCalledExactlyOnceWith(item);
+    stop.mockRejectedValueOnce(new Error("worker shutdown failed"));
+    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: false });
+    const { readSessionApproval } = await import("../sandbox/session-approval.js");
+    expect(await readSessionApproval(cwd, "session-a")).toEqual({ mode: "auto", revision: 1 });
+  } finally { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); }
+});
+
 describe("agent-core session configuration", () => {
   it("inherits current defaults for a legacy cold session only until a durable lane model exists", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-science-legacy-selection-"));

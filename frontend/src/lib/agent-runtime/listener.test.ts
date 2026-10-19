@@ -241,6 +241,110 @@ describe("runtime event subscription", () => {
     expect(useRuntimeStore.getState().status).toBe("ready");
   });
 
+  it("queues parallel approvals and advances after both POST and SSE resolution", async () => {
+    let finishResponse: (() => void) | undefined;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/messages")) return jsonResponse({ messages: [] });
+      if (url.includes("/state")) return jsonResponse(state("session-a"));
+      if (url.startsWith("/api/sessions?")) return jsonResponse([]);
+      if (url.includes("/interactions/permission-2")) {
+        await new Promise<void>((resolve) => { finishResponse = resolve; });
+        return jsonResponse({ ok: true });
+      }
+      if (url.includes("/interactions/")) return jsonResponse({ ok: true });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    await useRuntimeStore.getState().connect("/workspace", "session-a");
+    const source = FakeEventSource.instances[0];
+    source.open();
+    const request = (id: number) => source.emit("interaction.requested", {
+      type: "interaction.requested", sessionId: "session-a",
+      requestId: `permission-${id}`, method: "confirm", kind: "permission", title: `Tool ${id}`,
+    });
+    request(1);
+    request(2);
+    request(3);
+    source.emit("tool.completed", { type: "tool.completed", sessionId: "session-a", callId: "other-call", tool: "bash", status: "done" });
+    expect(useRuntimeStore.getState().turnLifecycle).toBe("waiting");
+    request(2); // A replay must not add another card or replace the visible one.
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("permission-1");
+    expect(useRuntimeStore.getState().pendingInteractionQueue.map((item) => item.requestId))
+      .toEqual(["permission-2", "permission-3"]);
+
+    await useRuntimeStore.getState().respondToInteraction({ confirmed: true });
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("permission-2");
+    expect(useRuntimeStore.getState().turnLifecycle).toBe("waiting");
+    source.emit("interaction.resolved", { type: "interaction.resolved", requestId: "permission-1" });
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("permission-2");
+
+    const responding = useRuntimeStore.getState().respondToInteraction({ confirmed: false });
+    source.emit("interaction.resolved", { type: "interaction.resolved", requestId: "permission-2" });
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("permission-3");
+    finishResponse!();
+    await responding;
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("permission-3");
+    await useRuntimeStore.getState().respondToInteraction({ confirmed: true });
+    expect(useRuntimeStore.getState().pendingInteraction).toBeNull();
+    expect(useRuntimeStore.getState().pendingInteractionQueue).toEqual([]);
+    expect(useRuntimeStore.getState().turnLifecycle).toBe("active");
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes("/interactions/")))
+      .toHaveLength(3);
+  });
+
+  it("keeps every approval available after a failed response and clears them on disconnect", async () => {
+    let failResponse = true;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/messages")) return jsonResponse({ messages: [] });
+      if (url.includes("/state")) return jsonResponse(state("session-a"));
+      if (url.startsWith("/api/sessions?")) return jsonResponse([]);
+      if (url.includes("/interactions/")) {
+        return failResponse ? jsonResponse({ error: "Temporary failure" }, 500) : jsonResponse({ ok: true });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    await useRuntimeStore.getState().connect("/workspace", "session-a");
+    const source = FakeEventSource.instances[0];
+    source.open();
+    for (const requestId of ["first", "second", "third"]) {
+      source.emit("interaction.requested", { type: "interaction.requested", requestId, method: "confirm" });
+    }
+    await expect(useRuntimeStore.getState().respondToInteraction({ confirmed: true })).rejects.toThrow();
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("first");
+    expect(useRuntimeStore.getState().pendingInteractionQueue.map((item) => item.requestId))
+      .toEqual(["second", "third"]);
+    failResponse = false;
+    await useRuntimeStore.getState().respondToInteraction({ confirmed: true });
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("second");
+    useRuntimeStore.getState().disconnect();
+    expect(useRuntimeStore.getState().pendingInteraction).toBeNull();
+    expect(useRuntimeStore.getState().pendingInteractionQueue).toEqual([]);
+  });
+
+  it("removes queued approvals resolved elsewhere and clears the queue when a turn stops", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/messages")) return jsonResponse({ messages: [] });
+      if (url.includes("/state")) return jsonResponse(state("session-a"));
+      if (url.startsWith("/api/sessions?")) return jsonResponse([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    await useRuntimeStore.getState().connect("/workspace", "session-a");
+    const source = FakeEventSource.instances[0];
+    source.open();
+    for (const requestId of ["first", "second", "third"]) {
+      source.emit("interaction.requested", { type: "interaction.requested", requestId, method: "confirm" });
+    }
+    source.emit("interaction.resolved", { type: "interaction.resolved", requestId: "second" });
+    expect(useRuntimeStore.getState().pendingInteraction?.requestId).toBe("first");
+    expect(useRuntimeStore.getState().pendingInteractionQueue.map((item) => item.requestId)).toEqual(["third"]);
+    source.emit("operation.settled", { type: "operation.settled", sessionId: "session-a", status: "aborted" });
+    expect(useRuntimeStore.getState().pendingInteraction).toBeNull();
+    expect(useRuntimeStore.getState().pendingInteractionQueue).toEqual([]);
+  });
+
   it("uses explicit permission semantics from the product protocol", async () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);

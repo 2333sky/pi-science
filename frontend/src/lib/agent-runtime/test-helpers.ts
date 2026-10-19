@@ -119,6 +119,7 @@ export function installRuntimeTestEnvironment(): void {
       compactionThresholdPercent: null,
       sessionStats: null,
       pendingInteraction: null,
+      pendingInteractionQueue: [],
       pendingQuestionnaire: null,
       fileRevision: 0,
       draft: "",

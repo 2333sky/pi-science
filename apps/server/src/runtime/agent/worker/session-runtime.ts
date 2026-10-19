@@ -165,7 +165,7 @@ export class SessionRuntime {
         mcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools, options.delegatedAgent !== undefined, options.delegatedAgent ? async (tool, signal) => {
           const permission = await subagents.request({ tool }, signal, "capability.requested");
           if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
-        } : undefined);
+        } : undefined, options.delegatedAgent ? undefined : session.metadata.id);
       }
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
       const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
@@ -175,7 +175,7 @@ export class SessionRuntime {
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths), workspaceFileTool(createWriteTool(), options.cwd, skillPaths),
+        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions, options.cwd, session.metadata.id)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
           todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {

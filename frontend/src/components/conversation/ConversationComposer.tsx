@@ -1,3 +1,4 @@
+import { ApprovalModeMenu } from "./ApprovalModeMenu";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -152,6 +153,7 @@ export function ConversationComposer({ workspaceCwd, status, activeSessionId, se
               >
                 <Plus size={15} />
               </button>
+              <ApprovalModeMenu cwd={workspaceCwd} sessionId={activeSessionId} disabled={working || interactionPending || reviewingProject} />
               {autoReviewOn ? (
                 <button
                   type="button"

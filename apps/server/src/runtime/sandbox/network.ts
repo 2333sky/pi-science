@@ -54,7 +54,7 @@ export function domainAllowed(host: string, port: number, network: SandboxPolicy
   const matches = (pattern: string) => {
     const [name, rawPort] = pattern.split(":");
     if (rawPort && Number(rawPort) !== port) return false;
-    return name === host || name?.startsWith("*.") && host.endsWith(name.slice(1)) && host !== name.slice(2);
+    return name === "*" || name === host || name?.startsWith("*.") && host.endsWith(name.slice(1)) && host !== name.slice(2);
   };
   return !network.deniedDomains.some(matches) && (network.allowedDomains.some(matches) || transport === "https" && (network.httpsOnlyDomains ?? []).some(matches));
 }

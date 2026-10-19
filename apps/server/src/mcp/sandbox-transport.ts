@@ -13,7 +13,7 @@ import { prepareSandbox, launcherPath, killSandboxGroup, type PreparedSandbox } 
 import { readRegularFile } from "../runtime/sandbox/file-read.js";
 import { configRoot } from "../storage/persistence.js";
 
-export async function localMcpTransport(workspace: string, command: string, args: string[], cwd: string, environment: Record<string, string>, builtinName?: string): Promise<Transport> {
+export async function localMcpTransport(workspace: string, command: string, args: string[], cwd: string, environment: Record<string, string>, builtinName?: string, sessionId?: string): Promise<Transport> {
   if (operatorExecutionMode() === "trusted-host") return new StdioClientTransport({ command, args, cwd, env: environment, stderr: "pipe" });
   workspace = await realpath(workspace); cwd = await realpath(cwd);
   if (!isWithin(workspace, cwd)) throw new Error("Local MCP cwd must remain inside the workspace");
@@ -23,7 +23,7 @@ export async function localMcpTransport(workspace: string, command: string, args
     try { await access(path, constants.X_OK); executable = await realpath(path); break; } catch { /* try the next fixed system directory */ }
   }
   if (!executable) throw new Error("MCP executable is unavailable; install it through environment management first");
-  const policy = await workspacePolicy(workspace, undefined, "mcp");
+  const policy = await workspacePolicy(workspace, undefined, "mcp", sessionId);
   const dependencies = [...new Set([...bashDependencies(), executable, fileURLToPath(new URL("../", import.meta.url)), fileURLToPath(new URL("../../../../node_modules", import.meta.url))])];
   // Source-mode TS loaders read package/tsconfig metadata. Grant only those
   // files, rather than opening the installation's parent directories.

@@ -10,11 +10,11 @@ export const networkDomain = z.string().trim().toLowerCase().max(253).refine((do
   return !["localhost", "local", "internal", "localdomain", "home.arpa"].some((suffix) => domain === suffix || domain.endsWith(`.${suffix}`));
 }, "Enter a public hostname without a scheme, path, port, IP address or wildcard");
 const rule = z.object({ profile: networkGrantProfile, domain: networkDomain, decision: z.enum(["allow", "deny"]), createdAt: z.string().datetime(), source: z.enum(["settings", "approval"]), reason: z.string().max(2000).optional() }).strict();
-export const networkGrantsSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), rules: z.array(rule).max(512) }).strict();
+export const networkGrantsSchema = z.object({ schemaVersion: z.literal(1), revision: z.number().int().nonnegative(), rules: z.array(rule).max(512), targetRevisions: z.record(z.string(), z.number().int().nonnegative()).default({}) }).strict();
 export type NetworkGrants = z.infer<typeof networkGrantsSchema>;
 export const networkRuleInput = rule.pick({ profile: true, domain: true, decision: true });
 
-export const emptyNetworkGrants = (): NetworkGrants => ({ schemaVersion: 1, revision: 0, rules: [] });
+export const emptyNetworkGrants = (): NetworkGrants => ({ schemaVersion: 1, revision: 0, rules: [], targetRevisions: {} });
 export async function readNetworkGrantFile(path: string): Promise<NetworkGrants> {
   // Launchers run as plain Node TypeScript in development, without a TS loader.
   const { readOperatorConfig } = await import(new URL(import.meta.url.endsWith(".ts") ? "./operator-config.ts" : "./operator-config.js", import.meta.url).href) as typeof import("./operator-config.js");
@@ -42,3 +42,6 @@ export function networkGrantSource(base: SandboxPolicy["network"], path: string,
     return grantedNetwork(base, state, profile);
   };
 }
+
+/** Retain target revisions after revocation to detect allow/revoke cycles. */
+export const networkGrantTargetKey = (profile: NetworkGrantProfile, domain: string) => JSON.stringify([profile, domain]);

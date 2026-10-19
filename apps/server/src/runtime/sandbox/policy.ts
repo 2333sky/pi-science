@@ -1,3 +1,4 @@
+import { sessionPolicy } from "./session-approval.js";
 import { createHash } from "node:crypto";
 import { lstat, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -13,6 +14,7 @@ export interface SandboxPolicy {
   readPaths: string[];
   writePaths: string[];
   denyPaths: string[];
+  writeDenyPaths?: string[];
   network: { mode: "none" } | { mode: "allowlist"; allowedDomains: string[]; httpsOnlyDomains?: string[]; deniedDomains: string[] };
   profile?: SandboxProfile;
   profilePolicyId?: string;
@@ -49,13 +51,13 @@ export async function protectedPaths(cwd: string): Promise<string[]> {
   await visit(cwd);
   return [...new Set(denied)].sort();
 }
-export async function workspacePolicy(cwd: string, environmentRevision?: string, profile: SandboxProfile = "analysis"): Promise<SandboxPolicy> {
+export async function workspacePolicy(cwd: string, environmentRevision?: string, profile: SandboxProfile = "analysis", sessionId?: string): Promise<SandboxPolicy> {
   const mode = operatorExecutionMode();
   // Native compatibility accepts OS-normalized paths. Required execution still
   // rejects every linked component, including junctions and directory aliases.
   cwd = mode === "required" ? await canonicalDirectory(cwd) : await realpath(resolve(cwd));
   const policy = identifyPolicy({ mode, scope: "workspace", cwd, readPaths: [cwd], writePaths: [cwd], denyPaths: mode === "required" ? await protectedPaths(cwd) : [], network: { mode: "none" }, ...(environmentRevision ? { environmentRevision } : {}) });
-  return mode === "required" ? applySandboxProfile(policy, profile) : policy;
+  return identifyPolicy(await sessionPolicy(mode === "required" ? await applySandboxProfile(policy, profile) : policy, sessionId));
 }
 export function identifyPolicy(policy: Omit<SandboxPolicy, "id">): SandboxPolicy {
   const { id: _oldId, ...content } = policy as SandboxPolicy;

@@ -29,7 +29,7 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
   // host execution on a later call. A checkout used as the server installation
   // cannot simultaneously be its untrusted writable workspace.
   const serverRoot = await realpath(fileURLToPath(new URL("../../../", import.meta.url)));
-  for (const trusted of [serverRoot, root, process.execPath]) if (policy.writePaths.some((write) => isWithin(write, trusted) || isWithin(trusted, write))) throw new Error("Writable sandbox paths overlap the trusted server installation");
+  for (const trusted of [serverRoot, root, process.execPath]) if (policy.writePaths.some((write) => isWithin(write, trusted) || isWithin(trusted, write)) && ![...policy.denyPaths, ...(policy.writeDenyPaths ?? [])].some((denied) => isWithin(denied, trusted))) throw new Error("Writable sandbox paths overlap the trusted server installation");
   const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   if (manifest.version !== "0.0.79") throw new Error("Sandbox runtime version has not been validated");
   if (!["x64", "arm64"].includes(process.arch)) throw new Error("Unsupported sandbox architecture");
@@ -37,14 +37,14 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
   else await access("/usr/bin/sandbox-exec", constants.X_OK);
   const readPolicy = await runtimeReadPolicy();
   if (policy.operatorReadPolicyId && policy.operatorReadPolicyId !== runtimeReadPolicyId(readPolicy)) throw new Error("Operator read policy changed before sandbox startup");
-  if (readPolicy.file && policy.writePaths.some((write) => pathsOverlap(write, readPolicy.file!))) throw new Error("Operator read policy must be outside writable sandbox paths");
+  if (readPolicy.file && policy.writePaths.some((write) => pathsOverlap(write, readPolicy.file!)) && !policy.denyPaths.some((denied) => isWithin(denied, readPolicy.file!))) throw new Error("Operator read policy must be outside writable sandbox paths");
   const dependencyReads = await runtimeDependencyGrants(readPolicy, dependencies);
   const reads = [...readPolicy.systemReads, ...dependencyReads];
   for (const path of [...reads, ...policy.readPaths, ...policy.writePaths]) {
     if (readPolicy.protectedRoots.some((protectedPath) => pathsOverlap(path, protectedPath))) throw new Error("Protected paths overlap sandbox runtime read grants");
   }
   for (const canonical of dependencyReads) {
-    if (policy.writePaths.some((write) => pathsOverlap(write, canonical))) throw new Error("Runtime dependencies must be outside writable sandbox paths");
+    if (policy.writePaths.some((write) => pathsOverlap(write, canonical)) && ![...policy.denyPaths, ...(policy.writeDenyPaths ?? [])].some((denied) => isWithin(denied, canonical))) throw new Error("Runtime dependencies must be outside writable sandbox paths");
   }
   for (const binary of [installation.socat, installation.ripgrep]) if (binary) {
     if (!isAbsolute(binary)) throw new Error("Sandbox helper paths must be absolute");
@@ -55,14 +55,14 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
     await access(canonical, constants.X_OK);
   }
   const literal = (path: string) => ({ path, literal: true as const });
-  const credentialNames = [".npmrc", ".pypirc", ".netrc", "_netrc", ".git-credentials", ".modal.toml", "credentials.json", "credentials.toml", ".env", ".env.*"];
+  const credentialNames = [".pi-science", ".pi", ".npmrc", ".pypirc", ".netrc", "_netrc", ".git-credentials", ".modal.toml", "credentials.json", "credentials.toml", ".env", ".env.*"];
   const permissionRoot = dirname(networkGrantsPath());
   const credentials = [...new Set([...policy.readPaths, ...policy.writePaths])].flatMap((root) => credentialNames.map((name) => join(root, "**", name)));
   return {
     network: { allowedDomains: policy.network.mode === "allowlist" ? policy.network.allowedDomains : [], deniedDomains: policy.network.mode === "allowlist" ? policy.network.deniedDomains : ["*"], strictAllowlist: true,
       allowUnixSockets: [], allowAllUnixSockets: false, allowLocalBinding: false },
     filesystem: { denyRead: [...["/", permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths].map(literal), ...credentials], allowRead: [...new Set([...reads, join(root, "vendor/seccomp"), ...(installation.socat ? [installation.socat] : []), ...policy.readPaths])].map(literal),
-      allowWrite: policy.writePaths.map(literal), denyWrite: [...[permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths, ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), ...credentials], allowGitConfig: false },
+      allowWrite: policy.writePaths.map(literal), denyWrite: [...[permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths, ...(policy.writeDenyPaths ?? []), ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), ...credentials], allowGitConfig: false },
     enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
     ripgrep: { command: installation.ripgrep ?? "/usr/bin/rg" }, ...(installation.socat ? { socatPath: installation.socat } : {}),
   };

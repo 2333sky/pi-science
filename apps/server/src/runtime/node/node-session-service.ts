@@ -1,3 +1,4 @@
+import type { ApprovalMode } from "@pi-science/contracts";
 import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../workspace/workspace-lifecycle.js";
 import type { CreateSessionRequest, PiConfig, SessionState, SessionStats } from "@pi-science/contracts";
 import { resolve } from "node:path";
@@ -145,6 +146,12 @@ export class NodeSessionService {
     const prepared = await this.prepare(cwdValue, sessionId);
     return "success" in prepared ? { error: prepared.error ?? "session unavailable", code: prepared.code ?? "runtime_error" }
       : this.agentCore.state(prepared.cwd, sessionId, effectiveConfig());
+  }
+  async setApprovalMode(sessionId: string, cwdValue: string, mode: ApprovalMode, revision: number) {
+    return this.admitted(cwdValue, async () => {
+      const prepared = await this.prepare(cwdValue, sessionId);
+      return "success" in prepared ? prepared : this.agentCore.setApprovalMode(prepared.cwd, sessionId, mode, revision);
+    }, (error) => ({ success: false, code: "busy", error: error.message }));
   }
   async stats(sessionId: string, cwdValue: string): Promise<{ stats: SessionStats } | RuntimeFailure> { return this.admitted(cwdValue, () => this.statsAdmitted(sessionId, cwdValue), (error) => ({ error: error.message, code: "busy" })); }
   private async statsAdmitted(sessionId: string, cwdValue: string): Promise<{ stats: SessionStats } | RuntimeFailure> {

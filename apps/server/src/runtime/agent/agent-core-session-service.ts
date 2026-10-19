@@ -1,3 +1,5 @@
+import { readSessionApproval, saveSessionApproval } from "../sandbox/session-approval.js";
+import type { ApprovalMode } from "@pi-science/contracts";
 import { pathIsInside } from "../../support/platform-utils.js";
 import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../workspace/workspace-lifecycle.js";
 import type { PiConfig, SessionState, SessionStats } from "@pi-science/contracts";
@@ -492,6 +494,22 @@ export class AgentCoreSessionService {
   }
 
   /** Rebuilds idle workers with current MCP and environment settings; active turns finish first. */
+  async setApprovalMode(cwd: string, sessionId: string, mode: ApprovalMode, revision: number): Promise<RuntimeResult> {
+    return this.withMutation(cwd, sessionId, async () => {
+      const live = this.live.get(identity(cwd, sessionId));
+      if (live?.busy || live?.expectedOperationId) return { success: false, code: "busy", error: "Stop the current task before changing approval mode" };
+      if (!live && !await this.repository.findPath(cwd, sessionId)) return { success: false, code: "not_found", error: "Session not found" };
+      try {
+        if ((await readSessionApproval(cwd, sessionId)).revision !== revision) return { success: false, code: "busy", error: "Approval mode changed; reload and retry" };
+        // Retire the old worker and its kernels before committing the new mode.
+        // A failed shutdown must not report a successful permission downgrade.
+        if (live) await this.stopForReload(live);
+        const approval = await saveSessionApproval(cwd, sessionId, mode, revision);
+        return { success: true, data: approval };
+      } catch (error) { return { success: false, code: "busy", error: String(error) }; }
+    });
+  }
+
   async reloadConfiguration(): Promise<void> {
     await Promise.allSettled(this.opening.values());
     for (const item of [...this.live.values()]) {

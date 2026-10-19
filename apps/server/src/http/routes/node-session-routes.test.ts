@@ -57,6 +57,26 @@ function app() {
   return server;
 }
 
+it("validates, persists and isolates session approval modes", async () => {
+  const cwd = await workspaceWithSessions("mode-a", "mode-b");
+  const server = Fastify();
+  registerNodeSessionRoutes(server, nodeSessionService, sessionRepository);
+  const url = `/api/sessions/mode-a/approval-mode?${new URLSearchParams({ cwd })}`;
+  try {
+    expect((await server.inject({ method: "GET", url })).json()).toEqual({ mode: "ask", revision: 0 });
+    expect((await server.inject({ method: "PUT", url, payload: { mode: "full", revision: 0 } })).statusCode).toBe(400);
+    expect((await server.inject({ method: "PUT", url, payload: { mode: "unsafe", revision: 0 } })).statusCode).toBe(400);
+    const set = await server.inject({ method: "PUT", url, payload: { mode: "auto", revision: 0 } });
+    expect(set.statusCode).toBe(200);
+    expect(set.json()).toEqual({ mode: "auto", revision: 1 });
+    expect((await server.inject({ method: "PUT", url, payload: { mode: "ask", revision: 0 } })).statusCode).toBe(409);
+    expect((await server.inject({ method: "GET", url: url.replace("mode-a", "mode-b") })).json()).toEqual({ mode: "ask", revision: 0 });
+    expect((await server.inject({ method: "GET", url })).json()).toEqual({ mode: "auto", revision: 1 });
+    const full = await server.inject({ method: "PUT", url, payload: { mode: "full", revision: 1, acknowledgeFullAccess: true } });
+    expect(full.json()).toEqual({ mode: "full", revision: 2 });
+  } finally { await server.close(); }
+});
+
 describe("native Node conversation routes", () => {
   it("serves composer commands for a workspace without opening a session", async () => {
     const cwd = await workspaceWithSessions();

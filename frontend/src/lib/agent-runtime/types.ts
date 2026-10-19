@@ -105,6 +105,8 @@ export interface RuntimeState {
    *  refreshed via `session.stats` SSE events and the stats REST endpoint. */
   sessionStats: SessionStats | null;
   pendingInteraction: PendingInteraction | null;
+  /** Requests waiting behind the visible interaction, in arrival order. */
+  pendingInteractionQueue: PendingInteraction[];
   pendingQuestionnaire: PendingQuestionnaire | null;
   /** Increments after a turn settles so workspace file views can reload. */
   fileRevision: number;

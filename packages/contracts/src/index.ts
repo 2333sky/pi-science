@@ -16,6 +16,11 @@ export const piConfigSchema = z.object({
   extensions: z.array(z.string()).default([]),
 });
 
+export const approvalModeSchema = z.enum(["ask", "auto", "full"]);
+export type ApprovalMode = z.infer<typeof approvalModeSchema>;
+export const sessionApprovalSchema = z.object({ mode: approvalModeSchema, revision: z.number().int().nonnegative() });
+export const updateSessionApprovalSchema = z.object({ mode: approvalModeSchema, revision: z.number().int().nonnegative(), acknowledgeFullAccess: z.boolean().optional() }).strict();
+
 export const createSessionRequestSchema = z.object({
   cwd: z.string().min(1),
   config: piConfigSchema.default({ skills: [], extensions: [] }),

@@ -2,6 +2,7 @@
  *  is created, and receive zustand's `set`/`get` directly — so action
  *  references stay stable across renders exactly as before. */
 
+import { resolveInteraction } from "./interaction-queue";
 import type { StoreApi } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import type { ThreadBlock } from "../../types/thread";
@@ -123,6 +124,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           compactionThresholdPercent: null,
           sessionStats: null,
           pendingInteraction: null,
+          pendingInteractionQueue: [],
           pendingQuestionnaire: null,
         });
       }
@@ -457,7 +459,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       // Unmounting the conversation view does not stop the backend turn. Keep
       // the stop/busy state so workspace-level controls cannot race the active
       // agent merely because the user opened Files or Knowledge.
-      set({ status: "offline", pendingInteraction: null, pendingQuestionnaire: null });
+      set({ status: "offline", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
     },
 
     sendPrompt: async (message: string, requestedClientMessageId?: string): Promise<string | null> => {
@@ -652,7 +654,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
         await getClient().abort(activeSessionId, cwd);
         const current = get();
         if (current.activeSessionId === activeSessionId && current.cwd === cwd && current.turnLifecycle === "stopping") {
-          set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingQuestionnaire: null });
+          set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
         }
       } catch (error) {
         const current = get();
@@ -662,7 +664,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
             ? (error as { code?: unknown }).code
             : undefined;
           if (code === "runtime_evicted") {
-            set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingQuestionnaire: null });
+            set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
             return;
           }
           try {
@@ -676,7 +678,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
                 working: busy,
                 turnLifecycle: busy ? "active" : "aborted",
                 status: "error",
-                ...(busy ? {} : { pendingInteraction: null, pendingQuestionnaire: null }),
+                ...(busy ? {} : { pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null }),
               });
             }
           } catch {
@@ -812,7 +814,8 @@ export function createRuntimeActions(set: SetState, get: GetState) {
             const thread = resolvedBlocks.some((block, index) => block !== current.thread.blocks[index])
               ? { ...current.thread, blocks: resolvedBlocks, index: Object.fromEntries(resolvedBlocks.map((block, index) => [block.id, index])) }
               : current.thread;
-            set({ pendingInteraction: null, working: true, turnLifecycle: "active", status: "ready", thread });
+            const remaining = resolveInteraction(current, requestId);
+            set({ ...remaining, working: true, turnLifecycle: remaining.pendingInteraction ? "waiting" : "active", status: "ready", thread });
             ensureTurnWatchdog();
           }
         } catch (error) {
@@ -869,7 +872,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       ++generations.activity;
       ++generations.localMutation;
       optimisticSessionIds.add(result.id);
-      set({ activeSessionId: result.id, status: "connecting", pendingInteraction: null, pendingQuestionnaire: null });
+      set({ activeSessionId: result.id, status: "connecting", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       registerEventListener(client);
       client.connect(result.id, cwd);
       let history = {
@@ -956,6 +959,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           turnLifecycle: live.turnLifecycle,
           status: "connecting",
           pendingInteraction: null,
+          pendingInteractionQueue: [],
           pendingQuestionnaire: null,
         });
         optimisticSessionIds.add(result.id);

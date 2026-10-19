@@ -1,3 +1,4 @@
+import { sessionMode } from "../../sandbox/session-approval.js";
 import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -72,7 +73,7 @@ export class AgentMcpTools {
   readonly diagnostics: string[] = [];
 
   static async open(cwd: string, bridge: InteractionBridge, environment: Record<string, string>, budgetMs = DISCOVERY_BUDGET_MS,
-    allowedTools?: readonly string[], preauthorizedOnly = false, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>): Promise<AgentMcpTools> {
+    allowedTools?: readonly string[], preauthorizedOnly = false, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string): Promise<AgentMcpTools> {
     const result = new AgentMcpTools();
     const capabilities = allowedTools === undefined ? undefined : new Set(allowedTools);
     const rawSnapshot = loadProjectedSnapshot(cwd);
@@ -81,14 +82,14 @@ export class AgentMcpTools {
     }, (name) => capabilities === undefined || [...capabilities].some((tool) => tool.split("__").length === 3 && tool.split("__")[1] === name)) as Record<string, ServerDefinition>;
     const deadline = Date.now() + budgetMs;
     await Promise.all(Object.entries(servers).map(async ([name, server]) => {
-      try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, rawSnapshot.mcpServers[name], authorize); }
+      try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, rawSnapshot.mcpServers[name], authorize, sessionId); }
       catch (error) { result.diagnostics.push(`${name}: ${error instanceof Error ? error.message : String(error)}${typeof (error as { code?: unknown }).code === "number" ? ` (HTTP ${(error as { code: number }).code})` : ""}`); }
     }));
     return result;
   }
 
   private async connect(name: string, server: ServerDefinition, cwd: string, bridge: InteractionBridge, environment: Record<string, string>, deadline: number,
-    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>): Promise<void> {
+    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string): Promise<void> {
     if (server.auth === "oauth" && !Object.keys(server.headers ?? {}).some((key) => key.toLowerCase() === "authorization")) {
       throw new Error("OAuth MCP connector requires an authorized credential binding");
     }
@@ -98,7 +99,7 @@ export class AgentMcpTools {
       transport = new UnixSocketClientTransport(server.socket);
     } else if ((server.transport === "stdio" || !server.transport) && server.command) {
       transport = await localMcpTransport(cwd, server.command, server.args ?? [], server.cwd ?? cwd,
-        { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, server.__piScienceBuiltin ? name : undefined);
+        { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, server.__piScienceBuiltin ? name : undefined, sessionId);
     } else if ((server.transport === "sse" || server.transport === "streamable_http" || !server.transport) && server.url) {
       const connectorId = server.__piScienceConnectorId;
       const checkedFetch = createMcpFetch({ connectorId, projectId: server.__piScienceProjectId,
@@ -139,13 +140,20 @@ export class AgentMcpTools {
           parameters: tool.inputSchema as TSchema,
           async execute(_toolCallId, params, _onUpdate, _toolContext, _invocation, context) {
             let policy = currentPolicy(tool.name);
-            let approvedByUser = false;
-            if (permissionRequired(policy, tool.name)) {
+            const mode = sessionId && !preauthorizedOnly ? await sessionMode(cwd, sessionId) : "ask";
+            const safe = tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint !== true && (tool.annotations?.idempotentHint === true || server.__piScienceBuiltin === true);
+            let approvedByUser = mode === "full" || mode === "auto" && safe;
+            let approvalMs = 0;
+            if (permissionRequired(policy, tool.name) && !approvedByUser) {
               if (preauthorizedOnly) throw new Error(`Delegated MCP tool requires explicit preauthorization in MCP settings: ${name}: ${tool.name}`);
+              const approvalStarted = Date.now();
+              _onUpdate({ content: [], details: { approval: "waiting" } });
               const approved = await bridge.confirmPermission(`Allow ${name}: ${tool.name}?`,
-                `Arguments: ${JSON.stringify(params).slice(0, 4_000)}`, context.abortSignal);
+                `Arguments: ${JSON.stringify(params).slice(0, 4_000)}`, context.abortSignal, _toolCallId);
+              approvalMs = Date.now() - approvalStarted;
+              _onUpdate({ content: [], details: { approval: "resolved" } });
               approvedByUser = approved;
-              if (!approved) return { content: [{ type: "text", text: "MCP tool call was declined by the user" }], details: { declined: true }, isError: true };
+              if (!approved) return { content: [{ type: "text", text: "MCP tool call was declined by the user" }], details: { declined: true, scheduling: { approval_ms: approvalMs } }, isError: true };
             }
             // Approval may race with connector disable/revocation. Recheck before dispatch.
             policy = currentPolicy(tool.name);
@@ -169,7 +177,7 @@ export class AgentMcpTools {
                 content.push({ type: "image", data: part.data, mimeType: part.mimeType });
               }
             }
-            return { content, details: { result: response.structuredContent, scheduling: { queued_ms: slot.queuedMs, execution_ms: Date.now() - started } }, isError: response.isError === true };
+            return { content, details: { result: response.structuredContent, scheduling: { approval_ms: approvalMs, queued_ms: slot.queuedMs, execution_ms: Date.now() - started } }, isError: response.isError === true };
             } finally { await slot.release(); }
           },
         });

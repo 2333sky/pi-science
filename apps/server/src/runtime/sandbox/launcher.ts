@@ -4,7 +4,7 @@ import type { NetworkGrantProfile } from "./network-grant-state.js";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 const [manifestPath, ...shellArgs] = process.argv.slice(2);
-const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; executionGrant?: { sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } }; networkGrants?: { path: string; profile: NetworkGrantProfile } };
+const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { networkPolicy?: import("./policy.js").SandboxPolicy["network"]; cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; executionGrant?: { sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } }; networkGrants?: { path: string; profile: NetworkGrantProfile } };
 if (process.platform === "darwin" && !manifest.supervisor) throw new Error("macOS sandbox requires the native descendant supervisor");
 const owner = process.ppid;
 const kill = () => { try { process.kill(-process.pid, "SIGKILL"); } catch { process.exit(1); } };
@@ -26,9 +26,9 @@ const deadline = setTimeout(kill, (manifest.timeoutSeconds + 1) * 1000);
 const envArgs = Object.entries(manifest.env).map(([key, value]) => `${key}=${value}`);
 const { startSandboxNetwork } = await import(new URL(import.meta.url.endsWith(".ts") ? "./network.ts" : "./network.js", import.meta.url).href);
 const configured = JSON.parse(readFileSync(manifest.settings, "utf8"));
-const baseNetwork = !configured.network.deniedDomains.includes("*")
+const baseNetwork = manifest.networkPolicy ?? (!configured.network.deniedDomains.includes("*")
   ? { mode: "allowlist" as const, allowedDomains: configured.network.allowedDomains, deniedDomains: configured.network.deniedDomains }
-  : { mode: "none" as const };
+  : { mode: "none" as const });
 const { networkGrantSource } = await import(new URL(import.meta.url.endsWith(".ts") ? "./network-grant-state.ts" : "./network-grant-state.js", import.meta.url).href) as typeof import("./network-grant-state.js");
 const network = await startSandboxNetwork(baseNetwork, manifest.networkGrants ? networkGrantSource(baseNetwork, manifest.networkGrants.path, manifest.networkGrants.profile) : undefined);
 configured.network.httpProxyPort = network.httpPort;

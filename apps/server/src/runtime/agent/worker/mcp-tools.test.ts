@@ -165,16 +165,62 @@ describe("agent-core managed MCP tools", () => {
       mcp = await AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" });
       expect(mcp.diagnostics).toEqual([]);
       expect(mcp.tools.map((tool) => tool.name)).toEqual(["mcp__local__echo"]);
-      const pending = mcp.tools[0]!.execute("call-1", { value: "hello" }, () => undefined,
+      const updates: unknown[] = [];
+      const pending = mcp.tools[0]!.execute("call-1", { value: "hello" }, (update) => { updates.push(update); },
         {} as never, {} as never, { abortSignal: undefined } as never);
       expect(interactions).toMatchObject([{ type: "interaction.requested", kind: "permission", method: "confirm", id: expect.any(String) }]);
       bridge.notify("extension_ui_response", { id: interactions[0]!.id, confirmed: true });
       const result = await pending;
       expect(result.content).toEqual([{ type: "text", text: "hello" }]);
+      expect(updates).toEqual([
+        { content: [], details: { approval: "waiting" } },
+        { content: [], details: { approval: "resolved" } },
+      ]);
+      expect(interactions[0]).toMatchObject({ toolCallId: "call-1" });
+      expect(result.details).toMatchObject({ scheduling: { approval_ms: expect.any(Number), execution_ms: expect.any(Number) } });
     } finally {
       await mcp?.close();
       await rm(cwd, { recursive: true, force: true });
     }
+  }, 20_000);
+
+  it.each([
+    { mode: "ask", safe: true, asks: true },
+    { mode: "auto", safe: true, asks: false },
+    { mode: "auto", safe: false, asks: true },
+    { mode: "full", safe: false, asks: false },
+  ] as const)("applies $mode to safe=$safe tools using session-owned policy", async ({ mode, safe, asks }) => {
+    const cwd = await mkdtemp(join(tmpdir(), "mcp-approval-mode-"));
+    vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "service-private"));
+    let mcp: AgentMcpTools | undefined;
+    try {
+      await mkdir(join(cwd, ".pi-science"));
+      const server = join(cwd, "server.mjs");
+      await writeFile(server, [
+        `import { McpServer } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};`,
+        `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
+        `const server = new McpServer({ name: "test", version: "1" });`,
+        `server.registerTool("echo", { description: "Echo", annotations: ${JSON.stringify(safe ? { readOnlyHint: true, destructiveHint: false, idempotentHint: true } : {})} }, async () => ({ content: [{ type: "text", text: "ok" }] }));`,
+        `await server.connect(new StdioServerTransport());`,
+      ].join("\n"));
+      const definition = { command: process.execPath, args: [server], approveTools: true, __piScienceConnectorId: "connector_mode" };
+      await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "project_mode", mcpServers: { local: definition } }));
+      const { saveSessionApproval } = await import("../../sandbox/session-approval.js");
+      await saveSessionApproval(cwd, "mode-session", mode, 0);
+      const events: Array<Record<string, unknown>> = [];
+      const bridge = new InteractionBridge((event) => events.push(event));
+      mcp = await AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" }, undefined, undefined, false, undefined, "mode-session");
+      expect(mcp.diagnostics).toEqual([]);
+      const pending = mcp.tools[0]!.execute("call-mode", {}, () => {}, {} as never, {} as never, {} as never);
+      if (asks) {
+        await vi.waitFor(() => expect(events).toHaveLength(1));
+        bridge.notify("extension_ui_response", { id: events[0]!.id, confirmed: true });
+      }
+      expect(await pending).toMatchObject({ content: [{ text: "ok" }] });
+      expect(events).toHaveLength(asks ? 1 : 0);
+      await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "project_mode", mcpServers: { local: { ...definition, excludeTools: ["echo"] } } }));
+      await expect(mcp.tools[0]!.execute("revoked", {}, () => {}, {} as never, {} as never, {} as never)).rejects.toThrow("disabled");
+    } finally { await mcp?.close(); await rm(cwd, { recursive: true, force: true }); }
   }, 20_000);
 
   it("uses the checked HTTP transport for a managed local endpoint", async () => {

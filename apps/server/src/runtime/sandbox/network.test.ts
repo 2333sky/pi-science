@@ -40,7 +40,7 @@ it("blocks unknown HTTP/CONNECT destinations and rejects SOCKS authentication it
   expect(await exchange(proxy.socksPort, Buffer.from([5, 1, 2]))).toEqual(Buffer.from([5, 255]));
 });
 it.each(["analysis", "mcp"] as const)("refuses plaintext HTTP on port 443 authorized only by a %s user grant", async (profile) => {
-  const state: NetworkGrants = { schemaVersion: 1, revision: 1, rules: [{ profile, domain: "api.example.org", decision: "allow", source: "settings", createdAt: new Date().toISOString() }] };
+  const state: NetworkGrants = { schemaVersion: 1, targetRevisions: {}, revision: 1, rules: [{ profile, domain: "api.example.org", decision: "allow", source: "settings", createdAt: new Date().toISOString() }] };
   const network = grantedNetwork({ mode: "none" }, state, profile);
   proxy = await startSandboxNetwork(network);
   expect((await exchange(proxy.httpPort, "GET http://api.example.org:443/ HTTP/1.1\r\nHost: api.example.org:443\r\nConnection: close\r\n\r\n")).toString()).toContain("403");

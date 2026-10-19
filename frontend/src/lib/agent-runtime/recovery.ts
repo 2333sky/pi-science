@@ -844,7 +844,7 @@ export async function reconcilePromptAfterLateStream(
           || !recheck.working
         ) return;
         ++generations.activity;
-        useRuntimeStore.setState({ working: false, turnLifecycle: confirmedIdleLifecycle(recheck.thread, recheck.turnLifecycle), status: "ready", pendingInteraction: null, pendingQuestionnaire: null });
+        useRuntimeStore.setState({ working: false, turnLifecycle: confirmedIdleLifecycle(recheck.thread, recheck.turnLifecycle), status: "ready", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
         void resyncCompletedHistory(sessionId, cwd);
         void loadSessionsInternal();
         return;
@@ -938,6 +938,7 @@ export function recoverMissingSession(sessionId: string, cwd: string, client?: P
     compactionEnabled: true,
     compactionThresholdPercent: null,
     pendingInteraction: null,
+    pendingInteractionQueue: [],
     pendingQuestionnaire: null,
   });
 }
