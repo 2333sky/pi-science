@@ -369,10 +369,17 @@ export class SessionRuntime {
             ? await this.lane.steer(message, undefined, context)
             : await this.lane.followUp(message, undefined, context));
         }
-        case "abort":
+        case "abort": {
+          const watchedOperation = this.watchedBudgetOperation;
           this.subagents?.cancelAll();
-          if (this.watchedBudgetOperation) await this.budgetTools.ledger(this.watchedBudgetOperation).cancelOperation();
-          return resultValue(await this.lane.abort(context));
+          const aborted = await this.lane.abort(context);
+          // Watch events may lag durable settlement. Cancel only the operation
+          // Core actually aborted, never an idle lane's stale watcher identity.
+          if (aborted.ok && aborted.value.operationId === watchedOperation) {
+            await this.budgetTools.ledger(watchedOperation).cancelOperation();
+          }
+          return resultValue(aborted);
+        }
         case "compact": {
           if (!this.activated) return { success: false, code: "not_ready", error: "agent runtime has not been activated" };
           const customInstructions = typeof params.customInstructions === "string" ? params.customInstructions : undefined;

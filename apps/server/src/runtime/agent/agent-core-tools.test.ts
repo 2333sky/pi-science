@@ -85,7 +85,7 @@ describe("agent-core product tools", () => {
     expect((await readFile(join(fixture.cwd, "study/research-events.jsonl"), "utf8")).trim().split("\n")).toHaveLength(1);
   }, 45_000);
 
-  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["linux", "darwin"].includes(process.platform))("delegates a generic Draft grant without a research binding or Candidate authority", async () => {
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["linux", "darwin"].includes(process.platform)).each([false, true])("keeps a mixed generic grant isolated with a legacy research binding=%s and sandbox_run excluded", async (legacyBinding) => {
     const fixture = await modelFixture((body) => {
       const results = body.messages.filter((message) => message.role === "tool");
       if (body.messages[0]!.content.includes("You are a draft maker")) {
@@ -95,26 +95,34 @@ describe("agent-core product tools", () => {
         expect(results.at(-1)!.content).toContain("draft-isolated");
         return "Draft created with real isolated execution.";
       }
-      if (!results.length) return { name: "subagent", args: { agent: "draft-maker", candidate_id: "correlation-only", sandbox: { cwd: "drafts/one/work", read_paths: ["drafts/one/input"], write_paths: ["drafts/one/work"] }, task: "Create the draft from the authorized input." } };
+      if (legacyBinding && !results.length) return { name: "execution_budget", args: { research_id: "legacy-study", max_seconds: 60, max_executions: 5 } };
+      if (results.length === (legacyBinding ? 1 : 0)) return { name: "subagent", args: { agent: "draft-maker", candidate_id: "correlation-only", sandbox: { cwd: "drafts/one/work", read_paths: ["drafts/one/input"], write_paths: ["drafts/one/work"] }, task: "Create the draft from the authorized input." } };
       expect(results.at(-1)!.content).toContain("Draft created"); return "Generic Draft completed.";
     });
     await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
-    await writeFile(join(fixture.cwd, ".pi/agents/draft-maker.md"), "---\nexecution_scope: confined\ntools: [read, bash, write, subagent]\n---\nYou are a draft maker.");
+    await writeFile(join(fixture.cwd, ".pi/agents/draft-maker.md"), "---\nexecution_scope: confined\ntools: [read, bash, sandbox_run, write, subagent]\n---\nYou are a draft maker.");
     await mkdir(join(fixture.cwd, "drafts/one/input"), { recursive: true }); await mkdir(join(fixture.cwd, "drafts/one/work"));
     await writeFile(join(fixture.cwd, "drafts/one/input/approved.txt"), "approved");
     await mkdir(join(fixture.cwd, "evaluator")); await writeFile(join(fixture.cwd, "evaluator/private.txt"), "PRIVATE");
     await writeFile(join(fixture.cwd, ".pi-science/protected"), "CONTROL");
     await writeFile(join(fixture.cwd, "research-events.jsonl"), "parent-only");
+    const legacyDirectory = join(fixture.cwd, "research/legacy-study/candidates/correlation-only");
+    await mkdir(join(legacyDirectory, "input"), { recursive: true });
+    await mkdir(join(legacyDirectory, "work"));
+    await writeFile(join(legacyDirectory, "input/legacy.txt"), "legacy-input");
+    await writeFile(join(legacyDirectory, "work/unchanged.txt"), "legacy-work");
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
-    const parent = await openHiddenTask(manager, "generic-draft", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "write", "subagent"], skillPolicy: { mode: "none" } }, "draft-owner");
+    const parent = await openHiddenTask(manager, "generic-draft", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "sandbox_run", "write", "subagent", "execution_budget"], skillPolicy: { mode: "none" } }, "draft-owner");
     expect(await runHiddenPrompt(parent, "Create a Draft", "draft-once", Date.now() + 30_000)).toBe("Generic Draft completed.");
     expect(await readFile(join(fixture.cwd, "drafts/one/work/output.txt"), "utf8")).toBe("approved");
     expect(await readFile(join(fixture.cwd, "research-events.jsonl"), "utf8")).toBe("parent-only");
+    expect(await readFile(join(legacyDirectory, "work/unchanged.txt"), "utf8")).toBe("legacy-work");
     const { executionRepository } = await import("../executions/execution-repository.js");
     const records = await executionRepository.list(fixture.cwd);
     expect(records).toEqual([expect.objectContaining({ status: "succeeded", correlation: expect.objectContaining({ candidate_id: "correlation-only" }), request: expect.objectContaining({ execution_grant_id: expect.stringMatching(/^[a-f0-9]{64}$/) }), runtime: expect.objectContaining({ execution_mode: "required" }) })]);
     const { readdir } = await import("node:fs/promises");
-    expect(await readdir(join(fixture.cwd, ".pi-science/execution-budget-scopes"))).toEqual([]);
+    expect(await readdir(join(legacyDirectory, "work"))).toEqual(["unchanged.txt"]);
+    expect(await readdir(join(fixture.cwd, ".pi-science/execution-budget-scopes"))).toHaveLength(legacyBinding ? 1 : 0);
   }, 45_000);
 
   it("returns actionable missing-scope guidance for an unrelated Skill through Worker IPC", async () => {

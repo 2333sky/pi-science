@@ -34,6 +34,17 @@ afterEach(async () => {
 });
 
 describe("agent-core worker mutations", () => {
+  it("does not cancel a settled budget when its watch notification is delayed", async () => {
+    const { instance } = await runtime();
+    const state = instance as unknown as { watchedBudgetOperation?: string; budgetTools: ReturnType<typeof import("./execution-budget.js").executionBudgetTools> };
+    const ledger = state.budgetTools.ledger("settled-operation");
+    await ledger.configure({ max_executions: 3 }, "settled-research");
+    // Deterministically reproduce an idle lane before the watcher catches up.
+    state.watchedBudgetOperation = "settled-operation";
+    await instance.command("abort", {});
+    expect(await ledger.status()).toMatchObject({ cancelled: false, remaining_executions: 3 });
+  });
+
   it.each([{ executionScope: "candidate" as const }, { sandboxCandidateId: "one" }])("applies the Candidate tool ceiling before MCP discovery: %j", async (binding) => {
     const cwd = resolve(await mkdtemp(join(tmpdir(), "runtime-candidate-tools-"))); roots.push(cwd);
     const discover = vi.spyOn(AgentMcpTools, "open");
