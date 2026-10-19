@@ -26,7 +26,7 @@ export function notebookHarnessTools(cwd: string, sessionId: string, identity?: 
     parameters: tool.parameters,
     async execute(toolCallId, params, onUpdate, _context, invocation, context) {
       let sandboxGrant: string | undefined;
-      if (identity?.candidateId || identity?.delegatedAgent === "auto-research/experimenter") {
+      if (identity?.candidateId || identity?.executionScope === "candidate") {
         if (!identity.candidateId) throw new Error("Candidate notebook requires a bound candidate_id");
         const candidate = await sandboxCandidate(identity, invocation.operationId, identity.candidateId);
         const path = resolve(cwd, String((params as { path?: unknown })?.path ?? ""));

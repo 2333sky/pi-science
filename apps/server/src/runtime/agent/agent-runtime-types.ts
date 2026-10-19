@@ -1,3 +1,6 @@
+/** Service-bound execution restriction, independent of a Skill or role name. */
+export type ExecutionScope = "workspace" | "candidate";
+
 export interface RuntimeResult<T = unknown> {
   success: boolean;
   code?: string;

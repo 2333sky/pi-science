@@ -24,9 +24,9 @@ it("declares only bounded sandbox execution with code-generation fallback and ex
   expect(researcher).toContain("temporary per-worker");
 });
 
-it("routes runtime instructions to three canonical modules and keeps old links as redirects", async () => {
+it("routes runtime instructions to progressively loaded modules and keeps old links as redirects", async () => {
   const protocol = await readFile(join(root, "SKILL.md"), "utf8");
-  expect([...protocol.matchAll(/\]\(references\/([^)]+)\)/g)].map((match) => match[1])).toEqual(["research-protocol.md", "experimental-research.md", "experiment-safety.md"]);
+  expect([...protocol.matchAll(/\]\(references\/([^)]+)\)/g)].map((match) => match[1])).toEqual(["literature-research.md", "research-protocol.md", "experimental-research.md", "experiment-safety.md"]);
   for (const name of ["deep-research", "evaluation-design", "research-loop", "evidence-management", "reporting"]) {
     const stub = await readFile(join(root, `references/${name}.md`), "utf8");
     expect(stub).toContain("Compatibility reference"); expect(stub).not.toContain("sandbox_run permits");
@@ -34,4 +34,15 @@ it("routes runtime instructions to three canonical modules and keeps old links a
   const runtime = (await Promise.all(["SKILL.md", "agents/experimenter.md", "references/research-protocol.md", "references/experimental-research.md", "references/experiment-safety.md"].map((path) => readFile(join(root, path), "utf8")))).join("\n");
   for (const historical of ["pnpm ", "kill EPERM", "macOS 26", "1,778", "Unassigned children keep"]) expect(runtime).not.toContain(historical);
   expect(runtime).toContain("manifest.json"); expect(runtime).toContain("workspace reads are denied");
+});
+
+it("keeps literature prerequisites independent of experimental runtime capabilities", async () => {
+  const record = await parseSkill(join(root, "SKILL.md"), "builtin", dirname(root));
+  expect(record.metadata.required_tools).toEqual(["read", "write"]);
+  expect(record.metadata.risk).toBe("medium");
+  const lite = await readFile(join(root, "references/literature-research.md"), "utf8");
+  expect(lite).toContain("No execution_budget tool");
+  expect(lite).toContain("conversation itself can hold the entire record");
+  expect(lite).toContain("contradictions and gaps");
+  expect(lite).toContain("synthetic excerpts as synthetic");
 });

@@ -34,6 +34,18 @@ afterEach(async () => {
 });
 
 describe("agent-core worker mutations", () => {
+  it.each([{ executionScope: "candidate" as const }, { sandboxCandidateId: "one" }])("applies the Candidate tool ceiling before MCP discovery: %j", async (binding) => {
+    const cwd = resolve(await mkdtemp(join(tmpdir(), "runtime-candidate-tools-"))); roots.push(cwd);
+    const discover = vi.spyOn(AgentMcpTools, "open");
+    const instance = await SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), ...binding,
+      allowedTools: ["read", "bash", "write", "edit", "subagent", "ask_user_question", "mcp__local__echo"],
+      model: { provider: "openai", modelId: "gpt-4.1-mini" },
+    }, () => {}, (error) => { throw error; });
+    runtimes.push(instance);
+    expect(discover).not.toHaveBeenCalled();
+    expect(await instance.command("get_state", {})).toMatchObject({ success: true, data: { activeTools: ["read", "bash"] } });
+  });
+
   it.each([{ allowedTools: [] }, { allowedTools: ["read", "subagent"] }])("does not initialize configured MCP connectors for capabilities $allowedTools", async ({ allowedTools }) => {
     const cwd = resolve(await mkdtemp(join(tmpdir(), "pi-science-worker-no-mcp-")));
     roots.push(cwd);
@@ -113,7 +125,9 @@ describe("agent-core worker mutations", () => {
   it("round trips network approval through the runtime browser channel", async () => {
     const home = await realpath(await mkdtemp(join(tmpdir(), "runtime-network-home-"))); roots.push(home); vi.stubEnv("PI_SCIENCE_HOME", home);
     const { instance, parts, events } = await runtime();
-    const tool = (await parts.harness.getTools(context)).find((tool) => tool.name === "request_network_access")!;
+    const mainTools = await parts.harness.getTools(context);
+    expect(mainTools.some((tool) => tool.name === "ask_user_question")).toBe(true);
+    const tool = mainTools.find((tool) => tool.name === "request_network_access")!;
     expect(tool).toBeDefined();
     const pending = tool.execute("network-1", { domain: "api.example.org", reason: "Read research data" }, () => {}, { env: parts.executionEnv }, {} as never, context);
     await vi.waitFor(() => expect(events.some((event) => event.type === "interaction.requested")).toBe(true));

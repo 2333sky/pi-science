@@ -64,3 +64,23 @@ PI_SCIENCE_RESEARCH_LIVE_TEST=1 \
 ```
 
 This is a paid, network-dependent opt-in test. Per-case observations are written under ignored `.runtime/live-tests/auto-research-comparison.json`; fixture workspaces are removed on normal test completion. Incomplete cases are recorded without skipping subsequent cases; all four cases must pass the final comparison assertion. The test never changes isolation mode or supplies host execution fallback.
+
+## Decoupling and Research Lite regression (2026-10-19)
+
+The Skill now requires only read/write. Source-only work loads a separate short literature reference and can retain evidence criteria, citations and continuation notes in one report or the conversation. It does not require a research budget binding, evaluation.yaml or experimental manifest. A real Worker/IPC fixture runs this mode with exactly read/write and verifies a report, zero executions and no research-budget binding. This checks capability independence and transport; its prescribed model responses do not measure reasoning quality.
+
+Experimental execution still requires the existing budget and sandbox capabilities. Role metadata `execution_scope: candidate`, assigned Candidate IDs and inherited restrictions replace Runtime checks for a specific Skill/role name. Dispatch persists the admitted restriction for recovery. Tests cover arbitrary role names, explicit tool escalation, forged scope parameters, restricted/unbound reads/Bash/Notebook, authenticated kernel grants, and recovery after role metadata is removed. Legacy Skill-local roles without scope declarations and interrupted tasks without scope metadata remain conservatively restricted; legacy custom roles should explicitly declare their scope. The manifest remains strict when used, but a single bounded analysis may cite results and real references directly; multi-round comparison and experimental recovery use the full index. `risk: medium` reflects optional execution/delegation and grants no permission itself.
+
+The opt-in live comparison now withholds execution_budget from both literature modes and rejects experimental manifests/computations there. It records these separate signals in the existing JSON observations:
+
+| Signal | Recorded evidence | Interpretation |
+| --- | --- | --- |
+| Cost | Tokens, tool calls, elapsed time and paired Skill/plain token/call ratios | Operational cost; compare only successful, equivalent tasks |
+| Numerical correctness | Known-answer measurements, protocol incompatibility, checked Execution/Artifact links | Fixture correctness and provenance, not discovery quality |
+| Literature evidence | Supplied source IDs, unexpected DOI citations, synthetic disclosure, method contrast, uncertainty and qualified causality | Fixture-specific lexical smoke checks; human review still checks entailment and unsupported claims |
+| Error recovery | Injected Candidate failure followed by actual successful execution | Prescribed repair outcome, not a general recovery rate |
+| Corrections | Automatic manifest repairs; human corrections left null until independently annotated | Unmeasured human intervention is not zero |
+
+For a baseline or regression comparison, keep model/settings/task inputs fixed, run at least five paired repetitions, retain incomplete trials and report completion rate plus median/range of cost ratios. Record human corrections and claim/citation errors through independent report review; do not infer them from keyword checks. Require the fixture quality gates before interpreting any cost reduction. Set project-specific cost thresholds only after repeated baseline observations; there is no universal research quality score or hard-coded token target.
+
+The historical cost table above is unchanged. The live API comparison has not been rerun for this change; no token reduction or improved scientific quality is claimed. The live test remains opt-in and uses the reproduction command above.

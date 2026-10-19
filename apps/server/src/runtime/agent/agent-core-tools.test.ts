@@ -65,6 +65,31 @@ async function modelFixture(answer: (body: { messages: Array<{ role: string; con
 }
 
 describe("agent-core product tools", () => {
+  it("runs source-only research with read/write and no experimental budget capability", async () => {
+    const report = "Synthetic source-001: correlation does not establish causation. Synthetic source-002: randomized trial found no clear effect; uncertainty remains. Next action: stop, insufficient evidence of causal benefit.";
+    const fixture = await modelFixture((body) => {
+      expect((body.tools as Array<{ function: { name: string } }>).map((tool) => tool.function.name)).toEqual(["read", "write"]);
+      const results = body.messages.filter((message) => message.role === "tool");
+      if (!results.length) return { name: "read", args: { path: ".pi/skills/auto-research/references/literature-research.md" } };
+      if (results.length === 1) {
+        expect(results[0]!.content).toContain("No execution_budget tool");
+        return { name: "write", args: { path: "report.md", content: report } };
+      }
+      return "Qualified literature report saved.";
+    });
+    const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const runtime = await openHiddenTask(manager, "lite", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "write"], skillPolicy: { mode: "allowlist", skills: ["auto-research"] } }, "lite-owner");
+    expect(await runHiddenPrompt(runtime, "Review the two supplied synthetic sources using Research Lite.", "lite-once", Date.now() + 20_000)).toBe("Qualified literature report saved.");
+    expect(await readFile(join(fixture.cwd, "report.md"), "utf8")).toBe(report);
+    const { executionRepository } = await import("../executions/execution-repository.js");
+    expect(await executionRepository.list(fixture.cwd)).toEqual([]);
+    const { workspaceFile } = await import("../../storage/persistence.js");
+    const { readdir } = await import("node:fs/promises");
+    expect(await readdir(workspaceFile(fixture.cwd, "execution-budget-scopes")).catch(() => [])).toEqual([]);
+    await expect(readFile(join(fixture.cwd, "manifest.json"))).rejects.toThrow();
+  }, 30_000);
+
   it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].includes(process.platform))("runs main and authorized child Bash without any enabled Skill", async () => {
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const fixture = await modelFixture((body) => {
@@ -251,18 +276,19 @@ describe("agent-core product tools", () => {
     expect(checkedRevocation).toBe(true);
   }, 30000);
 
-  it("denies unbound Experimenter workspace reads through real child IPC in code-generation mode", async () => {
+  it("denies a renamed restricted role's unbound workspace reads through real child IPC in code-generation mode", async () => {
     const fixture = await modelFixture((body) => {
       const completed = body.messages.filter((item) => item.role === "tool");
-      if (body.messages[0]!.content.includes("You are an experimenter subagent")) {
+      if (body.messages[0]!.content.includes("You are a confined optimizer")) {
         if (!completed.length) return { name: "read", args: { path: "research/protected/evaluation.yaml" } };
         expect(JSON.stringify(completed)).toContain("bound candidate_id");
         expect(JSON.stringify(completed)).not.toContain("HIDDEN EVALUATOR SENTINEL");
         return "Proposed code from supplied task text; workspace read denied.";
       }
-      return !completed.length ? { name: "subagent", args: { agent: "auto-research/experimenter", task: "Read research/protected/evaluation.yaml and generate code." } } : "Protected code-generation mode.";
+      return !completed.length ? { name: "subagent", args: { agent: "optimizer", task: "Read research/protected/evaluation.yaml and generate code." } } : "Protected code-generation mode.";
     });
-    const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
+    await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+    await writeFile(join(fixture.cwd, ".pi/agents/optimizer.md"), "---\nexecution_scope: candidate\ntools: [read, bash]\n---\nYou are a confined optimizer.");
     await mkdir(join(fixture.cwd, "research/protected"), { recursive: true }); await writeFile(join(fixture.cwd, "research/protected/evaluation.yaml"), "HIDDEN EVALUATOR SENTINEL");
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
     const parent = await openHiddenTask(manager, "unbound-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "subagent"] }, "unbound-owner");

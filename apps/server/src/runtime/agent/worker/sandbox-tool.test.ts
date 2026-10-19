@@ -23,7 +23,7 @@ async function fixture() {
   await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
   const budget = executionBudgetTools(cwd);
   await budget.tool.execute("setup", { research_id: "study-1", max_seconds: 120, max_executions: 30 }, () => {}, env, invocation("setup"), BACKGROUND_CONTEXT);
-  const identity: SandboxIdentity = { cwd, sessionId: "session", budgetOperationId: "owner", delegatedAgent: "auto-research/experimenter", candidateId: "candidate-001" };
+  const identity: SandboxIdentity = { cwd, sessionId: "session", budgetOperationId: "owner", delegatedAgent: "optimizer", executionScope: "candidate", candidateId: "candidate-001" };
   return { cwd, directory, budget, identity };
 }
 const execute = (tool: ReturnType<typeof sandboxRunTool>, id: string, code: string, context = BACKGROUND_CONTEXT, timeout_seconds = 10) => tool.execute(id, { candidate_id: "candidate-001", code, timeout_seconds }, () => {}, env, invocation(id), context);
@@ -109,7 +109,7 @@ it.each(["0", "1"])("refuses unbound Experimenter reads even with sandbox enable
   for (const path of ["research/study-1/evaluation.yaml", "research/study-1/evaluator/hidden.json", "research/study-1/candidates/candidate-002/work/data.txt"])
     await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("bound candidate_id");
   expect(execute).not.toHaveBeenCalled();
-  expect(candidateReadTool(original, { ...identity, delegatedAgent: "auto-research/reviewer", candidateId: undefined })).toBe(original);
+  expect(candidateReadTool(original, { ...identity, delegatedAgent: "auditor", executionScope: "workspace", candidateId: undefined })).toBe(original);
 });
 it.skipIf(process.platform !== "linux")("uses a root read deny and never accepts workspace Python or a broad Python root", async () => {
   const { cwd } = await fixture();

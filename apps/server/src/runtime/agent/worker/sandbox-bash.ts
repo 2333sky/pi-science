@@ -17,7 +17,7 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
   const original = createBashTool();
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
     const candidate = identity.candidateId ? await sandboxCandidate(identity, invocation.operationId, identity.candidateId) : undefined;
-    if (identity.delegatedAgent === "auto-research/experimenter" && !candidate) throw new Error("Candidate execution requires a server-bound candidate");
+    if (identity.executionScope === "candidate" && !candidate) throw new Error("Candidate execution requires a server-bound candidate");
     const revision = hostEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID;
     const policy = candidate ? identifyPolicy({ mode: "required", scope: "candidate", cwd: candidate.work, readPaths: [candidate.input, candidate.work], writePaths: [candidate.work], denyPaths: [], network: { mode: "none" }, ...(revision ? { environmentRevision: revision } : {}) }) : await workspacePolicy(identity.cwd, revision);
     const values = params as { command: string; timeout?: number };

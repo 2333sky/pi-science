@@ -1,7 +1,7 @@
 import { productInputSchema } from "../../events/product-input.js";
 import { z } from "zod";
 import { resultSchema, skillPolicySchema, type RuntimeCommand, type RuntimeNotification } from "./command-contract.js";
-import type { RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
+import type { ExecutionScope, RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
 import type { RuntimeSettings } from "../agent-runtime-settings.js";
 
 export interface AgentRuntimeStartOptions {
@@ -18,6 +18,8 @@ export interface AgentRuntimeStartOptions {
   delegatedAgent?: string;
   /** Assigned by authenticated parent dispatch; never inferred from child task text. */
   sandboxCandidateId?: string;
+  /** Bound by dispatch from role metadata and inherited restrictions; never a tool parameter. */
+  executionScope?: ExecutionScope;
   sessionsRoot: string;
   model: { provider: string; modelId: string };
   thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -46,6 +48,7 @@ export type WorkerEvent =
 const startOptionsSchema = z.object({
   cwd: z.string().min(1), sessionsRoot: z.string().min(1), sessionId: z.string().min(1).optional(),
   parentSessionId: z.string().optional(), depth: z.number().int().nonnegative().optional(), allowedTools: z.array(z.string()).optional(),
+  executionScope: z.enum(["workspace", "candidate"]).optional(),
   sandboxCandidateId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).optional(),
   budgetOperationId: z.string().min(1).optional(), budgetNodeId: z.string().min(1).optional(), delegatedAgent: z.string().min(1).optional(),
   model: z.object({ provider: z.string().min(1), modelId: z.string().min(1) }).strict(),

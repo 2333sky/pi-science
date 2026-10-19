@@ -3,7 +3,7 @@ import { dirname, join, relative } from "node:path";
 import { parse } from "yaml";
 import { discover } from "../../catalog/skill-catalog.js";
 import { pathIsInside } from "../../support/platform-utils.js";
-import type { RuntimeSkillPolicy } from "./agent-runtime-types.js";
+import type { ExecutionScope, RuntimeSkillPolicy } from "./agent-runtime-types.js";
 
 export const AGENT_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}(?:\/[A-Za-z0-9][A-Za-z0-9_.-]{0,127})?$/;
 const builtins: Record<string, string> = {
@@ -16,7 +16,7 @@ const builtins: Record<string, string> = {
   delegate: "Produce a self-contained scientific candidate following the supplied strategy and constraints.",
   reviewer: "Review scientific evidence, identify errors and limitations, and propose corrections.",
 };
-export interface AgentDefinition { name: string; description: string; source: "builtin" | "project" | "skill"; prompt: string; tools: string[]; path?: string }
+export interface AgentDefinition { name: string; description: string; source: "builtin" | "project" | "skill"; prompt: string; tools: string[]; executionScope?: ExecutionScope; path?: string }
 
 /** One catalog for UI discovery and execution; skill namespaces never fall back to bare agents. */
 export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkillPolicy = { mode: "inherit" }): Promise<AgentDefinition[]> {
@@ -39,7 +39,9 @@ export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkill
         if (!AGENT_NAME_PATTERN.test(name) || !namespace && name.includes("/")) continue;
         const tools = Array.isArray(meta.tools) ? meta.tools : typeof meta.tools === "string" ? meta.tools.split(",").map((v: string) => v.trim()) : ["read"];
         if (!tools.every((v: unknown) => typeof v === "string")) continue;
-        agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, path: relative(cwd, path).replaceAll("\\", "/") });
+        if (meta.execution_scope !== undefined && !["workspace", "candidate"].includes(meta.execution_scope)) continue;
+        // Old Skill-local roles must not acquire workspace access when name checks disappear.
+        agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, executionScope: meta.execution_scope ?? (namespace ? "candidate" : "workspace"), path: relative(cwd, path).replaceAll("\\", "/") });
       }
     };
     try { await visit(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -63,8 +65,13 @@ export async function resolveAgentDefinition(cwd: string, name: string, policy?:
   if (!definition) throw new Error(`Unknown or disabled agent: ${name}`);
   return definition;
 }
-export function childToolAllowance(tools: string[], parent: string[] = [], agentName?: string): string[] {
+export function childToolAllowance(tools: string[], parent: string[] = [], scope?: ExecutionScope): string[] {
   // The builtin role declares Bash/Notebook. Keep sandbox_run in the ceiling only
   // for explicit legacy role definitions; never inject it into a new role.
-  return tools.filter((name) => (agentName !== "auto-research/experimenter" || ["read", "sandbox_run", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
+  return tools.filter((name) => (scope !== "candidate" || ["read", "sandbox_run", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
+}
+
+/** Any assigned/inherited restriction wins; definitions can only narrow it. */
+export function childExecutionScope(definition: AgentDefinition, inherited?: ExecutionScope, candidateId?: string): ExecutionScope {
+  return candidateId || inherited === "candidate" || definition.executionScope === "candidate" ? "candidate" : "workspace";
 }

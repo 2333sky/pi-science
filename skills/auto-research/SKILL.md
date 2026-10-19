@@ -1,21 +1,20 @@
 ---
 name: auto-research
-description: Optimize scientific experiments or investigate evidence in the current conversation using task-specific evaluation, bounded execution and reproducible checkpoints.
-version: 1.4.0
+description: Investigate scientific evidence with a lightweight literature workflow, or run bounded experiments with task-specific evaluation and reproducible checkpoints.
+version: 1.5.0
 license: Apache-2.0
 category: research
-risk: low
-required_tools: [read, write, execution_budget]
+risk: medium
+required_tools: [read, write]
 ---
 
 # Auto Research
 
-The current conversation Agent owns understanding, planning, optional delegation, iteration and stopping. Use existing tools and session history; never start a Research API or separate coordinator.
+The current conversation Agent owns the question, evidence, optional delegation and stopping. Use existing tools and history; never start a separate coordinator. Choose the smallest workflow that answers the question.
 
-1. Read [research protocol](references/research-protocol.md) for scope, evidence, budgets, the single manifest, reporting and continuation. Confirm material missing assumptions through the existing conversation questionnaire/reply path.
-2. Read [experiments and evaluation](references/experimental-research.md) for quantitative or mixed work. Confirm a task-specific evaluation protocol and available sandboxed Bash/Notebook tools before spending Candidate execution budget. Literature-only work uses evidence criteria and needs no Experimenter or numerical benchmark.
-3. Read [safety and recovery](references/experiment-safety.md) before execution, delegation or recovery. Use Bash for CLI/Python scripts and Notebook for stateful Python analysis. Historical sandbox_run remains compatibility-only.
+- **Literature / Research Lite**: search, read, verify sources and synthesize a report. Read only [literature research](references/literature-research.md). No execution_budget, research_id binding, Candidate, evaluator, manifest or separate state file is required. Use supplied evidence when retrieval tools are unavailable. Stay in this mode unless computation or experimental comparison is actually needed.
+- **Experimental Research**: before computation or Candidate implementation, read [research protocol](references/research-protocol.md), [experiments and evaluation](references/experimental-research.md) and [safety and recovery](references/experiment-safety.md). Write a versioned evaluation.yaml. This mode requires execution_budget and authorized sandboxed Bash/Notebook; bind research_id, max_seconds and max_executions before the first execution/delegation. Reuse the binding on continuation; a used unbound budget cannot be rebound. Report missing capabilities without host fallback.
 
-For delegation use exact Skill-local names `auto-research/researcher`, `auto-research/experimenter` and `auto-research/reviewer`; use only roles needed for this task.
+Delegation is optional. Built-in roles are auto-research/researcher, auto-research/experimenter and auto-research/reviewer; use only available authorized roles. Retrieval-only delegation uses ordinary runtime limits and does not require research_id. Candidate isolation is enforced by the server-bound execution_scope: candidate declaration and assigned candidate_id, never by role-name text.
 
-Write a versioned evaluation.yaml before substantial research. Before the first Bash/Notebook/subagent call, bind execution_budget with research_id, max_seconds and max_executions; reuse that research_id across continuation. A budget already used without research_id cannot be rebound; report that blocker and stop instead of retrying or probing private state. Create research/<research-id>/manifest.json from templates/research-manifest.json when an actual Candidate/Experiment exists or resumable multi-step work needs that index. It is the sole experiment completion ledger when present. Simple source-only work uses an evidence/report checkpoint without empty Candidate/Execution/Experiment indexes. Existing Session/Execution/Artifact/Provenance records remain authoritative execution evidence. Do not invent a universal quality score, fabricate references or treat process success or Reviewer PASS as scientific success.
+Use the full manifest only for multi-round experiments, cross-Candidate comparison or experimental recovery needing a relationship index. A single bounded analysis can retain its protocol, result and actual Execution/Artifact references in the report. Do not initialize empty indexes for literature work. When present, manifest.json is the sole experiment completion ledger; the strict validator still applies. Existing Session/Execution/Artifact/Provenance records remain authoritative. Never fabricate references, invent a universal quality score or equate process success or Reviewer PASS with scientific success.

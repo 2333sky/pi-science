@@ -55,3 +55,66 @@ it("aborts a collect wait promptly while background work remains collectible and
     expect(stop).toHaveBeenCalledOnce();
   } finally { release(); await drain(); }
 }, 5000);
+
+it.each([
+  { declaration: "execution_scope: candidate\n", candidate_id: undefined, inherited: undefined },
+  { declaration: "", candidate_id: "one", inherited: undefined },
+  { declaration: "execution_scope: workspace\n", candidate_id: undefined, inherited: "candidate" as const },
+])("binds a generic restricted role at dispatch: %j", async ({ declaration, candidate_id, inherited }) => {
+  hidden.open.mockClear(); hidden.run.mockClear();
+  const cwd = await mkdtemp(join(tmpdir(), "pi-science-scope-"));
+  cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, ".pi/agents"), { recursive: true });
+  await writeFile(join(cwd, ".pi/agents/optimizer.md"), `---\n${declaration}tools: [read, bash, write, subagent, mcp__science__execute]\n---\nOptimizer`);
+  const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })) });
+  hidden.open.mockResolvedValue(child); hidden.run.mockResolvedValue("Proposed implementation.");
+  const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
+    sendCommand: vi.fn(async (name: string) => ({ success: true, data: name === "get_state" ? { activeTools: ["read", "bash", "write", "subagent", "mcp__science__execute"] } : { skills: [], policy: { mode: "none" } } })),
+    sendNotification: vi.fn(async (_name: string, params: Record<string, unknown>) => bridge.respond(params)),
+  });
+  const bridge = new SubagentBridge((event) => parent.emit("event", event));
+  const drain = bindSubagentDispatch({ stop: vi.fn() } as unknown as AgentRuntimeManager, parent as unknown as AgentCoreRuntimeClient,
+    { cwd, executionScope: inherited, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
+  try {
+    const response = await bridge.request({ operationId: "op", invocationId: "run", params: { agent: "optimizer", task: "Implement", candidate_id } });
+    expect(response.success).toBe(true);
+    expect(hidden.open.mock.calls[0]![2]).toMatchObject({ executionScope: "candidate", allowedTools: ["read", "bash"] });
+    // Model parameters cannot replace the service-bound scope or request a wider tool ceiling.
+    for (const extra of [{ executionScope: "workspace" }, { execution_scope: "workspace" }, { tools: ["write"] }]) {
+      expect((await bridge.request({ operationId: "op", invocationId: JSON.stringify(extra), params: { agent: "optimizer", task: "Escape", candidate_id, ...extra } })).success).toBe(false);
+    }
+    expect(hidden.open).toHaveBeenCalledOnce();
+  } finally { await drain(); }
+});
+
+it.each([true, false])("keeps recovered tasks restricted after role metadata is removed (scope recorded: %s)", async (recorded) => {
+  hidden.open.mockClear(); hidden.run.mockClear();
+  const cwd = await mkdtemp(join(tmpdir(), "pi-science-scope-recovery-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, ".pi/agents"), { recursive: true });
+  await writeFile(join(cwd, ".pi/agents/optimizer.md"), "---\ntools: [read, bash, write]\n---\nRole now requests workspace access");
+  const { createHash } = await import("node:crypto");
+  const { workspaceFile, writeJsonAtomic } = await import("../../storage/persistence.js");
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const taskId = hash(JSON.stringify(["parent", "op", "invocation"]));
+  const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+  await new ExecutionBudgetLedger(cwd, "op").status();
+  await writeJsonAtomic(workspaceFile(cwd, `agent-tasks/${hash("parent")}/${taskId}.json`), {
+    task_id: taskId, owner: "parent", operationId: "op", invocationId: "invocation", budget_owner: "op",
+    params: { agent: "optimizer", task: "Resume", tools: ["read", "bash"] },
+    ...(recorded ? { executionScopes: ["candidate"] } : {}), deadline: Date.now() + 60_000, status: "running",
+  });
+  const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })) });
+  hidden.open.mockResolvedValue(child); hidden.run.mockResolvedValue("Proposed code only.");
+  const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
+    sendCommand: vi.fn(async (name: string) => ({ success: true, data: name === "get_state" ? { activeTools: ["read", "bash", "write", "subagent"] } : { skills: [], policy: { mode: "none" } } })),
+    sendNotification: vi.fn(async (_name: string, params: Record<string, unknown>) => bridge.respond(params)),
+  });
+  const bridge = new SubagentBridge((event) => parent.emit("event", event));
+  const drain = bindSubagentDispatch({ stop: vi.fn() } as unknown as AgentRuntimeManager, parent as unknown as AgentCoreRuntimeClient,
+    { cwd, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
+  try {
+    const result = await bridge.request({ params: { action: "collect", task_id: taskId, wait_seconds: 10 } }, undefined, "subagent.control");
+    expect(result).toMatchObject({ success: true });
+    expect(hidden.open.mock.calls[0]![2]).toMatchObject({ executionScope: "candidate", allowedTools: ["read", "bash"] });
+  } finally { await drain(); }
+});

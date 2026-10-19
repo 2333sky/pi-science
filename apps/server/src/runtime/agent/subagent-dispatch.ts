@@ -1,4 +1,4 @@
-import { AGENT_NAME_PATTERN, resolveAgentDefinition, childToolAllowance } from "./agent-definitions.js";
+import { AGENT_NAME_PATTERN, resolveAgentDefinition, childToolAllowance, childExecutionScope } from "./agent-definitions.js";
 import { z } from "zod";
 import { readdir } from "node:fs/promises";
 import { readJson, withFileWriteLock, workspaceFile, writeJsonAtomic } from "../../storage/persistence.js";
@@ -8,13 +8,13 @@ import { openHiddenTask, runHiddenPrompt } from "./hidden-agent-task.js";
 import type { AgentRuntimeManager } from "./agent-runtime-manager.js";
 import type { AgentCoreRuntimeClient } from "./agent-runtime-client.js";
 import type { AgentRuntimeStartOptions } from "./worker/protocol.js";
-import type { RuntimeEvent } from "./agent-runtime-types.js";
+import type { ExecutionScope, RuntimeEvent } from "./agent-runtime-types.js";
 
 const task = z.object({ agent: z.string().regex(AGENT_NAME_PATTERN), task: z.string().min(1).max(200_000), candidate_id: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).optional(), tools: z.array(z.string()).max(500).optional(), budget: budgetLimitsSchema.optional() }).strict();
 const wait = { wait_seconds: z.number().finite().min(0).max(600).optional() };
 const paramsSchema = z.union([task.extend(wait).strict(), z.object({ chain: z.array(task).min(1).max(8), ...wait }).strict(), z.object({ tasks: z.array(task).min(1).max(4), ...wait }).strict()]);
 const controlSchema = z.object({ action: z.enum(["list", "status", "collect", "stop"]), task_id: z.string().regex(/^[a-f0-9]{64}$/).optional(), ...wait }).strict();
-const recordSchema = z.object({ task_id: z.string(), owner: z.string(), operationId: z.string(), invocationId: z.string(), budget_owner: z.string(), params: paramsSchema, deadline: z.number(), status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]), result: z.record(z.string(), z.unknown()).optional(), error: z.string().optional() }).strict();
+const recordSchema = z.object({ task_id: z.string(), owner: z.string(), operationId: z.string(), invocationId: z.string(), budget_owner: z.string(), params: paramsSchema, executionScopes: z.array(z.enum(["workspace", "candidate"])).optional(), deadline: z.number(), status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]), result: z.record(z.string(), z.unknown()).optional(), error: z.string().optional() }).strict();
 type TaskRecord = z.infer<typeof recordSchema>;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 /** Authenticated ownership is the session IPC channel, never model-supplied IDs. */
@@ -91,7 +91,8 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         const state = await parent.sendCommand("get_state");
         if (!state.success || !state.data) throw new Error("Cannot establish parent tool permissions");
         if (!state.data.activeTools.includes("subagent")) throw new Error("Delegation permission revoked; interrupted tasks cannot resume");
-        const ceiling = childToolAllowance(definition.tools, state.data.activeTools, item.agent);
+        const scope = childExecutionScope(definition, record.executionScopes?.[index] !== "workspace" ? "candidate" : options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
+        const ceiling = childToolAllowance(definition.tools, state.data.activeTools, scope);
         const allowedTools = item.tools ?? ceiling;
         if (allowedTools.some((tool) => !ceiling.includes(tool))) throw new Error("Delegated tool permissions were revoked or exceed the role ceiling");
         if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");
@@ -100,7 +101,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         keys.add(key);
         try {
           const child = await openHiddenTask(manager, key, { ...options, sessionId: undefined, systemPrompt: prompt,
-            depth: (options.depth ?? 0) + 1, allowedTools, delegatedAgent: item.agent, sandboxCandidateId: options.sandboxCandidateId ?? item.candidate_id,
+            depth: (options.depth ?? 0) + 1, allowedTools, executionScope: scope, delegatedAgent: item.agent, sandboxCandidateId: options.sandboxCandidateId ?? item.candidate_id,
             budgetOperationId: record.budget_owner, budgetNodeId: key, skillPolicy: policy ?? { mode: "inherit" } }, parent.sessionId);
           if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");
           const authorize = (request: RuntimeEvent) => {
@@ -113,7 +114,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
               if (namespace && !resources.data?.skills.some((skill) => skill.name === namespace && skill.enabled)) throw new Error(`Unknown or disabled agent: ${item.agent}`);
               const current = await resolveAgentDefinition(options.cwd, item.agent, resources.data?.policy);
               const tool = String(request.tool);
-              if (!allowedTools.includes(tool) || !childToolAllowance(current.tools, state.data.activeTools, item.agent).includes(tool)) throw new Error(`Delegated tool revoked: ${tool}`);
+              if (childExecutionScope(current, scope, options.sandboxCandidateId ?? item.candidate_id) !== scope || !allowedTools.includes(tool) || !childToolAllowance(current.tools, state.data.activeTools, scope).includes(tool)) throw new Error(`Delegated tool revoked: ${tool}`);
               return { success: true };
             };
             track(check().then((result) => child.sendNotification("subagent_response", { id: String(request.id), result }),
@@ -230,16 +231,19 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         const resources = await parent.sendCommand("get_skills");
         if (!state.success || !state.data || !resources.success) throw new Error("Parent permissions unavailable");
         const items = "chain" in params ? params.chain : "tasks" in params ? params.tasks : [params];
+        const executionScopes: ExecutionScope[] = [];
         for (const item of items) {
           const definition = await resolveAgentDefinition(options.cwd, item.agent, resources.data?.policy);
-          const ceiling = childToolAllowance(definition.tools, state.data.activeTools, item.agent);
+          const scope = childExecutionScope(definition, options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
+          const ceiling = childToolAllowance(definition.tools, state.data.activeTools, scope);
           if (item.tools?.some((tool) => !ceiling.includes(tool))) throw new Error("Delegated tools exceed the role or parent ceiling");
           item.tools ??= ceiling;
+          executionScopes.push(scope);
         }
         const owner = options.budgetOperationId ?? String(event.operationId);
         const ledger = new ExecutionBudgetLedger(options.cwd, owner, !!options.budgetOperationId, options.budgetNodeId);
         const deadline = Math.min(Date.now() + 600_000, (await ledger.status()).deadline);
-        const value: TaskRecord = { task_id: taskId, owner: parent.sessionId, operationId: String(event.operationId), invocationId: String(event.invocationId), budget_owner: owner, params, deadline, status: cancelled.has(id) || parent.isClosed ? "cancelled" : "running" };
+        const value: TaskRecord = { task_id: taskId, owner: parent.sessionId, operationId: String(event.operationId), invocationId: String(event.invocationId), budget_owner: owner, params, executionScopes, deadline, status: cancelled.has(id) || parent.isClosed ? "cancelled" : "running" };
         await writeJsonAtomic(pathFor(taskId), value); return value;
       });
       if (cancelled.has(id) || parent.isClosed) { await cancel(taskId); throw new Error("Subagent cancelled"); }

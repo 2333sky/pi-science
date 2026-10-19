@@ -1,4 +1,6 @@
-# Research protocol
+# Experimental research protocol
+
+For source-only work, use [literature research](literature-research.md) instead; this module is loaded only when computation or experiments are needed.
 
 ## Scope, evidence and decisions
 
@@ -10,7 +12,7 @@ Before costly retrieval, delegation or computation, bind execution_budget with r
 
 ## One relationship index
 
-For an actual Candidate/Experiment or resumable multi-step scope needing relationship indexing, use research/<research-id>/manifest.json (schema_version 1, monotonically increasing revision). Simple source-only literature work needs only evidence, a report and a lightweight next-action checkpoint; do not initialize empty experimental indexes. Start from templates/research-manifest.json. The Parent is its sole writer; children return actual references for the Parent to integrate. This is a semantic index, not another event log, scheduler or Execution store. The read-only scripts/validate-manifest.mjs helper defines structural/link checks for operators and developers; it does not grant permissions or attest scientific correctness. Validation cannot prove that a referenced execution/artifact exists. Verify those references against existing records before recording completion.
+For multi-round experiments, cross-Candidate comparison or experimental recovery needing relationship indexing, use research/<research-id>/manifest.json (schema_version 1, monotonically increasing revision). A single bounded analysis may keep protocol, result and verified Execution/Artifact references in its report without a manifest. Source-only literature work uses its report and a continuation note; do not initialize empty experimental indexes. Start from templates/research-manifest.json. The Parent is its sole writer; children return actual references for the Parent to integrate. This is a semantic index, not another event log, scheduler or Execution store. The read-only scripts/validate-manifest.mjs helper defines structural/link checks for operators and developers; it does not grant permissions or attest scientific correctness. Validation cannot prove that a referenced execution/artifact exists. Verify those references against existing records before recording completion.
 
 | Identity | Meaning | Index entry / directory |
 | --- | --- | --- |
@@ -26,7 +28,7 @@ manifest.json is the only experiment completion ledger. result.json, evidence.md
 
 ## Checkpoint, continuation and report
 
-For indexed experiments, after actual results arrive, verify their references and versions, update the manifest in one complete write, then save state.json referring to that revision. File-tool writes atomically replace complete files; a failed acknowledgement can still follow a committed rename, so reread durable bytes before retrying. On interruption between writes, the manifest wins; refresh stale state instead of repeating completed work. Read protocol, any manifest, state and existing Execution results before retrying. Without a manifest, resume from the evidence/report checkpoint; create the index only if experimental or multi-step indexing becomes necessary. Reuse matching immutable results; changed code/data/protocol/evaluator versions require a new identified Experiment or an explicit reassessment, never a silent rewrite of old evaluation. Do not mark a pending/failed/cancelled/lost Execution complete. Safety/recovery rules govern legacy tool replay.
+For indexed experiments, after actual results arrive, verify their references and versions, update the manifest in one complete write, then save state.json referring to that revision. File-tool writes atomically replace complete files; a failed acknowledgement can still follow a committed rename, so reread durable bytes before retrying. On interruption between writes, the manifest wins; refresh stale state instead of repeating completed work. Read protocol, any manifest, state and existing Execution results before retrying. Without a manifest, resume from the evidence/report checkpoint; create the index only if experimental comparison or recovery needs relationship indexing. Reuse matching immutable results; changed code/data/protocol/evaluator versions require a new identified Experiment or an explicit reassessment, never a silent rewrite of old evaluation. Do not mark a pending/failed/cancelled/lost Execution complete. Safety/recovery rules govern legacy tool replay.
 
 On continuation reuse research_id and the durable remaining allowance; expired budgets stay expired. A new agreed research scope preserves old evidence and references. Import old experiments/<candidate-id>/ layouts by assigning distinct Experiment IDs in the manifest and preserving the original result_path; do not rename/delete old evidence or infer completion from a directory name, legacy state.json or process success. Reconcile actual evaluation evidence before marking complete. Preserve legacy checkpoints read-only; new state.json can link them as historical sources. No unattended/browser-close recovery guarantee.
 

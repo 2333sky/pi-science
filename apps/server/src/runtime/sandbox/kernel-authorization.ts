@@ -5,14 +5,14 @@ import { identifyPolicy, workspacePolicy } from "./policy.js";
 import { bindRuntimeReadPolicy } from "./read-grants.js";
 
 export const SANDBOX_GRANT_HEADER = "x-pi-science-sandbox-grant";
-const bindingSchema = z.object({ cwd: z.string(), sessionId: z.string(), budgetOperationId: z.string(), candidateId: z.string().optional(), delegatedAgent: z.string().optional(), expires: z.number() }).strict();
+const bindingSchema = z.object({ cwd: z.string(), sessionId: z.string(), budgetOperationId: z.string(), candidateId: z.string().optional(), executionScope: z.enum(["workspace", "candidate"]).optional(), delegatedAgent: z.string().optional(), expires: z.number() }).strict();
 /** Worker-only adapter signs server-bound identity, never a model-supplied policy. */
 export function candidateKernelGrant(identity: SandboxIdentity, operationId: string, secret: string | undefined): string {
   if (!secret || !identity.candidateId) throw new Error("Candidate notebook requires authenticated control-plane policy binding");
   return workerKernelGrant(identity, operationId, secret);
 }
 export function workerKernelGrant(identity: SandboxIdentity, operationId: string, secret: string): string {
-  const binding = bindingSchema.parse({ ...identity, budgetOperationId: identity.budgetOperationId ?? operationId, expires: Date.now() + 600_000 });
+  const binding = bindingSchema.parse({ ...identity, executionScope: identity.candidateId ? "candidate" : identity.executionScope ?? "workspace", budgetOperationId: identity.budgetOperationId ?? operationId, expires: Date.now() + 600_000 });
   const payload = Buffer.from(JSON.stringify(binding)).toString("base64url");
   return `${payload}.${createHmac("sha256", secret).update(payload).digest("base64url")}`;
 }
@@ -29,8 +29,9 @@ async function authorizedKernelPolicy(cwd: string, revision: string | undefined,
   if (extra !== undefined || actual.length !== expected.length || !timingSafeEqual(actual, expected)) throw new Error("Invalid kernel sandbox authorization");
   const binding = bindingSchema.parse(JSON.parse(Buffer.from(payload!, "base64url").toString("utf8")));
   if (binding.cwd !== cwd || binding.expires <= Date.now()) throw new Error("Expired or mismatched kernel sandbox authorization");
+  if (binding.delegatedAgent && !binding.executionScope) throw new Error("Legacy delegated kernel authorization requires a fresh scope binding");
   if (!binding.candidateId) {
-    if (binding.delegatedAgent === "auto-research/experimenter") throw new Error("Candidate notebook requires a bound candidate_id");
+    if (binding.executionScope === "candidate") throw new Error("Candidate notebook requires a bound candidate_id");
     return identifyPolicy({ ...await workspacePolicy(cwd, revision), owner: binding.sessionId });
   }
   const candidate = await sandboxCandidate(binding, binding.budgetOperationId, binding.candidateId);

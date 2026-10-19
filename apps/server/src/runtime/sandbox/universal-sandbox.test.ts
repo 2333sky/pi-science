@@ -203,7 +203,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
     await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
     await writeFile(join(directory, "input/value.txt"), "approved");
     await executionBudgetTools(cwd).tool.execute("budget", { research_id: "study", max_seconds: 60, max_executions: 10 }, () => {}, { env: new NodeExecutionEnv({ cwd }) }, invocation("budget"), BACKGROUND_CONTEXT);
-    const identity = { cwd, sessionId: "candidate-worker", budgetOperationId: "op", candidateId: "one", delegatedAgent: "auto-research/experimenter" };
+    const identity = { cwd, sessionId: "candidate-worker", budgetOperationId: "op", candidateId: "one", delegatedAgent: "optimizer", executionScope: "candidate" as const };
     const grant = candidateKernelGrant(identity, "op", "test-secret");
     const manager = new NodeKernelManager(); managers.push(manager);
     const app = Fastify();

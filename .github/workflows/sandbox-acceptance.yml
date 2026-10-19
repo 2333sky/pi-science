@@ -56,7 +56,7 @@ jobs:
           export PI_SCIENCE_SANDBOX_PYTHON_ROOT="$(python -c 'import os,sys; print(os.path.realpath(sys.base_prefix))')"
           export PI_SCIENCE_SANDBOX_SOCAT="$(command -v socat)"
           export PI_SCIENCE_SANDBOX_RIPGREP="$(command -v rg)"
-          pnpm --filter @pi-science/server exec vitest run src/runtime/agent/worker/sandbox-tool.test.ts src/runtime/agent/agent-core-tools.test.ts src/runtime/sandbox/universal-sandbox.test.ts src/runtime/sandbox/platform-acceptance.test.ts src/runtime/sandbox/profiles.test.ts src/runtime/sandbox/network.test.ts src/runtime/sandbox/network-grants.test.ts src/runtime/agent/worker/network-access-tool.test.ts src/runtime/executions/execution-budget.test.ts src/runtime/agent/worker/execution-budget.test.ts src/mcp/call-scheduler.test.ts --reporter=default --reporter=junit --outputFile.junit=sandbox-acceptance.xml
+          pnpm --filter @pi-science/server exec vitest run src/runtime/agent/worker/sandbox-tool.test.ts src/runtime/agent/agent-core-tools.test.ts src/runtime/sandbox/universal-sandbox.test.ts src/runtime/sandbox/execution-scope.test.ts src/runtime/agent/subagent-dispatch.test.ts src/runtime/sandbox/platform-acceptance.test.ts src/runtime/sandbox/profiles.test.ts src/runtime/sandbox/network.test.ts src/runtime/sandbox/network-grants.test.ts src/runtime/agent/worker/network-access-tool.test.ts src/runtime/executions/execution-budget.test.ts src/runtime/agent/worker/execution-budget.test.ts src/mcp/call-scheduler.test.ts --reporter=default --reporter=junit --outputFile.junit=sandbox-acceptance.xml
       - uses: actions/upload-artifact@v4
         if: always()
         with:

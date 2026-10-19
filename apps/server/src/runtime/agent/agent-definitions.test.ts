@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm, symlink, readFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
-import { discoverAgentDefinitions, resolveAgentDefinition, childToolAllowance } from "./agent-definitions.js";
+import { discoverAgentDefinitions, resolveAgentDefinition, childToolAllowance, childExecutionScope } from "./agent-definitions.js";
 import { packagedSkillsRoot } from "./runtime-config.js";
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
@@ -42,7 +42,7 @@ it("skips malformed project and skill definitions while resolving valid neighbor
   await put(cwd, ".pi/skills/lab/agents/broken.md", "---\ntools: [read\n---\nBad");
   await put(cwd, ".pi/skills/lab/agents/valid.md", "---\ntools: [read]\n---\nSkill good");
   expect(await resolveAgentDefinition(cwd, "valid")).toMatchObject({ prompt: "Good" });
-  expect(await resolveAgentDefinition(cwd, "lab/valid")).toMatchObject({ prompt: "Skill good" });
+  expect(await resolveAgentDefinition(cwd, "lab/valid")).toMatchObject({ prompt: "Skill good", executionScope: "candidate" });
   const names = (await discoverAgentDefinitions(cwd)).map((agent) => agent.name);
   expect(names).not.toContain("broken"); expect(names).not.toContain("bad-tools"); expect(names).not.toContain("lab/broken");
 });
@@ -55,10 +55,10 @@ it("delegates only exact MCP capabilities in the effective parent set", () => {
   expect(childToolAllowance(tools)).toEqual([]);
 });
 
-it("caps the experimenter at candidate-bound tools even if a project role declares writes or MCP", () => {
+it("caps any candidate worker at candidate-bound tools even if a project role declares writes or MCP", () => {
   const tools = ["read", "sandbox_run", "write", "edit", "bash", "notebook_run", "mcp__science__execute", "subagent"];
-  expect(childToolAllowance(tools, tools, "auto-research/experimenter")).toEqual(["read", "sandbox_run", "bash", "notebook_run"]);
-  expect(childToolAllowance(tools, ["read", "bash"], "auto-research/experimenter")).toEqual(["read", "bash"]);
+  expect(childToolAllowance(tools, tools, "candidate")).toEqual(["read", "sandbox_run", "bash", "notebook_run"]);
+  expect(childToolAllowance(tools, ["read", "bash"], "candidate")).toEqual(["read", "bash"]);
 });
 
 it("discovers only Bash/Notebook for the default Experimenter and preserves explicit legacy declarations", async () => {
@@ -67,8 +67,25 @@ it("discovers only Bash/Notebook for the default Experimenter and preserves expl
   const path = ".pi/skills/auto-research/agents/experimenter.md";
   await put(cwd, path, await readFile(join(packagedSkillsRoot(), "auto-research/agents/experimenter.md"), "utf8"));
   const parent = ["read", "bash", "notebook_read", "notebook_run", "sandbox_run", "write"];
-  expect(childToolAllowance((await resolveAgentDefinition(cwd, "auto-research/experimenter")).tools, parent, "auto-research/experimenter"))
+  expect(childToolAllowance((await resolveAgentDefinition(cwd, "auto-research/experimenter")).tools, parent, "candidate"))
     .toEqual(["read", "bash", "notebook_read", "notebook_run"]);
   await put(cwd, path, "---\nname: experimenter\ntools: [read, sandbox_run, write]\n---\nPreserved legacy declaration");
-  expect(childToolAllowance((await resolveAgentDefinition(cwd, "auto-research/experimenter")).tools, parent, "auto-research/experimenter")).toEqual(["read", "sandbox_run"]);
+  const legacy = await resolveAgentDefinition(cwd, "auto-research/experimenter");
+  expect(childExecutionScope(legacy)).toBe("candidate");
+  expect(childToolAllowance(legacy.tools, parent, childExecutionScope(legacy))).toEqual(["read", "sandbox_run"]);
+});
+
+it("derives restrictions from arbitrary role metadata, binding and inheritance", async () => {
+  const cwd = await workspace();
+  await put(cwd, ".pi/agents/optimizer.md", "---\nexecution_scope: candidate\ntools: [read, bash, write, subagent, mcp__science__execute]\n---\nRenamed role");
+  await put(cwd, ".pi/agents/ordinary.md", "---\ntools: [read, write]\n---\nWorkspace role");
+  await put(cwd, ".pi/agents/invalid.md", "---\nexecution_scope: unrestricted\n---\nInvalid");
+  const restricted = await resolveAgentDefinition(cwd, "optimizer");
+  const ordinary = await resolveAgentDefinition(cwd, "ordinary");
+  expect(childExecutionScope(restricted)).toBe("candidate");
+  expect(childToolAllowance(restricted.tools, restricted.tools, childExecutionScope(restricted))).toEqual(["read", "bash"]);
+  expect(childExecutionScope(ordinary)).toBe("workspace");
+  expect(childExecutionScope(ordinary, "candidate")).toBe("candidate");
+  expect(childExecutionScope(ordinary, "workspace", "one")).toBe("candidate");
+  await expect(resolveAgentDefinition(cwd, "invalid")).rejects.toThrow("disabled");
 });

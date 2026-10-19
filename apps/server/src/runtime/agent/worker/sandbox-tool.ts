@@ -15,6 +15,8 @@ import { withFileWriteLock, workspaceFile } from "../../../storage/persistence.j
 import { executionIdFor, executionRepository } from "../../executions/execution-repository.js";
 import { publishWorkspaceArtifacts } from "../../artifacts/workspace-artifact-publisher.js";
 
+import type { ExecutionScope } from "../agent-runtime-types.js";
+
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 export const CANDIDATE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
 const inputSchema = z.object({ candidate_id: z.string().regex(CANDIDATE_PATTERN), code: z.string().min(1).max(64 * 1024), timeout_seconds: z.number().int().min(1).max(120).optional() }).strict();
@@ -24,7 +26,7 @@ const producer = "sandbox_run";
 class InvalidSandboxOutput extends Error {}
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const inside = (root: string, path: string) => path !== root && !relative(root, path).startsWith("..") && !isAbsolute(relative(root, path));
-export interface SandboxIdentity { cwd: string; sessionId: string; budgetOperationId?: string; candidateId?: string; delegatedAgent?: string }
+export interface SandboxIdentity { cwd: string; sessionId: string; budgetOperationId?: string; candidateId?: string; executionScope?: ExecutionScope; delegatedAgent?: string }
 export interface SandboxInstallation { python: string; pythonRoot: string; socat?: string; ripgrep?: string }
 export interface SandboxProcessResult { status: "succeeded" | "failed" | "cancelled" | "timed_out"; exit_code: number | null; stdout: string; stderr: string; limitations: string[] }
 
@@ -52,7 +54,7 @@ async function validateTree(root: string, limit = 4096): Promise<void> {
 }
 async function boundCandidate(identity: SandboxIdentity, operationId: string, candidateId: string) {
   if (!CANDIDATE_PATTERN.test(candidateId)) throw new Error("Invalid candidate_id");
-  if (identity.delegatedAgent && identity.candidateId !== candidateId) throw new Error("Candidate is not authorized for this child");
+  if ((identity.delegatedAgent || identity.executionScope === "candidate" || identity.candidateId) && identity.candidateId !== candidateId) throw new Error("Candidate is not authorized for this child");
   const owner = identity.budgetOperationId ?? operationId;
   const binding = z.object({ researchId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$/) }).strict()
     .parse(JSON.parse(await readFile(workspaceFile(identity.cwd, `execution-budget-scopes/${hash(owner)}.json`), "utf8")));
@@ -71,11 +73,11 @@ export async function sandboxCandidate(identity: SandboxIdentity, operationId: s
   return candidate;
 }
 
-/** Keep the Experimenter's existing read capability inside its assigned candidate as well. */
+/** Keep the restricted worker's existing read capability inside its assigned candidate as well. */
 export function candidateReadTool(original: Tool, identity: SandboxIdentity): Tool {
-  if (!identity.candidateId && identity.delegatedAgent !== "auto-research/experimenter") return original;
+  if (!identity.candidateId && identity.executionScope !== "candidate") return original;
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
-    if (!identity.candidateId) throw new Error("Experimenter read requires a bound candidate_id; use supplied task text for code generation");
+    if (!identity.candidateId) throw new Error("Candidate read requires a bound candidate_id; use supplied task text for code generation");
     const candidate = await sandboxCandidate(identity, invocation.operationId, identity.candidateId!);
     const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(candidate.directory)}.json`);
     return withFileWriteLock(lock, async () => {
