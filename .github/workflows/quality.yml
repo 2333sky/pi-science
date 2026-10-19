@@ -12,7 +12,9 @@ jobs:
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Native Windows test files are serialized; the previous 20-minute job
+    # limit cancelled successful test progress before verification completed.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
     strategy:
       fail-fast: false
       matrix:

@@ -15,13 +15,17 @@ it("ships a validated declarative protocol with three bounded roles and no unive
   expect(review).toContain("PASS/PARTIAL/FAIL"); expect(review).toContain("override objective failure");
 });
 
-it("declares only bounded sandbox execution with code-generation fallback and exact retrieval tools", async () => {
-  const experimenter = await readFile(join(root, "agents/experimenter.md"), "utf8");
-  expect(experimenter).toContain("tools: [read, bash, notebook_read, notebook_run]"); expect(experimenter).toContain('execution_mode="code-generation"');
-  const researcher = await readFile(join(root, "agents/researcher.md"), "utf8");
-  for (const name of ["web_search", "fetch_content", "get_search_content", "source_check"]) expect(researcher).toContain(`mcp__web-access__${name}`);
-  for (const name of ["search_crossref", "search_pubmed", "search_arxiv", "search_biorxiv_preprints", "get_europe_pmc_full_text"]) expect(researcher).toContain(`mcp__paper-search__${name}`);
-  expect(researcher).toContain("temporary per-worker");
+it("inherits Parent tools without vendor lists while keeping explicit execution scopes", async () => {
+  for (const name of ["researcher", "reviewer", "experimenter"]) {
+    const role = await readFile(join(root, `agents/${name}.md`), "utf8");
+    expect(role).not.toMatch(/^tools:/m);
+    expect(role).toContain(`execution_scope: ${name === "experimenter" ? "confined" : "workspace"}`);
+    expect(role).toContain("currently authorized eligible tools");
+    expect(role).not.toContain("mcp__");
+    if (name !== "experimenter") expect(role).toContain("not a security boundary");
+  }
+  expect(await readFile(join(root, "agents/experimenter.md"), "utf8")).toContain('execution_mode="code-generation"');
+  expect(await readFile(join(root, "agents/researcher.md"), "utf8")).toContain("temporary per-worker");
 });
 
 it("routes runtime instructions to progressively loaded modules and keeps old links as redirects", async () => {

@@ -16,11 +16,11 @@ const builtins: Record<string, string> = {
   delegate: "Produce a self-contained scientific candidate following the supplied strategy and constraints.",
   reviewer: "Review scientific evidence, identify errors and limitations, and propose corrections.",
 };
-export interface AgentDefinition { name: string; description: string; source: "builtin" | "project" | "skill"; prompt: string; tools: string[]; executionScope?: ExecutionScope; scopeMigrationRequired?: boolean; path?: string }
+export interface AgentDefinition { name: string; description: string; source: "builtin" | "project" | "skill"; prompt: string; tools?: string[]; executionScope?: ExecutionScope; scopeMigrationRequired?: boolean; path?: string }
 
 /** One catalog for UI discovery and execution; skill namespaces never fall back to bare agents. */
 export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkillPolicy = { mode: "inherit" }): Promise<AgentDefinition[]> {
-  const agents = new Map<string, AgentDefinition>(Object.entries(builtins).map(([name, prompt]) => [name, { name, description: prompt, source: "builtin", prompt, tools: ["read"] }]));
+  const agents = new Map<string, AgentDefinition>(Object.entries(builtins).map(([name, prompt]) => [name, { name, description: prompt, source: "builtin", prompt }]));
   const scan = async (directory: string, boundary: string, namespace?: string) => {
     let root: string;
     try { root = await realpath(boundary); if (!pathIsInside(root, await realpath(directory), true)) return; } catch { return; }
@@ -37,8 +37,8 @@ export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkill
         const local = namespace ? entry.name.slice(0, -3) : String(meta.name ?? entry.name.slice(0, -3));
         const name = namespace ? `${namespace}/${local}` : meta.package ? `${meta.package}.${local}` : local;
         if (!AGENT_NAME_PATTERN.test(name) || !namespace && name.includes("/")) continue;
-        const tools = Array.isArray(meta.tools) ? meta.tools : typeof meta.tools === "string" ? meta.tools.split(",").map((v: string) => v.trim()) : ["read"];
-        if (!tools.every((v: unknown) => typeof v === "string")) continue;
+        const tools = meta.tools === undefined ? undefined : Array.isArray(meta.tools) ? meta.tools : typeof meta.tools === "string" ? meta.tools.split(",").map((v: string) => v.trim()).filter(Boolean) : null;
+        if (tools === null || tools !== undefined && !tools.every((v: unknown) => typeof v === "string")) continue;
         if (meta.execution_scope !== undefined && !["workspace", "confined", "candidate"].includes(meta.execution_scope)) continue;
         // Old Skill-local roles must not acquire workspace access when name checks disappear.
         agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, executionScope: meta.execution_scope ?? (namespace ? "candidate" : "workspace"), scopeMigrationRequired: !!namespace && meta.execution_scope === undefined, path: relative(cwd, path).replaceAll("\\", "/") });
@@ -65,8 +65,8 @@ export async function resolveAgentDefinition(cwd: string, name: string, policy?:
   if (!definition) throw new Error(`Unknown or disabled agent: ${name}`);
   return definition;
 }
-export function childToolAllowance(tools: string[], parent: string[] = [], scope?: ExecutionScope): string[] {
-  return tools.filter((name) => name !== "sandbox_run" && (scope !== "candidate" && scope !== "confined" || ["read", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
+export function childToolAllowance(tools: string[] | undefined, parent: string[] = [], scope?: ExecutionScope): string[] {
+  return (tools ?? parent).filter((name) => name !== "sandbox_run" && (scope !== "candidate" && scope !== "confined" || ["read", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
 }
 
 export class ScopeMigrationRequiredError extends Error {

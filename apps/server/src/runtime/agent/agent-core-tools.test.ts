@@ -282,13 +282,13 @@ describe("agent-core product tools", () => {
     expect(fixture.requests()).toBe(3);
   }, 20000);
 
-  it("lets an authorized researcher search and fetch through real child IPC while spending the parent's research budget", async () => {
+  it("inherits a new authorized MCP provider without editing the researcher role, through real child IPC", async () => {
     const fixture = await modelFixture((body) => {
       const system = body.messages[0]!.content;
       const completed = body.messages.filter((item) => item.role === "tool").length;
       if (system.includes("You are a research subagent")) {
-        if (!completed) return { name: "mcp__web-access__web_search", args: {} };
-        if (completed === 1) return { name: "mcp__web-access__fetch_content", args: {} };
+        if (!completed) return { name: "mcp__fresh-library__search_papers", args: {} };
+        if (completed === 1) return { name: "mcp__fresh-library__retrieve_paper", args: {} };
         return "Source URL https://example.org/paper; retrieved fixture evidence. responseId is temporary.";
       }
       if (!completed) return { name: "execution_budget", args: { research_id: "retrieval-study", max_executions: 3, max_seconds: 30 } };
@@ -301,16 +301,16 @@ describe("agent-core product tools", () => {
       `import { McpServer } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};`,
       `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
       `const server = new McpServer({ name: "web-fixture", version: "1" });`,
-      `for (const name of ["web_search", "fetch_content"]) server.registerTool(name, { description: name }, async () => ({ content: [{ type: "text", text: "https://example.org/paper: fixture evidence" }] }));`,
+      `for (const name of ["search_papers", "retrieve_paper"]) server.registerTool(name, { description: name }, async () => ({ content: [{ type: "text", text: "https://example.org/paper: fixture evidence" }] }));`,
       `await server.connect(new StdioServerTransport());`,
     ].join("\n"));
     await writeFile(join(fixture.cwd, ".pi-science/mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "retrieval_project", mcpServers: {
-      "web-access": { command: process.execPath, args: [server], approveTools: true,
-        __piScienceAllowedTools: ["web_search", "fetch_content"], __piScienceConnectorId: "connector_web" },
+      "fresh-library": { command: process.execPath, args: [server], approveTools: true,
+        __piScienceAllowedTools: ["search_papers", "retrieve_paper"], __piScienceConnectorId: "connector_web" },
     } }));
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
     const parent = await openHiddenTask(manager, "retrieval-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"),
-      model: fixture.model, thinking: "off", allowedTools: ["read", "subagent", "execution_budget", "mcp__web-access__web_search", "mcp__web-access__fetch_content"] }, "retrieval-owner");
+      model: fixture.model, thinking: "off", allowedTools: ["read", "subagent", "execution_budget", "mcp__fresh-library__search_papers", "mcp__fresh-library__retrieve_paper"] }, "retrieval-owner");
     const interactions: unknown[] = []; parent.on("event", (event) => { if (event.type === "interaction.requested") interactions.push(event); });
     expect(await runHiddenPrompt(parent, "Retrieve evidence", "retrieval-once", Date.now() + 30000)).toContain("evidence saved");
     const history = await new AgentSessionRepository().messages(fixture.cwd, parent.sessionId);
@@ -318,7 +318,7 @@ describe("agent-core product tools", () => {
     expect(delegated).toMatchObject({ details: { results: [{ exitCode: 0, output: expect.stringContaining("https://example.org/paper") }] } });
     const details = delegated.details as { results: Array<{ childSessionId: string }> };
     const child = await new AgentSessionRepository().messages(fixture.cwd, details.results[0]!.childSessionId);
-    expect(child.filter((item) => item.role === "toolResult").map((item) => item.toolName)).toEqual(["mcp__web-access__web_search", "mcp__web-access__fetch_content"]);
+    expect(child.filter((item) => item.role === "toolResult").map((item) => item.toolName)).toEqual(["mcp__fresh-library__search_papers", "mcp__fresh-library__retrieve_paper"]);
     expect(interactions).toEqual([]);
     const { executionBudgetTools } = await import("./worker/execution-budget.js");
     const budget = executionBudgetTools(fixture.cwd);
@@ -414,7 +414,7 @@ describe("agent-core product tools", () => {
     ]);
     const children = observed.filter((item) => item.system.includes("subagent") || item.system.includes("independent reviewer"));
     expect(children).toHaveLength(3);
-    for (const child of children) expect(child.tools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(["read"]);
+    for (const child of children) expect(child.tools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(expect.arrayContaining(["read", "subagent", "execution_budget"]));
   }, 30000);
 
   it("rejects skill-local delegation after the parent disables the skill without opening a child", async () => {

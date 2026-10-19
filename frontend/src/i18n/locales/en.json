@@ -606,7 +606,7 @@
   "settings.capabilities.webTitle": "Web search and external tools",
   "settings.capabilities.webDescription": "Configure web search, URL fetching, and other external tools through MCP connectors. Manage each connector’s credentials and tool permissions on the MCP page.",
   "settings.capabilities.manageMcp": "Manage MCP connectors",
-  "settings.subagents.coreDescription": "Define project subagents in .pi/agents/<name>.md using a prompt and a comma-separated tools list. Names come from filenames. Core reads each definition when invoked; children use a fresh session and inherit the parent model and skills policy. Built-in roles: planner, delegate, reviewer. Child tools cannot exceed the parent permissions; MCP and structured questions are excluded.",
+  "settings.subagents.coreDescription": "Define project subagents in .pi/agents/<name>.md with a prompt and optional tools list. Omit tools to inherit the parent’s eligible active tools; [] grants none, and an explicit list only narrows access. Children inherit the parent model and skill policy. Runtime scope restrictions, exact MCP permissions and per-call approval/revocation checks still apply.",
   "settings.subagents.title": "Project Subagents",
   "settings.subagents.workspaceRequired": "Open Settings from a workspace to manage project subagents.",
   "settings.subagents.loadError": "Unable to load project subagents",

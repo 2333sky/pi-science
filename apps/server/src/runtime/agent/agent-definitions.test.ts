@@ -114,3 +114,27 @@ it("requires an explicit migration for unrelated Skill roles before admitting wo
   expect(childToolAllowance(migrated.tools, ["read", "write"], childExecutionScope(migrated))).toEqual(["read", "write"]);
   expect(childToolAllowance(migrated.tools, ["read", "write"], childExecutionScope(migrated, "candidate"))).toEqual(["read"]);
 });
+
+it("preserves omitted, empty and explicit tool declarations across all role sources", async () => {
+  const cwd = await workspace();
+  await put(cwd, ".pi/agents/inherits.md", "---\nexecution_scope: workspace\n---\nInherit");
+  await put(cwd, ".pi/agents/empty.md", "---\ntools: []\n---\nNone");
+  await put(cwd, ".pi/agents/limited.md", "---\ntools: [read, write]\n---\nLimited");
+  await put(cwd, ".pi/agents/invalid-tools.md", "---\ntools: false\n---\nInvalid");
+  await put(cwd, ".pi/skills/notes/SKILL.md", "---\nname: notes\ndescription: Notes\nlicense: MIT\n---\nNotes");
+  await put(cwd, ".pi/skills/notes/agents/auditor.md", "---\nexecution_scope: workspace\n---\nAudit");
+  const definitions = await discoverAgentDefinitions(cwd);
+  for (const name of ["inherits", "notes/auditor", "reviewer"]) expect(definitions.find((role) => role.name === name)?.tools).toBeUndefined();
+  expect((await resolveAgentDefinition(cwd, "empty")).tools).toEqual([]);
+  expect((await resolveAgentDefinition(cwd, "limited")).tools).toEqual(["read", "write"]);
+  await expect(resolveAgentDefinition(cwd, "invalid-tools")).rejects.toThrow("disabled");
+  const parent = ["read", "write", "bash", "mcp__new-vendor__retrieve", "mcp__new-vendor__*", "ask_user_question", "sandbox_run"];
+  expect(childToolAllowance(undefined, parent)).toEqual(["read", "write", "bash", "mcp__new-vendor__retrieve"]);
+  expect(childToolAllowance([], parent)).toEqual([]);
+  expect(childToolAllowance(["read", "edit"], parent)).toEqual(["read"]);
+  expect(childToolAllowance(undefined, parent, "confined")).toEqual(["read", "bash"]);
+  await put(cwd, ".pi/skills/notes/agents/auditor.md", "---\ndescription: Old role\n---\nAudit");
+  expect(() => childExecutionScope(definitions.find((role) => role.name === "notes/auditor")!)).not.toThrow();
+  const legacy = await resolveAgentDefinition(cwd, "notes/auditor");
+  expect(legacy.tools).toBeUndefined(); expect(() => childExecutionScope(legacy)).toThrow("scope_migration_required");
+});

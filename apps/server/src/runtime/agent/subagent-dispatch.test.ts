@@ -213,3 +213,81 @@ it.each(["single", "chain", "parallel"])("persists a non-resumable migration out
     expect(hidden.open).not.toHaveBeenCalled(); expect(hidden.run).not.toHaveBeenCalled();
   } finally { await connection.drain(); }
 });
+
+async function inheritedToolsFixture(declaration = "") {
+  hidden.open.mockReset(); hidden.run.mockReset();
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "parent-tools-")));
+  cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, ".pi/agents"), { recursive: true });
+  const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js"); await new ExecutionBudgetLedger(cwd, "op").status();
+  const role = join(cwd, ".pi/agents/auditor.md");
+  await writeFile(role, `---\nexecution_scope: workspace\n${declaration}---\nAuditor`);
+  let parentTools = ["read", "write", "mcp__new-vendor__retrieve", "ask_user_question", "sandbox_run", "subagent"];
+  const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })), sendNotification: vi.fn(async () => undefined) });
+  hidden.open.mockResolvedValue(child); hidden.run.mockResolvedValue("Audited");
+  const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
+    sendCommand: vi.fn(async (name: string) => ({ success: true, data: name === "get_state" ? { activeTools: parentTools } : { skills: [], policy: { mode: "none" } } })),
+    sendNotification: vi.fn(async (_name: string, value: Record<string, unknown>) => bridge.respond(value)),
+  });
+  const bridge = new SubagentBridge((event) => parent.emit("event", event));
+  const drain = bindSubagentDispatch({ stop: vi.fn(async () => {}) } as unknown as AgentRuntimeManager, parent as unknown as AgentCoreRuntimeClient,
+    { cwd, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
+  cleanup.push(drain);
+  return { cwd, role, child, bridge, drain, setParentTools: (tools: string[]) => { parentTools = tools; } };
+}
+
+it.each([
+  { declaration: "", tools: undefined, expected: ["read", "write", "mcp__new-vendor__retrieve", "subagent"] },
+  { declaration: "tools: []\n", tools: undefined, expected: [] },
+  { declaration: "tools: [read]\n", tools: undefined, expected: ["read"] },
+  { declaration: "", tools: [], expected: [] },
+  { declaration: "", tools: ["mcp__new-vendor__retrieve"], expected: ["mcp__new-vendor__retrieve"] },
+])("persists effective Parent/role/task permissions: %j", async ({ declaration, tools, expected }) => {
+  const { cwd, bridge } = await inheritedToolsFixture(declaration);
+  const result = await bridge.request({ operationId: "op", invocationId: "inherit", params: { agent: "auditor", task: "Audit", ...(tools !== undefined ? { tools } : {}) } });
+  expect(result.success).toBe(true);
+  expect(hidden.open.mock.calls[0]![2].allowedTools).toEqual(expected);
+  const { workspaceFile, readJson } = await import("../../storage/persistence.js");
+  const { createHash } = await import("node:crypto");
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const path = workspaceFile(cwd, `agent-tasks/${hash("parent")}/${hash(JSON.stringify(["parent", "op", "inherit"]))}.json`);
+  expect(await readJson(path, null)).toMatchObject({ params: { tools: expected }, executionScopes: ["workspace"] });
+});
+
+it("refuses explicit task tools outside the Parent or role ceiling", async () => {
+  const { bridge } = await inheritedToolsFixture("tools: [read]\n");
+  const result = await bridge.request({ operationId: "op", invocationId: "excess", params: { agent: "auditor", task: "Audit", tools: ["write"] } });
+  expect(result.success).toBe(false); expect(hidden.open).not.toHaveBeenCalled();
+});
+
+it.each(["authorized", "parent-revoked", "role-revoked", "role-widened"])("rechecks every capability against the admitted snapshot: %s", async (change) => {
+  const { role, bridge, child, setParentTools } = await inheritedToolsFixture(change === "role-widened" ? "tools: [read]\n" : "");
+  hidden.run.mockImplementation(async () => {
+    if (change === "parent-revoked") setParentTools(["read", "subagent"]);
+    else if (change !== "authorized") await writeFile(role, `---\nexecution_scope: workspace\n${change === "role-revoked" ? "tools: []\n" : ""}---\nChanged role`);
+    child.emit("event", { type: "capability.requested", id: "permission", tool: "mcp__new-vendor__retrieve" });
+    await vi.waitFor(() => expect(child.sendNotification).toHaveBeenCalled());
+    expect(child.sendNotification.mock.calls[0]).toMatchObject(["subagent_response", { result: change === "authorized" ? { success: true } : { success: false, error: expect.stringContaining("revoked") } }]);
+    return "Denied correctly";
+  });
+  const result = await bridge.request({ operationId: "op", invocationId: "live", params: { agent: "auditor", task: "Audit" } });
+  expect(result.success).toBe(true);
+});
+
+it.each(["read", "missing", "revoked"])("does not reconstruct or widen historical tool snapshots on collect: %s", async (snapshot) => {
+  const { cwd, bridge, setParentTools } = await inheritedToolsFixture();
+  if (snapshot === "revoked") setParentTools(["subagent"]);
+  const { workspaceFile, writeJsonAtomic } = await import("../../storage/persistence.js");
+  const { createHash } = await import("node:crypto");
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const id = hash(JSON.stringify(["parent", "op", "old-tools"]));
+  await writeJsonAtomic(workspaceFile(cwd, `agent-tasks/${hash("parent")}/${id}.json`), { task_id: id, owner: "parent", operationId: "op", invocationId: "old-tools", budget_owner: "op",
+    params: { agent: "auditor", task: "Audit", ...(snapshot === "missing" ? {} : { tools: ["read"] }) }, executionScopes: ["workspace"], deadline: Date.now() + 60_000, status: "running" });
+  const result = await bridge.request({ params: { action: "collect", task_id: id, wait_seconds: 10 } }, undefined, "subagent.control");
+  if (snapshot === "read") {
+    expect(result.success).toBe(true); expect(hidden.open.mock.calls[0]![2].allowedTools).toEqual(["read"]);
+  } else {
+    expect(result.success).toBe(false); expect(hidden.open).not.toHaveBeenCalled();
+    expect(JSON.stringify(result)).toContain(snapshot === "missing" ? "no persisted tool permissions" : "revoked");
+  }
+});

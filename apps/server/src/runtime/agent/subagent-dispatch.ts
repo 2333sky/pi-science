@@ -85,6 +85,8 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         const saved = await readJson<Record<string, unknown> | null>(resultPath, null);
         if (saved) return saved;
         if (!record.executionScopes?.[index]) throw new ScopeMigrationRequiredError(`Task ${record.task_id} has no persisted execution scope for ${item.agent} and cannot resume. Inspect committed results and possible side effects, then re-run through a new subagent invocation after explicitly declaring the role's execution_scope. Do not retry collect or infer scope from the current role definition.`);
+        if (!item.tools) throw new Error(`Task ${record.task_id} has no persisted tool permissions and cannot resume. Inspect prior results and dispatch a new invocation; current role/Parent tools cannot reconstruct historical authority.`);
+        const allowedTools = item.tools;
         const deadline = Math.min(record.deadline, (await ledger.status()).deadline);
         if (deadline <= Date.now()) throw new Error("Execution time budget exhausted");
         const resources = await parent.sendCommand("get_skills");
@@ -98,7 +100,6 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         if (!state.data.activeTools.includes("subagent")) throw new Error("Delegation permission revoked; interrupted tasks cannot resume");
         const scope = childExecutionScope(definition, record.executionScopes?.[index] ?? options.executionScope, options.sandboxCandidateId ?? item.candidate_id);
         const ceiling = childToolAllowance(definition.tools, state.data.activeTools, scope);
-        const allowedTools = item.tools ?? ceiling;
         if (allowedTools.some((tool) => !ceiling.includes(tool))) throw new Error("Delegated tool permissions were revoked or exceed the role ceiling");
         if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");
         const childBudget = await ledger.createChild(key, { ...item.budget, max_seconds: Math.min(600, item.budget?.max_seconds ?? 600, Math.max(1, Math.ceil((deadline - Date.now()) / 1000))) });
