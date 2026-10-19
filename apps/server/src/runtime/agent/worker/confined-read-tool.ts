@@ -4,6 +4,7 @@ import { lstat, realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 import { ok, type AgentHarnessTool, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { withFileWriteLock, workspaceFile } from "../../../storage/persistence.js";
+import { isWithin } from "../../sandbox/policy.js";
 import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
 import type { ExecutionScope } from "../agent-runtime-types.js";
 
@@ -18,15 +19,14 @@ export function confinedReadTool(original: Tool, identity: SandboxIdentity): Too
   if (!identity.executionGrantId && !identity.candidateId && identity.executionScope !== "candidate" && identity.executionScope !== "confined") return original;
   return { ...original, async execute(id, params, update, ctx, invocation, context) {
     if (!identity.executionGrantId) throw new Error("Candidate read requires a bound candidate_id and server-bound execution grant; use supplied task text for code generation");
-    const policy = await executionGrantPolicy(identity, undefined, "read");
-    const candidate = { directory: policy.cwd, input: policy.readPaths.find((path) => !policy.writePaths.includes(path)) ?? policy.cwd, work: policy.cwd };
-    const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(candidate.directory)}.json`);
+    const initial = await executionGrantPolicy(identity, undefined, "read");
+    const lock = workspaceFile(identity.cwd, `sandbox-candidates/${hash(initial.cwd)}.json`);
     return withFileWriteLock(lock, async () => {
       context.abortSignal?.throwIfAborted();
-      await executionGrantPolicy(identity, undefined, "read");
+      const policy = await executionGrantPolicy(identity, undefined, "read");
       const values = params as { path: string };
       const path = resolve(identity.cwd, values.path);
-      if (!policy.readPaths.some((root) => inside(root, path)) || await realpath(path) !== path) throw new Error("Read is outside the assigned candidate");
+      if (!policy.readPaths.some((root) => inside(root, path)) || policy.denyPaths.some((root) => isWithin(root, path)) || await realpath(path) !== path) throw new Error("Read is outside the assigned candidate");
       const info = await lstat(path);
       if (!info.isFile() || info.nlink !== 1 || info.size > MAX_READ_BYTES) throw new Error("Candidate read requires a bounded regular file");
       if (!["linux", "darwin"].includes(process.platform)) return original.execute(id, { ...values, path }, update, ctx, invocation, context);

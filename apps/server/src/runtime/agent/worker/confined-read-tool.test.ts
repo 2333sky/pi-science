@@ -1,3 +1,4 @@
+import * as grants from "../../sandbox/execution-grants.js";
 import { sandboxCandidate } from "../../../skill-adapters/legacy-auto-research.js";
 import { createExecutionGrant } from "../../sandbox/execution-grants.js";
 import { workspacePolicy } from "../../sandbox/policy.js";
@@ -9,7 +10,7 @@ import { BACKGROUND_CONTEXT, type AgentHarnessToolInvocation, type NodeExecution
 import { confinedReadTool, type SandboxIdentity } from "./confined-read-tool.js";
 import { executionBudgetTools } from "./execution-budget.js";
 const roots: string[] = [];
-afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const env = { env: {} as NodeExecutionEnv };
 function invocation(id: string): AgentHarnessToolInvocation { const memo = new Map(); return { operationId: "owner", invocationId: id, turnId: "turn", getMemo: async (key) => memo.get(key), setMemo: async (key, value) => { memo.set(key, value); } }; }
 async function fixture() {
@@ -63,4 +64,20 @@ it("refuses unbound Experimenter reads", async () => {
     await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("bound candidate_id");
   expect(execute).not.toHaveBeenCalled();
   expect(confinedReadTool(original, { ...identity, delegatedAgent: "auditor", executionScope: "workspace", candidateId: undefined, executionGrantId: undefined })).toBe(original);
+});
+
+it("uses protection discovered after the initial authorization, inside the read lock", async () => {
+  const { identity, directory, budget } = await fixture();
+  const path = join(directory, "work/credentials.json");
+  const authorize = grants.executionGrantPolicy; let checks = 0;
+  vi.spyOn(grants, "executionGrantPolicy").mockImplementation(async (...args) => {
+    const policy = await authorize(...args);
+    // A file appears after the first policy snapshot and before the locked check.
+    if (++checks === 1) await writeFile(path, "PRIVATE CREDENTIAL");
+    return policy;
+  });
+  const execute = vi.fn(async () => ({ content: [], details: {} }));
+  const read = confinedReadTool({ ...budget.tool, name: "read", execute }, identity);
+  await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("outside");
+  expect(checks).toBe(2); expect(execute).not.toHaveBeenCalled();
 });

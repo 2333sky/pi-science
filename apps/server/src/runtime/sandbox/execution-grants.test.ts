@@ -1,3 +1,4 @@
+import * as policyModule from "./policy.js";
 import { ExecutionBudgetLedger } from "../executions/execution-budget.js";
 import { mkdtemp, realpath, mkdir, rm, writeFile, symlink, rename, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,7 +9,7 @@ import { workspacePolicy } from "./policy.js";
 import { sandboxBashTool } from "../agent/worker/sandbox-bash.js";
 import { NodeExecutionEnv, BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 const roots: string[] = [];
-afterEach(async () => { vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function fixture() {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), "generic-grant-"))); roots.push(cwd);
   const home = await mkdtemp(join(tmpdir(), "generic-grant-state-")); roots.push(home); vi.stubEnv("PI_SCIENCE_HOME", home); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");
@@ -93,4 +94,40 @@ it("pins operator authority and protects the private ledger from file tools", as
   expect((await executionGrantPolicy(bound)).scope).toBe("confined");
   await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { analysis: { allowedDomains: ["example.org"] } } }), { mode: 0o600 });
   await expect(executionGrantPolicy(bound)).rejects.toThrow("operator authority changed");
+});
+
+it("scans only granted trees while applying newly protected files on every call", async () => {
+  const { cwd, identity } = await fixture();
+  await mkdir(join(cwd, "unrelated")); await writeFile(join(cwd, "unrelated/credentials.json"), "outside");
+  const scan = vi.spyOn(policyModule, "protectedPaths");
+  const first = await executionGrantPolicy(identity, undefined, "read");
+  expect(scan.mock.calls.map(([path]) => path)).toEqual([join(cwd, "patches/first/input"), join(cwd, "patches/first/work")]);
+  const secret = join(cwd, "patches/first/work/credentials.json");
+  expect(first.denyPaths).not.toContain(secret);
+  await writeFile(secret, "newly protected");
+  expect((await executionGrantPolicy(identity, undefined, "read")).denyPaths).toContain(secret);
+  expect(scan.mock.calls.some(([path]) => path === cwd || path === join(cwd, "unrelated"))).toBe(false);
+});
+
+it("still rejects sensitive ancestors of a persisted grant root", async () => {
+  const { cwd, identity, id } = await fixture();
+  const { executionGrantsDirectory } = await import("./execution-grants.js");
+  const { lstat } = await import("node:fs/promises");
+  const file = join(await executionGrantsDirectory(), `${id}.json`);
+  const saved = JSON.parse(await readFile(file, "utf8"));
+  const path = join(cwd, "credentials/archive/work"); await mkdir(path, { recursive: true });
+  const stat = await lstat(path, { bigint: true });
+  // A service-side persisted record must not bypass ancestor protection either.
+  saved.writes = [{ path, dev: String(stat.dev), ino: String(stat.ino) }]; saved.cwd = path;
+  await writeFile(file, JSON.stringify(saved), { mode: 0o600 });
+  await expect(executionGrantPolicy(identity)).rejects.toThrow("protected paths");
+});
+
+it.skipIf(process.platform === "win32")("applies newly configured operator-protected roots without reusing a policy snapshot", async () => {
+  const { cwd, identity } = await fixture();
+  await executionGrantPolicy(identity);
+  const file = join(await realpath(tmpdir()), `grant-read-policy-${Date.now()}-${Math.random()}.json`); roots.push(file);
+  await writeFile(file, JSON.stringify({ schemaVersion: 1, dependencyRoots: [], protectedRoots: [join(cwd, "patches")] }), { mode: 0o600 });
+  vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", file);
+  await expect(executionGrantPolicy(identity)).rejects.toThrow("protected paths");
 });

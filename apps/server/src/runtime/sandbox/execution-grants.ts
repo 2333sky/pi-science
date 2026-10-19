@@ -1,10 +1,10 @@
 import { ExecutionBudgetLedger } from "../executions/execution-budget.js";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { z } from "zod";
 import { configRoot, withFileWriteLock, writeJsonAtomic } from "../../storage/persistence.js";
-import { canonicalDirectory, identifyPolicy, isWithin, protectedPaths, type SandboxPolicy } from "./policy.js";
+import { canonicalDirectory, identifyPolicy, isWithin, isSensitiveWorkspaceName, protectedPaths, type SandboxPolicy } from "./policy.js";
 import { profileConfiguration } from "./profiles.js";
 import { readBudget } from "../executions/execution-budget.js";
 import { pathsOverlap, runtimeReadPolicy } from "./read-grants.js";
@@ -52,6 +52,22 @@ async function readGrant(id: string) {
   if (grant.id !== id || grant.revoked || grant.deadline <= Date.now()) throw new Error("Execution grant revoked or expired");
   return { grant, source: { path, sha256: hash(bytes.toString()) } };
 }
+/** A confined policy grants no access to siblings. Scan only accessible trees,
+ * but still deny sensitive ancestors between each root and the workspace.
+ * No results are cached: newly protected files and current operator roots apply
+ * on every authorization, alongside root identities, grant sources and budgets. */
+async function grantProtectedPaths(workspace: string, roots: string[]) {
+  const denied = new Set<string>();
+  for (const root of roots) {
+    if (isWithin(workspace, root)) {
+      for (let path = root; path !== workspace; path = dirname(path)) {
+        if (isSensitiveWorkspaceName(basename(path))) denied.add(path);
+      }
+    }
+    for (const path of await protectedPaths(root)) denied.add(path);
+  }
+  return [...denied].sort();
+}
 export async function executionGrantPolicy(identity: ExecutionGrantIdentity, revision?: string, tool?: string) {
   if (!identity.executionGrantId) throw new Error("Confined execution requires a server-bound execution grant");
   const { grant, source } = await readGrant(identity.executionGrantId);
@@ -71,7 +87,7 @@ export async function executionGrantPolicy(identity: ExecutionGrantIdentity, rev
     if (JSON.stringify(await rootIdentity(root.path)) !== JSON.stringify(root)) throw new Error("Execution grant root identity changed");
     await validateGrantTree(root.path);
   }
-  const workspaceDenies = [...grant.denyPaths, ...await protectedPaths(identity.cwd), ...(await Promise.all([...new Set([...grant.reads, ...grant.writes].map((root) => root.path))].map(protectedPaths))).flat()];
+  const workspaceDenies = [...grant.denyPaths, ...await grantProtectedPaths(identity.cwd, [...new Set([...grant.reads, ...grant.writes].map((root) => root.path))])];
   const protectedRoots = [...(await runtimeReadPolicy()).protectedRoots, await realpath(configRoot())];
   for (const root of [...grant.reads, ...grant.writes]) if (workspaceDenies.some((denied) => isWithin(denied, root.path)) || protectedRoots.some((denied) => pathsOverlap(root.path, denied))) throw new Error("Execution grant overlaps protected paths");
   return identifyPolicy({ mode: "required", scope: "confined", cwd: grant.cwd, readPaths: [...new Set([...grant.reads, ...grant.writes].map((root) => root.path))], writePaths: grant.writes.map((root) => root.path), denyPaths: [...workspaceDenies, ...protectedRoots], network: { mode: "none" }, owner: identity.sessionId,

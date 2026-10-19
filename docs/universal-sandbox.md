@@ -95,3 +95,7 @@ The grant records exact tool ceilings, budget owner/node, roots and the parent's
 The independent launcher polls grant/config source hashes plus the actual budget tree every 250 ms. Revocation, operator-policy changes, budget cancellation or shortened deadlines terminate active processes/persistent kernels. Missing or invalid authority fails closed. The normal ownership watchdog and descendant cleanup remain in place; stable policy identity keeps Notebook state between authorized calls. File tools cannot modify the grant directory.
 
 A Parent controls which ordinary files to delegate. Validation cannot infer the intended scientific meaning of a directory named `input` or `work`. Keep evaluator/decision history/sibling roots out of child selections; use protected operator roots for genuinely confidential data. No workload can turn its own paths or Candidate IDs into authority without server validation.
+
+## Confined authorization cost
+
+Per-call confined authorization checks current grant/config sources, budgets, directory identities, sensitive ancestors and the granted directory trees. Inaccessible workspace siblings are excluded from its protection scan; initial broad workspace admission still validates the workspace. No cross-call authorization cache is used. Confined reads capture with the policy revalidated inside their file lock. The bounded benchmark, reproduction command and local before/after measurements are in [Confined authorization benchmark](performance/execution-grants-benchmark.md).
