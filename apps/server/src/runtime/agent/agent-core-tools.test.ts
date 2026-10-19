@@ -65,6 +65,26 @@ async function modelFixture(answer: (body: { messages: Array<{ role: string; con
 }
 
 describe("agent-core product tools", () => {
+  it("returns actionable missing-scope guidance for an unrelated Skill through Worker IPC", async () => {
+    const fixture = await modelFixture((body) => {
+      const results = body.messages.filter((message) => message.role === "tool");
+      if (!results.length) return { name: "subagent", args: { agent: "document-audit/auditor", task: "Read the workspace and audit it." } };
+      expect(results.at(-1)!.content).toContain("scope_migration_required");
+      expect(results.at(-1)!.content).toContain("missing execution_scope");
+      expect(results.at(-1)!.content).toContain("document-audit/agents/auditor.md");
+      return "Review and declare the role scope before dispatching a new task.";
+    });
+    await mkdir(join(fixture.cwd, ".pi/skills/document-audit/agents"), { recursive: true });
+    await writeFile(join(fixture.cwd, ".pi/skills/document-audit/SKILL.md"), "---\nname: document-audit\ndescription: Audit\nlicense: MIT\n---\nAudit");
+    await writeFile(join(fixture.cwd, ".pi/skills/document-audit/agents/auditor.md"), "---\ntools: [read, write]\n---\nYou are an auditor.");
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const parent = await openHiddenTask(manager, "scope-migration", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "write", "subagent"] }, "scope-migration-owner");
+    expect(await runHiddenPrompt(parent, "Delegate the audit", "scope-migration-once", Date.now() + 20_000)).toBe("Review and declare the role scope before dispatching a new task.");
+    expect(fixture.requests()).toBe(2);
+    const { executionRepository } = await import("../executions/execution-repository.js");
+    expect(await executionRepository.list(fixture.cwd)).toEqual([]);
+  }, 30_000);
+
   it("runs source-only research with read/write and no experimental budget capability", async () => {
     const report = "Synthetic source-001: correlation does not establish causation. Synthetic source-002: randomized trial found no clear effect; uncertainty remains. Next action: stop, insufficient evidence of causal benefit.";
     const fixture = await modelFixture((body) => {

@@ -16,7 +16,7 @@ const builtins: Record<string, string> = {
   delegate: "Produce a self-contained scientific candidate following the supplied strategy and constraints.",
   reviewer: "Review scientific evidence, identify errors and limitations, and propose corrections.",
 };
-export interface AgentDefinition { name: string; description: string; source: "builtin" | "project" | "skill"; prompt: string; tools: string[]; executionScope?: ExecutionScope; path?: string }
+export interface AgentDefinition { name: string; description: string; source: "builtin" | "project" | "skill"; prompt: string; tools: string[]; executionScope?: ExecutionScope; scopeMigrationRequired?: boolean; path?: string }
 
 /** One catalog for UI discovery and execution; skill namespaces never fall back to bare agents. */
 export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkillPolicy = { mode: "inherit" }): Promise<AgentDefinition[]> {
@@ -41,7 +41,7 @@ export async function discoverAgentDefinitions(cwd: string, policy: RuntimeSkill
         if (!tools.every((v: unknown) => typeof v === "string")) continue;
         if (meta.execution_scope !== undefined && !["workspace", "candidate"].includes(meta.execution_scope)) continue;
         // Old Skill-local roles must not acquire workspace access when name checks disappear.
-        agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, executionScope: meta.execution_scope ?? (namespace ? "candidate" : "workspace"), path: relative(cwd, path).replaceAll("\\", "/") });
+        agents.set(name, { name, description: String(meta.description ?? ""), source: namespace ? "skill" : "project", prompt: front ? text.slice(front[0].length) : text, tools, executionScope: meta.execution_scope ?? (namespace ? "candidate" : "workspace"), scopeMigrationRequired: !!namespace && meta.execution_scope === undefined, path: relative(cwd, path).replaceAll("\\", "/") });
       }
     };
     try { await visit(directory); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
@@ -71,7 +71,13 @@ export function childToolAllowance(tools: string[], parent: string[] = [], scope
   return tools.filter((name) => (scope !== "candidate" || ["read", "sandbox_run", "bash", "notebook_read", "notebook_run"].includes(name)) && parent.includes(name) && name !== "ask_user_question" && (!name.startsWith("mcp_") || name.split("__").length === 3 && /^mcp__[A-Za-z0-9_.-]+__[A-Za-z0-9_.-]+$/.test(name)));
 }
 
+export class ScopeMigrationRequiredError extends Error {
+  readonly code = "scope_migration_required";
+  constructor(message: string) { super(`scope_migration_required: ${message}`); this.name = "ScopeMigrationRequiredError"; }
+}
+
 /** Any assigned/inherited restriction wins; definitions can only narrow it. */
 export function childExecutionScope(definition: AgentDefinition, inherited?: ExecutionScope, candidateId?: string): ExecutionScope {
+  if (definition.scopeMigrationRequired) throw new ScopeMigrationRequiredError(`Skill-local agent ${definition.name} is missing execution_scope in ${definition.path ?? "its role file"}. Review its access and explicitly declare execution_scope: workspace or execution_scope: candidate; Candidate execution also requires a server-bound candidate_id. Then dispatch a new task. No workspace access was inferred.`);
   return candidateId || inherited === "candidate" || definition.executionScope === "candidate" ? "candidate" : "workspace";
 }

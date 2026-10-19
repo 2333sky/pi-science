@@ -1,4 +1,4 @@
-import { AGENT_NAME_PATTERN, resolveAgentDefinition, childToolAllowance, childExecutionScope } from "./agent-definitions.js";
+import { AGENT_NAME_PATTERN, resolveAgentDefinition, childToolAllowance, childExecutionScope, ScopeMigrationRequiredError } from "./agent-definitions.js";
 import { z } from "zod";
 import { readdir } from "node:fs/promises";
 import { readJson, withFileWriteLock, workspaceFile, writeJsonAtomic } from "../../storage/persistence.js";
@@ -14,7 +14,7 @@ const task = z.object({ agent: z.string().regex(AGENT_NAME_PATTERN), task: z.str
 const wait = { wait_seconds: z.number().finite().min(0).max(600).optional() };
 const paramsSchema = z.union([task.extend(wait).strict(), z.object({ chain: z.array(task).min(1).max(8), ...wait }).strict(), z.object({ tasks: z.array(task).min(1).max(4), ...wait }).strict()]);
 const controlSchema = z.object({ action: z.enum(["list", "status", "collect", "stop"]), task_id: z.string().regex(/^[a-f0-9]{64}$/).optional(), ...wait }).strict();
-const recordSchema = z.object({ task_id: z.string(), owner: z.string(), operationId: z.string(), invocationId: z.string(), budget_owner: z.string(), params: paramsSchema, executionScopes: z.array(z.enum(["workspace", "candidate"])).optional(), deadline: z.number(), status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]), result: z.record(z.string(), z.unknown()).optional(), error: z.string().optional() }).strict();
+const recordSchema = z.object({ task_id: z.string(), owner: z.string(), operationId: z.string(), invocationId: z.string(), budget_owner: z.string(), params: paramsSchema, executionScopes: z.array(z.enum(["workspace", "candidate"])).optional(), deadline: z.number(), status: z.enum(["running", "completed", "failed", "cancelled", "timed_out"]), result: z.record(z.string(), z.unknown()).optional(), error: z.string().optional(), error_code: z.literal("scope_migration_required").optional() }).strict();
 type TaskRecord = z.infer<typeof recordSchema>;
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 /** Authenticated ownership is the session IPC channel, never model-supplied IDs. */
@@ -72,9 +72,8 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
     const mode = "chain" in params ? "chain" : "tasks" in params ? "parallel" : "single";
     const keys = new Set<string>(); active.set(id, keys);
     const ledger = new ExecutionBudgetLedger(options.cwd, record.budget_owner, true, options.budgetNodeId);
-    const deadline = Math.min(record.deadline, (await ledger.status()).deadline);
     const execute = async (item: z.infer<typeof task>, index: number, previous = "") => {
-      if (deadline <= Date.now()) throw new Error("Execution time budget exhausted");
+      if (record.deadline <= Date.now()) throw new Error("Execution time budget exhausted");
       if (options.sandboxCandidateId && item.candidate_id && options.sandboxCandidateId !== item.candidate_id) throw new Error("Child cannot widen its inherited candidate sandbox");
       const key = `subagent:${options.cwd}:${parent.sessionId}:${event.operationId}:${event.invocationId}:${index}`;
       const resultPath = workspaceFile(options.cwd, `agent-task-results/${createHash("sha256").update(key).digest("hex")}.json`);
@@ -82,6 +81,9 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");
         const saved = await readJson<Record<string, unknown> | null>(resultPath, null);
         if (saved) return saved;
+        if (!record.executionScopes?.[index]) throw new ScopeMigrationRequiredError(`Task ${record.task_id} has no persisted execution scope for ${item.agent} and cannot resume. Inspect committed results and possible side effects, then re-run through a new subagent invocation after explicitly declaring the role's execution_scope. Do not retry collect or infer scope from the current role definition.`);
+        const deadline = Math.min(record.deadline, (await ledger.status()).deadline);
+        if (deadline <= Date.now()) throw new Error("Execution time budget exhausted");
         const resources = await parent.sendCommand("get_skills");
         const namespace = item.agent.includes("/") ? item.agent.split("/")[0] : undefined;
         if (namespace && (!resources.success || !resources.data?.skills?.some((skill: { name: string; enabled: boolean }) => skill.name === namespace && skill.enabled))) throw new Error(`Unknown or disabled agent: ${item.agent}`);
@@ -138,6 +140,8 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         for (let index = 0; index < tasks.length; index++) results.push(await execute(tasks[index]!, index, String(results.at(-1)?.output ?? "")));
       } else if (mode === "parallel") {
         const settled = await Promise.allSettled(tasks.map((item, index) => execute(item, index)));
+        const migration = settled.find((value) => value.status === "rejected" && value.reason instanceof ScopeMigrationRequiredError);
+        if (migration?.status === "rejected") throw migration.reason;
         for (let index = 0; index < settled.length; index++) {
           const value = settled[index]!;
           results.push(value.status === "fulfilled" ? value.value : { agent: tasks[index]!.agent, exitCode: 1, error: String(value.reason) });
@@ -158,12 +162,12 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
     } finally { active.delete(id); }
 
   };
-  const view = (record: TaskRecord) => ({ task_id: record.task_id, status: record.status, execution_deadline: record.deadline, ...(record.error ? { error: record.error } : {}), recoverable: record.status === "running" && !jobs.has(record.task_id) });
+  const view = (record: TaskRecord) => ({ task_id: record.task_id, status: record.status, execution_deadline: record.deadline, ...(record.error ? { error: record.error } : {}), ...(record.error_code ? { error_code: record.error_code } : {}), recoverable: record.status === "running" && !!record.executionScopes && !jobs.has(record.task_id) });
   const toolResult = (details: unknown) => ({ content: [{ type: "text", text: JSON.stringify(details) }], details });
   const start = (record: TaskRecord): Promise<Record<string, unknown>> => {
     const prior = jobs.get(record.task_id); if (prior) return prior;
     const promise = (async () => {
-      let result: Record<string, unknown> | undefined, error: string | undefined;
+      let result: Record<string, unknown> | undefined, error: string | undefined, errorCode: "scope_migration_required" | undefined;
       try {
         const current = await load(record.task_id);
         if (current.status !== "running") {
@@ -173,14 +177,15 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         if (record.deadline <= Date.now()) throw new Error("Execution time budget exhausted");
         result = await run(current);
       }
-      catch (failure) { error = String(failure); }
+      catch (failure) { error = String(failure); if (failure instanceof ScopeMigrationRequiredError) errorCode = failure.code; }
       const settled = await withFileWriteLock(pathFor(record.task_id), async () => {
         const current = await load(record.task_id);
         if (current.status !== "running") return current;
-        const status = error ? /task cancelled|subagent cancelled/i.test(error) ? "cancelled" : record.deadline <= Date.now() || /deadline|time budget exhausted/i.test(error) ? "timed_out" : "failed" : "completed";
-        const saved = { ...current, status, ...(result ? { result } : {}), ...(error ? { error } : {}) };
+        const status = errorCode ? "failed" : error ? /task cancelled|subagent cancelled/i.test(error) ? "cancelled" : record.deadline <= Date.now() || /deadline|time budget exhausted/i.test(error) ? "timed_out" : "failed" : "completed";
+        const saved = { ...current, status, ...(result ? { result } : {}), ...(error ? { error } : {}), ...(errorCode ? { error_code: errorCode } : {}) };
         await writeJsonAtomic(pathFor(record.task_id), saved); return recordSchema.parse(saved);
       });
+      if (settled.error_code) return toolResult(view(settled));
       if (!settled.result) throw new Error(settled.error ?? "Subagent cancelled");
       return { ...settled.result, details: { ...(settled.result.details as object), task_id: settled.task_id, status: settled.status } };
     })();
@@ -190,6 +195,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
   };
   const awaitTask = async (record: TaskRecord, seconds: number, signal?: AbortSignal) => {
     signal?.throwIfAborted();
+    if (record.error_code) return toolResult(view(record));
     if (record.status !== "running") return record.result ? { ...record.result, details: { ...(record.result.details as object), ...view(record) } } : toolResult(view(record));
     const work = start(record);
     if (seconds === 0) return toolResult(view(record));
@@ -249,7 +255,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
       if (cancelled.has(id) || parent.isClosed) { await cancel(taskId); throw new Error("Subagent cancelled"); }
       return awaitTask(record, record.params.wait_seconds ?? 600);
     };
-    track(dispatch().then((data) => parent.sendNotification("subagent_response", { id, result: { success: true, data } }), (error) => parent.sendNotification("subagent_response", { id, result: { success: false, error: String(error) } })).catch(() => undefined).finally(() => { requests.delete(id); cancelled.delete(id); waits.delete(id); }));
+    track(dispatch().then((data) => parent.sendNotification("subagent_response", { id, result: { success: true, data } }), (error) => parent.sendNotification("subagent_response", { id, result: { success: false, ...(error instanceof ScopeMigrationRequiredError ? { code: error.code } : {}), error: String(error) } })).catch(() => undefined).finally(() => { requests.delete(id); cancelled.delete(id); waits.delete(id); }));
   });
   return Object.assign(async () => { while (pending.size) await Promise.allSettled([...pending]); },
     { isBusy: () => jobs.size > 0 || active.size > 0 || pending.size > 0 });

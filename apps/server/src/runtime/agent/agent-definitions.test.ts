@@ -71,8 +71,11 @@ it("discovers only Bash/Notebook for the default Experimenter and preserves expl
     .toEqual(["read", "bash", "notebook_read", "notebook_run"]);
   await put(cwd, path, "---\nname: experimenter\ntools: [read, sandbox_run, write]\n---\nPreserved legacy declaration");
   const legacy = await resolveAgentDefinition(cwd, "auto-research/experimenter");
-  expect(childExecutionScope(legacy)).toBe("candidate");
-  expect(childToolAllowance(legacy.tools, parent, childExecutionScope(legacy))).toEqual(["read", "sandbox_run"]);
+  expect(legacy).toMatchObject({ executionScope: "candidate", scopeMigrationRequired: true });
+  expect(() => childExecutionScope(legacy)).toThrow("missing execution_scope");
+  await put(cwd, path, "---\nname: experimenter\nexecution_scope: candidate\ntools: [read, sandbox_run, write]\n---\nExplicitly migrated legacy declaration");
+  const migrated = await resolveAgentDefinition(cwd, "auto-research/experimenter");
+  expect(childToolAllowance(migrated.tools, parent, childExecutionScope(migrated))).toEqual(["read", "sandbox_run"]);
 });
 
 it("derives restrictions from arbitrary role metadata, binding and inheritance", async () => {
@@ -88,4 +91,25 @@ it("derives restrictions from arbitrary role metadata, binding and inheritance",
   expect(childExecutionScope(ordinary, "candidate")).toBe("candidate");
   expect(childExecutionScope(ordinary, "workspace", "one")).toBe("candidate");
   await expect(resolveAgentDefinition(cwd, "invalid")).rejects.toThrow("disabled");
+});
+
+it("requires an explicit migration for unrelated Skill roles before admitting workspace tools", async () => {
+  const cwd = await workspace();
+  await put(cwd, ".pi/skills/document-audit/SKILL.md", "---\nname: document-audit\ndescription: Audit documents\nlicense: MIT\n---\nAudit");
+  const path = ".pi/skills/document-audit/agents/auditor.md";
+  await put(cwd, path, "---\ntools: [read, write, mcp__library__lookup]\n---\nAudit workspace documents");
+  const legacy = await resolveAgentDefinition(cwd, "document-audit/auditor");
+  expect(legacy).toMatchObject({ executionScope: "candidate", scopeMigrationRequired: true });
+  for (const candidateId of [undefined, "one"]) {
+    try { childExecutionScope(legacy, "workspace", candidateId); throw new Error("Unexpected admission"); }
+    catch (error) {
+      expect(error).toMatchObject({ code: "scope_migration_required" });
+      expect(String(error)).toContain(path);
+      expect(String(error)).toContain("missing execution_scope");
+    }
+  }
+  await put(cwd, path, "---\nexecution_scope: workspace\ntools: [read, write, mcp__library__lookup]\n---\nReviewed workspace access");
+  const migrated = await resolveAgentDefinition(cwd, "document-audit/auditor");
+  expect(childToolAllowance(migrated.tools, ["read", "write"], childExecutionScope(migrated))).toEqual(["read", "write"]);
+  expect(childToolAllowance(migrated.tools, ["read", "write"], childExecutionScope(migrated, "candidate"))).toEqual(["read"]);
 });

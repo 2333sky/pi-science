@@ -87,7 +87,8 @@ it.each([
   } finally { await drain(); }
 });
 
-it.each([true, false])("keeps recovered tasks restricted after role metadata is removed (scope recorded: %s)", async (recorded) => {
+it.each(["bound", "unknown", "committed"])("keeps recovered tasks restricted after role metadata is removed: %s", async (scenario) => {
+  const recorded = scenario === "bound";
   hidden.open.mockClear(); hidden.run.mockClear();
   const cwd = await mkdtemp(join(tmpdir(), "pi-science-scope-recovery-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
   await mkdir(join(cwd, ".pi/agents"), { recursive: true });
@@ -103,6 +104,10 @@ it.each([true, false])("keeps recovered tasks restricted after role metadata is 
     params: { agent: "optimizer", task: "Resume", tools: ["read", "bash"] },
     ...(recorded ? { executionScopes: ["candidate"] } : {}), deadline: Date.now() + 60_000, status: "running",
   });
+  if (scenario === "committed") {
+    const key = `subagent:${cwd}:parent:op:invocation:0`;
+    await writeJsonAtomic(workspaceFile(cwd, `agent-task-results/${hash(key)}.json`), { agent: "optimizer", output: "Previously committed.", exitCode: 0 });
+  }
   const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })) });
   hidden.open.mockResolvedValue(child); hidden.run.mockResolvedValue("Proposed code only.");
   const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
@@ -114,7 +119,90 @@ it.each([true, false])("keeps recovered tasks restricted after role metadata is 
     { cwd, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
   try {
     const result = await bridge.request({ params: { action: "collect", task_id: taskId, wait_seconds: 10 } }, undefined, "subagent.control");
-    expect(result).toMatchObject({ success: true });
-    expect(hidden.open.mock.calls[0]![2]).toMatchObject({ executionScope: "candidate", allowedTools: ["read", "bash"] });
+    if (recorded) {
+      expect(result).toMatchObject({ success: true });
+      expect(hidden.open.mock.calls[0]![2]).toMatchObject({ executionScope: "candidate", allowedTools: ["read", "bash"] });
+    } else if (scenario === "committed") {
+      expect(result).toMatchObject({ success: true, data: { details: { status: "completed" } } });
+      expect(JSON.stringify(result)).toContain("Previously committed.");
+      expect(hidden.open).not.toHaveBeenCalled();
+    } else {
+      expect(result).toMatchObject({ success: true, data: { details: { status: "failed", error_code: "scope_migration_required", recoverable: false } } });
+      expect(hidden.open).not.toHaveBeenCalled();
+    }
   } finally { await drain(); }
+});
+
+it("reports missing Skill scope before dispatch and admits it only after an explicit migration", async () => {
+  hidden.open.mockClear(); hidden.run.mockClear();
+  const cwd = await mkdtemp(join(tmpdir(), "skill-scope-migration-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, ".pi/skills/document-audit/agents"), { recursive: true });
+  await writeFile(join(cwd, ".pi/skills/document-audit/SKILL.md"), "---\nname: document-audit\ndescription: Audit\nlicense: MIT\n---\nAudit");
+  const path = join(cwd, ".pi/skills/document-audit/agents/auditor.md");
+  await writeFile(path, "---\ntools: [read, write]\n---\nAuditor");
+  const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })) });
+  hidden.open.mockResolvedValue(child); hidden.run.mockResolvedValue("Audit completed.");
+  const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
+    sendCommand: vi.fn(async (name: string) => ({ success: true, data: name === "get_state" ? { activeTools: ["read", "write", "subagent"] } : { skills: [{ name: "document-audit", enabled: true }], policy: { mode: "inherit" } } })),
+    sendNotification: vi.fn(async (_name: string, params: Record<string, unknown>) => bridge.respond(params)),
+  });
+  const bridge = new SubagentBridge((event) => parent.emit("event", event));
+  const drain = bindSubagentDispatch({ stop: vi.fn() } as unknown as AgentRuntimeManager, parent as unknown as AgentCoreRuntimeClient,
+    { cwd, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
+  try {
+    const denied = await bridge.request({ operationId: "op", invocationId: "old", params: { agent: "document-audit/auditor", task: "Audit" } });
+    expect(denied).toMatchObject({ success: false, code: "scope_migration_required" });
+    expect(denied.error).toContain("missing execution_scope");
+    expect(hidden.open).not.toHaveBeenCalled();
+    await writeFile(path, "---\nexecution_scope: workspace\ntools: [read, write]\n---\nAuditor");
+    expect(await bridge.request({ operationId: "op", invocationId: "new", params: { agent: "document-audit/auditor", task: "Audit" } })).toMatchObject({ success: true });
+    expect(hidden.open.mock.calls[0]![2]).toMatchObject({ executionScope: "workspace", allowedTools: ["read", "write"] });
+  } finally { await drain(); }
+});
+
+it.each(["single", "chain", "parallel"])("persists a non-resumable migration outcome for legacy workspace tasks: %s", async (mode) => {
+  hidden.open.mockClear(); hidden.run.mockClear();
+  const cwd = await mkdtemp(join(tmpdir(), "task-scope-migration-")); cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  await mkdir(join(cwd, ".pi/agents"), { recursive: true });
+  const rolePath = join(cwd, ".pi/agents/auditor.md");
+  await writeFile(rolePath, "---\nexecution_scope: workspace\ntools: [read, write]\n---\nAuditor");
+  const { createHash } = await import("node:crypto");
+  const { workspaceFile, writeJsonAtomic, readJson } = await import("../../storage/persistence.js");
+  const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+  const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+  const taskId = hash(JSON.stringify(["parent", "op", "old"]));
+  const item = { agent: "auditor", task: "Resume audit", tools: ["read", "write"] };
+  const params = mode === "single" ? item : mode === "chain" ? { chain: [item] } : { tasks: [item] };
+  const path = workspaceFile(cwd, `agent-tasks/${hash("parent")}/${taskId}.json`);
+  const budget = new ExecutionBudgetLedger(cwd, "op"); const before = await budget.status();
+  await writeJsonAtomic(path, { task_id: taskId, owner: "parent", operationId: "op", invocationId: "old", budget_owner: "op", params, deadline: Date.now() + 60_000, status: "running" });
+  const connect = () => {
+    const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
+      sendCommand: vi.fn(async (name: string) => ({ success: true, data: name === "get_state" ? { activeTools: ["read", "write", "subagent"] } : { skills: [], policy: { mode: "none" } } })),
+      sendNotification: vi.fn(async (_name: string, value: Record<string, unknown>) => bridge.respond(value)),
+    });
+    const bridge = new SubagentBridge((event) => parent.emit("event", event));
+    const drain = bindSubagentDispatch({ stop: vi.fn() } as unknown as AgentRuntimeManager, parent as unknown as AgentCoreRuntimeClient,
+      { cwd, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
+    return { bridge, drain };
+  };
+  let connection = connect();
+  const collect = () => connection.bridge.request({ params: { action: "collect", task_id: taskId, wait_seconds: 10 } }, undefined, "subagent.control");
+  try {
+    const first = await collect();
+    expect(first).toMatchObject({ success: true, data: { details: { status: "failed", error_code: "scope_migration_required", recoverable: false } } });
+    expect(JSON.stringify(first)).toContain("new subagent invocation");
+    expect(JSON.stringify(first)).toContain("Inspect committed results");
+    expect(await collect()).toEqual(first);
+    await connection.drain();
+    // A new dispatcher and a changed current role cannot upgrade the historical record.
+    await writeFile(rolePath, "---\nexecution_scope: candidate\ntools: [read]\n---\nChanged role");
+    connection = connect();
+    expect(await collect()).toEqual(first);
+    expect(await connection.bridge.request({ params: { action: "status", task_id: taskId } }, undefined, "subagent.control")).toEqual(first);
+    expect(await connection.bridge.request({ operationId: "op", invocationId: "old", params })).toEqual(first);
+    expect(await readJson(path, null)).toMatchObject({ status: "failed", error_code: "scope_migration_required" });
+    expect(await budget.status()).toEqual(before);
+    expect(hidden.open).not.toHaveBeenCalled(); expect(hidden.run).not.toHaveBeenCalled();
+  } finally { await connection.drain(); }
 });

@@ -29,3 +29,13 @@ The command checks structure and links, not scientific correctness or permission
 sandbox_run remains registered for historical invocation recovery and explicit legacy role declarations; it is absent from the default Experimenter. Read-only replay of a matching authorized historical invocation no longer requires an enabled executor. New invocations retain the old enable/platform/budget gates. No old execution IDs, source/log records, artifact versions or producer names are rewritten. [Compatibility rules and removal gates](sandbox-run-compatibility.md) document remaining differences; full removal is not claimed.
 
 [Universal Sandbox](universal-sandbox.md) owns operator configuration, platform boundaries and OS acceptance commands. [Implementation history](auto-research-history.md) retains version history, failed-platform evidence and old CI counts; none of that belongs in Agent runtime instructions. Current regression coverage checks default role discovery, explicit legacy IPC and replay, Candidate read isolation, the shared Bash/Notebook runtime, manifest relationships and Skill reference routing. Model fixtures validate transport and prescribed outcomes, not scientific reasoning quality. The live DeepSeek test remains opt-in and network-dependent; [current validation and comparison limits](auto-research-validation.md) describe reproduction and observed failures.
+
+
+## Follow-up design boundaries
+
+PR #162 deliberately retains the existing safe Candidate/budget binding and manifest/checkpoint recovery format. Two subsequent migrations remain proposed, not implemented:
+
+- Auto Research should own Candidate/Experiment IDs, directories and lifecycle. A generic Runtime grant would bind server-validated read/write roots, network policy, tool ceilings and deadlines to the Worker/Execution; `candidate_id` would become correlation metadata. Model-supplied paths must never become authority. Acceptance must preserve confinement, inheritance, revocation, signed kernel identity, old evidence and recovery before replacing the current binding.
+- A Parent-written append-only research decision JSONL could replace the independently edited semantic completion ledger, with `manifest.json` as an optional rebuildable projection. This needs locked atomic appends, stable event/idempotency IDs, deterministic replay/reconciliation and staged compatibility tests for existing manifests/checkpoints. Runtime Execution/Artifact stores remain authoritative for actual execution facts. Do not introduce a second writable source of truth during migration.
+
+See [scope migration](universal-sandbox.md#scope-migration-after-upgrade) for the actionable compatibility changes included in this PR.
