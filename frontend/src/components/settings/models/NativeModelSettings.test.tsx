@@ -59,7 +59,7 @@ describe("native model Settings", () => {
     fireEvent.click(screen.getByRole("button", { name: /Connect/ }));
     fireEvent.click(screen.getByRole("button", { name: "+ Custom API" }));
     fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "http://localhost:1234/v1" } });
-    fireEvent.click(screen.getByRole("button", { name: "Discover models" }));
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "draft-key" } });
     expect(await screen.findByLabelText("candidate")).not.toBeChecked();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     expect(requests.some((request) => request.url === "/api/model-config/providers")).toBe(false);
@@ -99,7 +99,7 @@ it("retains a custom API draft after conflict and never retries the sensitive wr
   const requests = setup(true); await screen.findByRole("button", { name: "Lab" });
   fireEvent.click(screen.getByRole("button", { name: /Connect/ }));
   fireEvent.click(screen.getByRole("button", { name: "+ Custom API" }));
-  for (const [label, value] of [["Provider name", "New Lab"], ["Provider ID", "new-lab"], ["API key", "retained-secret"]]) fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  for (const [label, value] of [["Provider name", "New Lab"], ["API key", "retained-secret"]]) fireEvent.change(screen.getByLabelText(label), { target: { value } });
   fireEvent.change(screen.getByLabelText(/Base URL/), { target: { value: "http://localhost:1234/v1" } });
   fireEvent.change(screen.getByLabelText(/Manual model IDs/), { target: { value: "manual-model" } });
   fireEvent.submit(screen.getByLabelText("API key").closest("form")!);
@@ -107,6 +107,8 @@ it("retains a custom API draft after conflict and never retries the sensitive wr
   expect(screen.getByLabelText("API key")).toHaveValue("retained-secret");
   const writes = requests.filter((r) => r.url === "/api/model-config/providers");
   expect(writes).toHaveLength(1);
+  expect(writes[0].body).toHaveProperty("id", expect.stringMatching(/^custom-[0-9a-f-]{36}$/));
+  expect(screen.queryByLabelText("Provider ID")).not.toBeInTheDocument();
   expect(writes[0].body).toMatchObject({ revision: 3, credential: { source: "managed", secret: "retained-secret" }, config: { models: [{ id: "manual-model" }] } });
 });
 it("edits a custom connection while preserving model metadata and headers", async () => {

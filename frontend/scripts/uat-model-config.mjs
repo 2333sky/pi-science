@@ -1,6 +1,7 @@
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createRequire } from 'node:module';
+import { createServer } from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { resolveBrowserExecutable } from './browser-executable.mjs';
 const require = createRequire(new URL('../package.json', import.meta.url));
@@ -22,8 +23,16 @@ await writeFile(join(process.env.PI_SCIENCE_HOME, 'config.json'), JSON.stringify
 const { buildApp } = await import('../../apps/server/dist/app/app.js');
 const { loadConfig } = await import('../../apps/server/dist/config/config.js');
 const app = buildApp({ ...loadConfig(), port: 0 });
+const discoveryRequests = [];
+const modelServer = createServer((request, response) => {
+  discoveryRequests.push({ url: request.url, authorization: request.headers.authorization });
+  response.writeHead(200, { 'Content-Type': 'application/json' });
+  response.end(JSON.stringify({ data: [{ id: 'uat-model', name: 'UAT Model' }] }));
+});
 let browser;
 try {
+  await new Promise((resolve) => modelServer.listen(0, '127.0.0.1', resolve));
+  const modelUrl = `http://127.0.0.1:${modelServer.address().port}/v1`;
   const origin = await app.listen({ host: '127.0.0.1', port: 0 });
   const api = async (path, method = 'GET', body) => {
     const response = await fetch(origin + path, { method, headers: { 'x-pi-science-internal-token': process.env.PI_SCIENCE_INTERNAL_TOKEN, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -62,20 +71,29 @@ try {
   if (JSON.stringify(await dimensions()) !== JSON.stringify(size)) throw new Error('Custom form resized modal');
   console.log('PASS desktop frame stays 600x620 across tabs, search and forms; subscription fields remain isolated');
   await dialog.getByLabel('Provider name', { exact: true }).fill('UAT Lab');
-  await dialog.getByLabel('Provider ID', { exact: true }).fill('uat-lab');
-  await dialog.getByLabel(/Base URL/).fill('http://127.0.0.1:9999/v1');
+  if (await dialog.getByLabel('Provider ID', { exact: true }).count()) throw new Error('Internal provider ID should be generated automatically');
+  await dialog.getByLabel(/Base URL/).fill(modelUrl);
+  await dialog.getByLabel('API key', { exact: true }).fill('uat-probe-key');
+  const candidate = dialog.getByRole('checkbox', { name: /uat-model/ });
+  await candidate.waitFor();
+  if (await candidate.isChecked() || discoveryRequests.length !== 1 || discoveryRequests[0].url !== '/v1/models' || discoveryRequests[0].authorization !== 'Bearer uat-probe-key') throw new Error('Automatic model discovery or explicit-selection boundary failed');
+  if (Object.keys((await api('/api/model-config')).config.providers).length) throw new Error('Discovery persisted a draft');
+  console.log('PASS complete URL and API key automatically fetch models through the real server without saving or selecting them');
   await dialog.getByRole('combobox', { name: /Credential source/ }).selectOption('keyless');
-  await dialog.getByLabel(/Manual model IDs/).fill('uat-model');
+  await dialog.getByText('Select the models you want to enable.', { exact: true }).waitFor();
+  await candidate.check();
   await dialog.getByRole('button', { name: 'Save', exact: true }).click();
   await dialog.waitFor({ state: 'hidden' });
   const config = await api('/api/model-config');
-  if (!config.config.providers['uat-lab'] || config.revision !== 1) throw new Error('Provider was not atomically committed');
+  const providerId = Object.keys(config.config.providers).find((id) => config.config.providers[id].name === 'UAT Lab');
+  if (!providerId?.startsWith('custom-') || config.revision !== 1) throw new Error('Provider was not atomically committed');
+  if (discoveryRequests.length !== 2 || discoveryRequests[1].authorization || config.config.providers[providerId].models[0].name !== 'UAT Model') throw new Error('Keyless rediscovery or discovered model name failed');
   const search = page.getByRole('textbox', { name: /Search/ });
   await search.fill('UAT Lab');
   await page.getByRole('button', { name: 'UAT Lab', exact: true }).click();
   await page.getByText('Selectable · Inference not verified', { exact: true }).waitFor();
   console.log('PASS native Settings creates a keyless provider and displays separate inference status');
-  await api('/api/model-config/providers/uat-lab/credential', 'PUT', { revision: 1, credential: { source: 'environment', environment_variable: 'LAB_UAT_MODEL_KEY' } });
+  await api(`/api/model-config/providers/${providerId}/credential`, 'PUT', { revision: 1, credential: { source: 'environment', environment_variable: 'LAB_UAT_MODEL_KEY' } });
   await page.reload();
   await page.getByRole('tab', { name: 'AI Models', exact: true }).click();
   await page.getByRole('button', { name: 'Advanced model configuration', exact: true }).waitFor();
@@ -128,5 +146,6 @@ try {
 } finally {
   await browser?.close();
   await app.close();
+  await new Promise((resolve) => modelServer.close(resolve));
   await rm(root, { recursive: true, force: true });
 }

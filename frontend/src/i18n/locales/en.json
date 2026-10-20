@@ -1682,7 +1682,6 @@
   "settings.connections.discard": "Discard",
   "settings.connections.modelsRequired": "Select a discovered model or add a model ID manually.",
   "settings.connections.duplicateId": "This provider ID already exists. Choose a unique ID.",
-  "settings.connections.environmentDiscovery": "Environment credentials stay on the server. Add model IDs manually for this connection.",
   "settings.connections.refresh": "Refresh models",
   "settings.oauth.account": "Account",
   "settings.oauth.plan": "Plan",
@@ -1710,5 +1709,11 @@
   "settings.oauth.error.revision_conflict": "Configuration changed during authorization. Reopen this dialog before trying again.",
   "settings.oauth.error.oauth_cancelled": "Authorization cancelled.",
   "settings.oauth.error.oauth_timeout": "Authorization timed out. Start a new authorization.",
-  "settings.native.source.oauth": "Subscription OAuth"
+  "settings.native.source.oauth": "Subscription OAuth",
+  "settings.connections.discovery.idle": "Models are fetched automatically once the URL and credentials are complete.",
+  "settings.connections.discovery.pending": "Waiting for you to finish typing…",
+  "settings.connections.discovery.loading": "Fetching models…",
+  "settings.connections.discovery.success": "Select the models you want to enable.",
+  "settings.connections.discovery.empty": "No models returned. Retry or add model IDs below.",
+  "settings.connections.discovery.error": "Could not fetch models. Check the URL and credentials, then retry, or add model IDs below."
 }

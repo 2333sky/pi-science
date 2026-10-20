@@ -70,3 +70,33 @@ it("discovers models with stored credentials on the server without selecting or 
     expect((await server.inject({ method: "POST", url: "/api/model-config/providers/openai/discover", payload: {} })).statusCode).toBe(400);
   } finally { await server.close(); }
 });
+
+it("discovers draft connections with managed, environment or keyless auth without persisting credentials", async () => {
+  vi.stubEnv("LAB_DRAFT_MODEL_KEY", "server-env-key");
+  const resources = new ModelResourceService();
+  const discovery = vi.spyOn(resources, "testProviderConfiguration").mockResolvedValue({ models: [{ id: "candidate", display_name: "Candidate" }] } as Awaited<ReturnType<ModelResourceService["testProviderConfiguration"]>>);
+  const server = app(resources), service = new ModelConfigService();
+  try {
+    const before = service.readSync();
+    for (const [credential, auth] of [
+      [{ secret: "draft-private-key" }, { kind: "api_key", secret: "draft-private-key" }],
+      [{ environment_variable: "LAB_DRAFT_MODEL_KEY" }, { kind: "api_key", secret: "server-env-key" }],
+      [{}, { kind: "none" }],
+    ]) {
+      const response = await server.inject({ method: "POST", url: "/api/model-config/discover", payload: { base_url: "https://models.example/v1", api: "openai-responses", ...credential } });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(response.json()).toMatchObject({ inference_verified: false, models: [{ id: "candidate" }] });
+      expect(response.body).not.toMatch(/draft-private-key|server-env-key/);
+      expect(discovery).toHaveBeenLastCalledWith({ base_url: "https://models.example/v1", protocol: "openai", auth });
+    }
+    expect(service.readSync()).toEqual(before);
+    discovery.mockClear();
+    for (const credential of [{ environment_variable: "PI_SCIENCE_HOME" }, { environment_variable: "MISSING_MODEL_ENV_KEY" }, { environment_variable: "LAB_DRAFT_MODEL_KEY", secret: "ambiguous" }]) {
+      const response = await server.inject({ method: "POST", url: "/api/model-config/discover", payload: { base_url: "https://models.example/v1", api: "openai-completions", ...credential } });
+      expect(response.statusCode).toBe(400);
+      expect(response.body).not.toContain("server-env-key");
+    }
+    expect(discovery).not.toHaveBeenCalled();
+  } finally { await server.close(); }
+});

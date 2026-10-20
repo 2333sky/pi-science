@@ -1682,7 +1682,6 @@
   "settings.connections.discard": "丢弃",
   "settings.connections.modelsRequired": "请选择发现的模型或手动添加模型 ID。",
   "settings.connections.duplicateId": "该服务商 ID 已存在，请使用不同的 ID。",
-  "settings.connections.environmentDiscovery": "环境变量凭证保留在服务器端。此连接请手动添加模型 ID。",
   "settings.connections.refresh": "刷新模型",
   "settings.oauth.account": "授权账户",
   "settings.oauth.plan": "订阅计划",
@@ -1710,5 +1709,11 @@
   "settings.oauth.error.revision_conflict": "授权期间配置已变化，请重新打开弹窗后再次尝试。",
   "settings.oauth.error.oauth_cancelled": "已取消授权。",
   "settings.oauth.error.oauth_timeout": "授权已超时，请重新发起。",
-  "settings.native.source.oauth": "订阅 OAuth"
+  "settings.native.source.oauth": "订阅 OAuth",
+  "settings.connections.discovery.idle": "地址和凭据填写完整后，将自动获取模型列表。",
+  "settings.connections.discovery.pending": "等待输入完成…",
+  "settings.connections.discovery.loading": "正在获取模型…",
+  "settings.connections.discovery.success": "请勾选需要启用的模型。",
+  "settings.connections.discovery.empty": "未返回模型，请重试或在下方手动填写模型 ID。",
+  "settings.connections.discovery.error": "获取模型失败，请检查地址和凭据后重试，或在下方手动填写模型 ID。"
 }

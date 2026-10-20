@@ -6,7 +6,7 @@ import { z } from "zod";
 import { modelConfigSchema, providerConfigSchema } from "@pi-science/contracts";
 import type { NodeSessionService } from "../../runtime/node/node-session-service.js";
 import type { ModelResourceService } from "../../model-resources/model-resource-service.js";
-import { ModelConfigService, configError, modelConfigBackend } from "../../model-config/model-config-service.js";
+import { ModelConfigService, configError, isAllowedModelEnvRef, modelConfigBackend } from "../../model-config/model-config-service.js";
 import { ModelConfigMigration } from "../../model-config/model-config-migration.js";
 import { ModelRegistryService } from "../../model-config/model-registry-service.js";
 import { ModelOAuthService } from "../../model-config/model-oauth-service.js";
@@ -159,6 +159,7 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
   });
   app.register(async (discovery) => {
     await discovery.register(rateLimit, { global: false });
+    discovery.addHook("onRequest", async (_request, reply) => { reply.header("Cache-Control", "no-store"); });
     discovery.post<{ Params: { id: string } }>("/api/model-config/providers/:id/discover", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
       try {
         z.object({}).strict().parse(request.body ?? {});
@@ -171,8 +172,14 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
     });
     discovery.post("/api/model-config/discover", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
-      const body = z.object({ base_url: z.string().url(), api: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]), secret: z.string().max(16000).optional() }).strict().parse(request.body);
-      const result = await resources.testProviderConfiguration({ base_url: body.base_url, protocol: body.api === "anthropic-messages" ? "anthropic" : "openai", auth: body.secret ? { kind: "api_key", secret: body.secret } : { kind: "none" } });
+      const body = z.object({ base_url: z.string().url(), api: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]), secret: z.string().max(16000).optional(), environment_variable: z.string().optional() }).strict()
+        .refine((value) => value.secret === undefined || value.environment_variable === undefined).parse(request.body);
+      let secret = body.secret;
+      if (body.environment_variable !== undefined) {
+        if (!isAllowedModelEnvRef(body.environment_variable) || !process.env[body.environment_variable]) throw configError("invalid_config", "Environment reference is reserved or missing");
+        secret = process.env[body.environment_variable];
+      }
+      const result = await resources.testProviderConfiguration({ base_url: body.base_url, protocol: body.api === "anthropic-messages" ? "anthropic" : "openai", auth: secret ? { kind: "api_key", secret } : { kind: "none" } });
       return { models: result.models, inference_verified: false };
     } catch (error) { return fail(reply, error); }
   });

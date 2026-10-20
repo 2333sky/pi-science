@@ -727,7 +727,11 @@ export class ModelResourceService {
     if (!response.ok) throw resourceError("endpoint_probe_failed", redactSecret(String(payload.error ?? payload.message ?? `endpoint returned ${response.status}`), secret));
     const rows = modelRows(payload);
     if (rows.length === 0) throw resourceError("discovery_empty", "No models were returned by this endpoint");
-    return { ok: true, health: "ready", models: rows.map((row) => ({ id: row.id, display_name: row.id })) };
+    return { ok: true, health: "ready", models: rows.map((row) => {
+      const raw = row.raw && typeof row.raw === "object" ? row.raw as Record<string, unknown> : {};
+      const name = raw.display_name ?? raw.name;
+      return { id: row.id, display_name: typeof name === "string" && name.trim() ? name.trim() : row.id };
+    }) };
   }
 
   async listEndpoints(): Promise<Endpoint[]> {

@@ -1,8 +1,10 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ArrowLeft, Plus, Search } from "lucide-react";
+import { v4 as uuid } from "uuid";
 import type { ProviderAuthCapabilities } from "@pi-science/contracts";
 import { SubscriptionAuthorization } from "./SubscriptionAuthorization";
+import { useModelDiscovery } from "./useModelDiscovery";
 import { Modal } from "../../ui/Modal";
 import { button, field, primary, send, type CatalogProvider } from "./native-model-api";
 
@@ -48,24 +50,20 @@ export function CredentialFields({ capabilities, source, setSource, secret, setS
 
 function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSave, onSaved, onFailure }: { target: Exclude<Target, null>; providers: CatalogProvider[]; revision: number; formId: string; onDirty: (v: boolean) => void; onBusy: (v: boolean) => void; onCanSave: (v: boolean) => void; onSaved: (r?: Result) => Promise<void>; onFailure: (cause: unknown) => Promise<void> }) {
   const { t } = useTranslation(); const custom = target === "custom";
-  const [name, setName] = useState(""); const [id, setId] = useState(""); const [url, setUrl] = useState(""); const [api, setApi] = useState("openai-completions");
+  const [name, setName] = useState(""); const [id] = useState(() => `custom-${uuid()}`); const [url, setUrl] = useState(""); const [api, setApi] = useState("openai-completions");
   const [source, setSource] = useState("managed"); const [secret, setSecret] = useState(""); const [variable, setVariable] = useState("");
-  const [manual, setManual] = useState(""); const [candidates, setCandidates] = useState<string[]>([]); const [selected, setSelected] = useState<string[]>([]);
-  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false); const requestGeneration = useRef(0);
+  const [manual, setManual] = useState(""); const [selected, setSelected] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const discovery = useModelDiscovery(custom, url, api, source, secret, variable);
   const capabilities = custom ? { api_key: true, environment: true, keyless: true, subscription: false } : target.auth_capabilities;
   const valid = (source === "managed" ? Boolean(secret.trim()) : source === "environment" ? /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable) : true) && (!custom || Boolean(name.trim() && id && url && (selected.length || manual.trim())));
   useEffect(() => { onCanSave(valid); }, [valid, onCanSave]);
-  const invalidate = () => { requestGeneration.current++; setCandidates([]); setSelected([]); };
+  const invalidate = () => { setSelected([]); };
   const execute = async (action: () => Promise<void>) => {
     setBusy(true); onBusy(true); setError(null);
     try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); await onFailure(cause); }
     finally { setBusy(false); onBusy(false); }
   };
-  const discover = () => execute(async () => {
-    const generation = ++requestGeneration.current;
-    const result = await send<{ models: Array<{ id: string }> }>("/api/model-config/discover", "POST", { base_url: url, api, ...(source === "managed" && secret ? { secret } : {}) });
-    if (generation === requestGeneration.current) { setCandidates([...new Set(result.models.map((m) => m.id))]); setSelected([]); }
-  });
   const save = () => execute(async () => {
     const credential = source === "managed" ? { source, secret } : source === "environment" ? { source, environment_variable: variable } : { source };
     let result: Result;
@@ -73,7 +71,10 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
       const ids = [...new Set([...selected, ...manual.split("\n").map((s) => s.trim()).filter(Boolean)])];
       if (!ids.length) throw new Error(t("settings.connections.modelsRequired"));
       if (providers.some((p) => p.id === id)) throw new Error(t("settings.connections.duplicateId"));
-      const config = { name: name.trim(), baseUrl: url, api, models: ids.map((id) => ({ id })) };
+      const config = { name: name.trim(), baseUrl: url, api, models: ids.map((id) => {
+        const model = discovery.models.find((candidate) => candidate.id === id);
+        return { id, ...(model?.display_name ? { name: model.display_name } : {}) };
+      }) };
       await send("/api/model-config/preview", "POST", { providers: { [id]: config } });
       result = await send("/api/model-config/providers", "POST", { revision, id, config, credential });
     } else result = await send(`/api/model-config/providers/${encodeURIComponent(target.id)}/credential`, "PUT", { revision, credential });
@@ -81,10 +82,10 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
   });
   return <form id={formId} className="space-y-3" onChange={() => onDirty(true)} onSubmit={(e) => { e.preventDefault(); if (!busy) void save(); }}>
     <fieldset disabled={busy} className="space-y-3">
-      {custom && <><label className="block text-ui-caption text-text">{t("settings.resources.name")}<input className={field} value={name} onChange={(e) => setName(e.target.value)} required /></label><label className="block text-ui-caption text-text">{t("settings.native.providerId")}<input className={field} value={id} onChange={(e) => setId(e.target.value)} pattern="[A-Za-z0-9][A-Za-z0-9._-]*" maxLength={200} required /></label><label className="block text-ui-caption text-text">{t("settings.resources.baseUrl")}<input className={field} type="url" value={url} onChange={(e) => { setUrl(e.target.value); invalidate(); }} required /></label><label className="block text-ui-caption text-text">{t("settings.native.api")}<select className={field} value={api} onChange={(e) => { setApi(e.target.value); invalidate(); }}>{["openai-completions", "openai-responses", "anthropic-messages"].map((v) => <option key={v}>{v}</option>)}</select></label></>}
-      <CredentialFields capabilities={capabilities} source={source} setSource={(v) => { setSource(v); setSecret(""); invalidate(); }} secret={secret} setSecret={(v) => { setSecret(v); invalidate(); }} variable={variable} setVariable={setVariable} />
-      {custom && <><button type="button" className={button} disabled={!url || source === "environment"} onClick={() => void discover()}>{t("settings.native.discover")}</button><p className="text-ui-caption text-muted">{t(source === "environment" ? "settings.connections.environmentDiscovery" : "settings.native.discoveryHelp")}</p>
-        <div className="space-y-2">{candidates.map((model) => <label key={model} className="flex items-start gap-2 break-all text-ui-caption text-text"><input type="checkbox" checked={selected.includes(model)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, model] : current.filter((s) => s !== model))} />{model}</label>)}</div>
+      {custom && <><label className="block text-ui-caption text-text">{t("settings.resources.name")}<input className={field} value={name} onChange={(e) => setName(e.target.value)} required /></label><label className="block text-ui-caption text-text">{t("settings.resources.baseUrl")}<input className={field} type="url" value={url} onChange={(e) => { setUrl(e.target.value); invalidate(); }} required /></label><label className="block text-ui-caption text-text">{t("settings.native.api")}<select className={field} value={api} onChange={(e) => { setApi(e.target.value); invalidate(); }}>{["openai-completions", "openai-responses", "anthropic-messages"].map((v) => <option key={v}>{v}</option>)}</select></label></>}
+      <CredentialFields capabilities={capabilities} source={source} setSource={(v) => { setSource(v); setSecret(""); invalidate(); }} secret={secret} setSecret={(v) => { setSecret(v); invalidate(); }} variable={variable} setVariable={(v) => { setVariable(v); invalidate(); }} />
+      {custom && <><div className="flex items-center gap-3"><button type="button" className={button} disabled={!discovery.ready || discovery.status === "loading"} onClick={() => { invalidate(); discovery.retry(); }}>{t("settings.native.discover")}</button><p role="status" className="text-ui-caption text-muted">{t(`settings.connections.discovery.${discovery.status === "success" && !discovery.models.length ? "empty" : discovery.status}`)}</p></div><p className="text-ui-caption text-muted">{t("settings.native.discoveryHelp")}</p>
+        <div className="space-y-2">{discovery.models.map((model) => <label key={model.id} className="flex items-start gap-2 break-all text-ui-caption text-text"><input type="checkbox" checked={selected.includes(model.id)} onChange={(e) => setSelected((current) => e.target.checked ? [...current, model.id] : current.filter((s) => s !== model.id))} />{model.id}{model.display_name && model.display_name !== model.id && <span className="text-muted">{model.display_name}</span>}</label>)}</div>
         <label className="block text-ui-caption text-text">{t("settings.native.manualModels")}<textarea className={field} rows={3} value={manual} onChange={(e) => setManual(e.target.value)} /></label></>}
     </fieldset>
     {error && <p role="alert" className="text-ui-caption text-error-text">{error}</p>}
