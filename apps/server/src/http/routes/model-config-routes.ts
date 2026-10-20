@@ -9,6 +9,7 @@ import type { ModelResourceService } from "../../model-resources/model-resource-
 import { ModelConfigService, configError, modelConfigBackend } from "../../model-config/model-config-service.js";
 import { ModelConfigMigration } from "../../model-config/model-config-migration.js";
 import { ModelRegistryService } from "../../model-config/model-registry-service.js";
+import { ModelOAuthService } from "../../model-config/model-oauth-service.js";
 import { ModelCredentialAdapter } from "../../model-config/model-credential-adapter.js";
 
 const revision = z.number().int().nonnegative();
@@ -24,13 +25,56 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
   const fail = (reply: FastifyReply, error: unknown) => {
     const code = (error as { code?: string }).code ?? "invalid_config";
     // Never echo a rejected config/secret or upstream error payload.
-    return reply.code(code === "revision_conflict" || code === "legacy_route" || code === "import_blocked" ? 409 : 400).send({ code, error: code === "revision_conflict" ? "Configuration changed; reload before saving" : "Model configuration request failed validation",
+    return reply.code(code === "revision_conflict" || code === "legacy_route" || code === "import_blocked" || code === "oauth_busy" || code === "oauth_prompt_conflict" || code === "auth_replacement_required" ? 409 : 400).send({ code, error: code === "revision_conflict" ? "Configuration changed; reload before saving" : "Model configuration request failed validation",
       ...(error instanceof z.ZodError ? { fields: error.issues.map((issue) => ({ path: issue.path, code: issue.code })) } : {}) });
   };
   const publish = async (snapshot: { revision: number }) => {
     try { await sessions.reloadConfiguration(); return { ok: true, revision: snapshot.revision, runtime: "published", busy_workers: "after_current_turn" }; }
     catch { return { ok: true, revision: snapshot.revision, runtime: "reload_pending" }; }
   };
+  const oauth = new ModelOAuthService(service, { published: async (revision) => (await publish({ revision })).runtime as "published" | "reload_pending" });
+  app.addHook("onClose", async () => oauth.close());
+  app.register(async (authorization) => {
+    await authorization.register(rateLimit, { global: false });
+    authorization.addHook("onRequest", async (_request, reply) => { reply.header("Cache-Control", "no-store"); });
+    authorization.post<{ Params: { id: string } }>("/api/model-config/oauth/:id/start", { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } }, async (request, reply) => {
+      try { const body = z.object({ revision, replace_existing: z.boolean().default(false) }).strict().parse(request.body); return await oauth.start(request.params.id, body.revision, body.replace_existing); } catch (error) { return fail(reply, error); }
+    });
+    authorization.get<{ Params: { id: string } }>("/api/model-config/oauth/:id/current", async (request, reply) => {
+      try { return { session: oauth.current(request.params.id) }; } catch (error) { return fail(reply, error); }
+    });
+    authorization.get<{ Params: { id: string } }>("/api/model-config/oauth/sessions/:id", async (request, reply) => {
+      try { return oauth.get(request.params.id); } catch (error) { return fail(reply, error); }
+    });
+    authorization.post<{ Params: { id: string } }>("/api/model-config/oauth/sessions/:id/respond", async (request, reply) => {
+      try { const body = z.object({ prompt_id: z.string().uuid(), value: z.string().max(16000) }).strict().parse(request.body); return oauth.respond(request.params.id, body.prompt_id, body.value); } catch (error) { return fail(reply, error); }
+    });
+    authorization.delete<{ Params: { id: string } }>("/api/model-config/oauth/sessions/:id", async (request, reply) => {
+      try { return oauth.cancel(request.params.id); } catch (error) { return fail(reply, error); }
+    });
+    authorization.post<{ Params: { id: string } }>("/api/model-config/oauth/:id/refresh", { config: { rateLimit: { max: 6, timeWindow: "1 minute" } } }, async (request, reply) => {
+      try {
+        const body = z.object({ revision }).strict().parse(request.body), snapshot = service.readSync(), id = request.params.id;
+        if (snapshot.revision !== body.revision) throw configError("revision_conflict", "Configuration changed");
+        const auth = builtinModels().getProvider(id)?.auth.oauth;
+        if (!auth?.isSubscription) throw configError("unsupported_auth", "Subscription authentication is unavailable");
+        const adapter = new ModelCredentialAdapter(service, snapshot);
+        const result = await adapter.modify(id, async (current) => {
+          if (current?.type !== "oauth") throw configError("unsupported_auth", "No subscription grant");
+          return auth.refresh(current, AbortSignal.timeout(15000));
+        });
+        if (result?.type !== "oauth") throw configError("revision_conflict", "Authorization changed");
+        return { ok: true, provider: await service.view(id) };
+      } catch (error) { return fail(reply, error); }
+    });
+    authorization.delete<{ Params: { id: string } }>("/api/model-config/oauth/:id", async (request, reply) => {
+      try {
+        const body = z.object({ revision }).strict().parse(request.body);
+        if ((await service.view(request.params.id)).authentication.source !== "oauth") throw configError("unsupported_auth", "No subscription grant");
+        return publish(await service.setCredential(request.params.id, body.revision, { source: "remove" }));
+      } catch (error) { return fail(reply, error); }
+    });
+  });
   app.get("/api/model-config", async (_request, reply) => {
     try { const snapshot = service.readSync(); return { backend: modelConfigBackend(), ...snapshot,
       providers: await Promise.all(Object.keys(snapshot.config.providers).map((id) => service.view(id, snapshot))) }; }
@@ -42,11 +86,14 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
       const models = new ModelRegistryService(service).compile(snapshot);
       const builtin = builtinModels();
       const available = new Set((await models.getAvailable()).map((model) => `${model.provider}/${model.id}`));
-      const providers = await Promise.all(models.getProviders().map(async (provider) => ({
-        ...await service.view(provider.id, snapshot), editable: Boolean(provider.auth.apiKey), name: snapshot.config.providers[provider.id]?.name ?? provider.name,
+      const providers = await Promise.all(models.getProviders().map(async (provider) => {
+        const view = await service.view(provider.id, snapshot);
+        return {
+        ...view, editable: Boolean(provider.auth.apiKey), name: snapshot.config.providers[provider.id]?.name ?? provider.name,
         source: builtin.getProvider(provider.id) ? "builtin" : "user",
-        auth_capabilities: { api_key: Boolean(provider.auth.apiKey), environment: Boolean(provider.auth.apiKey), keyless: !builtin.getProvider(provider.id), subscription: false },
-        allowed_actions: ["details", ...(provider.auth.apiKey ? ["credential"] : []), ...(!builtin.getProvider(provider.id) ? ["edit", "refresh"] : []), "disconnect"],
+        auth_capabilities: { api_key: Boolean(provider.auth.apiKey), environment: Boolean(provider.auth.apiKey), keyless: !builtin.getProvider(provider.id), subscription: Boolean(provider.auth.oauth?.isSubscription) },
+        subscription_name: provider.auth.oauth?.isSubscription ? provider.auth.oauth.name : undefined,
+        allowed_actions: view.authentication.source === "oauth" ? ["subscription", "disconnect"] : ["details", ...(provider.auth.apiKey ? ["credential"] : []), ...(!builtin.getProvider(provider.id) ? ["edit", "refresh"] : []), "disconnect"],
         models: provider.getModels().map((model) => {
           const config = snapshot.config.providers[provider.id];
           const declared = config?.models?.find((entry) => entry.id === model.id);
@@ -60,7 +107,7 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
             input: known ? model.input : override?.input ?? declared?.input ?? null,
             source: declared || override ? "configured" : known ? "pi-ai" : "unknown" };
         }),
-      })));
+      }; }));
       return { revision: snapshot.revision, providers };
     } catch (error) { return fail(reply, error); }
   });

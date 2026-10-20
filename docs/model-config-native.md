@@ -41,8 +41,7 @@ Supported custom APIs: openai-completions, openai-responses, anthropic-messages.
 Builtin providers retain official factories/stream implementations. Model metadata
 and thinking maps are explicit; unknown capability metadata is shown as unknown.
 Models are selectable only with resolved authentication; selectability does not
-prove real inference. No universal OAuth or inline keys, ambient file/env auth,
-shell command expansion or newer Pi configuration fields are supported.
+prove real inference. Subscription OAuth uses the installed pi-ai 0.99.2 provider adapters through the [connection UI](ai-models-connections.md#subscription-oauth-on-pi-0992). Inline keys, ambient file/env auth, shell command expansion and newer Pi configuration fields remain unsupported.
 
 All writes validate the complete structural schema and provider/model semantics.
 Revision checks, a cross-process configuration lock, mode 0600 on POSIX and atomic
@@ -79,7 +78,7 @@ session defaults and hidden research/review/title Worker startup; this projectio
 never rewrites the saved default. Default
 selection and each session's selection remain independent; an unavailable saved
 default is reported, never silently substituted or cleared. Live session capability
-projection remains read-only and may observe its pinned revision until reload.
+projection retains its pinned revision until reload. OAuth token renewal is the narrow exception: a Worker may rotate only the same dedicated grant, with cross-process locking and a live mapping check; it cannot edit configuration, recreate a disconnected grant or adopt a reauthorized account.
 
 ## Optional import, never runtime compatibility
 

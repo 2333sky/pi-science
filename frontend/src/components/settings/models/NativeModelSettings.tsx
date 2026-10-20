@@ -6,12 +6,13 @@ import { ChevronRight, Ellipsis, PlugZap, Search } from "lucide-react";
 import type { ProviderConfig } from "@pi-science/contracts";
 import { apiRequest, ApiError } from "../../../lib/client/api";
 import { Modal } from "../../ui/Modal";
+import { SubscriptionAuthorization } from "./SubscriptionAuthorization";
 import { ConnectModelService, CredentialFields } from "./ConnectModelService";
 import { button, field, primary, send, useModelConfig, type CatalogProvider } from "./native-model-api";
 import { formatContext } from "./model-utils";
 export { useModelConfig } from "./native-model-api";
 
-type Dialog = { kind: "credential" | "details" | "disconnect" | "edit" | "refresh"; provider: CatalogProvider } | { kind: "connect"; revision: number } | { kind: "advanced"; revision: number };
+type Dialog = { kind: "credential" | "details" | "disconnect" | "edit" | "refresh" | "subscription"; provider: CatalogProvider } | { kind: "connect"; revision: number } | { kind: "advanced"; revision: number };
 
 export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () => Promise<void> }) {
   const { t } = useTranslation();
@@ -52,15 +53,15 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
       {connected.length > 0 && !providers.length && <p className="text-ui-caption text-muted">{t("settings.redesign.noMatchingModels")}</p>}
       {providers.slice(currentPage * 20, (currentPage + 1) * 20).map((provider) => {
         const count = provider.models.filter((m) => m.available).length;
-        const ready = count > 0;
+        const ready = count > 0 && (provider.authentication.source !== "oauth" || provider.authentication.resolved);
         return <section key={provider.id} className="rounded-card border border-border bg-surface-1 px-4">
           <div className="flex items-center gap-2 py-3">
             <button className="flex min-h-9 min-w-0 flex-1 items-center gap-2 text-left" aria-label={provider.name} aria-expanded={Boolean(expanded[provider.id])} aria-controls={`models-${provider.id}`} onClick={() => setExpanded((v) => ({ ...v, [provider.id]: !v[provider.id] }))}>
-              <ChevronRight size={16} className={expanded[provider.id] ? "shrink-0 rotate-90 text-muted" : "shrink-0 text-muted"} /><span className="min-w-0"><span className="block break-words text-ui-label font-medium text-text">{provider.name}</span><span className="block text-ui-meta text-muted">{t(provider.source === "user" ? "settings.connections.customApi" : "settings.connections.api")} · {count} / {provider.models.length}</span></span>
+              <ChevronRight size={16} className={expanded[provider.id] ? "shrink-0 rotate-90 text-muted" : "shrink-0 text-muted"} /><span className="min-w-0"><span className="block break-words text-ui-label font-medium text-text">{provider.name}</span><span className="block text-ui-meta text-muted">{t(provider.authentication.source === "oauth" ? "settings.connections.subscription" : provider.source === "user" ? "settings.connections.customApi" : "settings.connections.api")} · {count} / {provider.models.length}</span></span>
             </button>
             <span className={`text-ui-meta ${ready ? "text-muted" : "text-error-text"}`}>{t(ready ? "settings.connections.ready" : "settings.connections.attention")}</span>
             <DropdownMenu.Root><DropdownMenu.Trigger asChild><button className="min-h-9 min-w-9 rounded-input text-muted hover:bg-surface-hover" id={`provider-actions-${provider.id}`} aria-label={t("settings.connections.actions", { name: provider.name })}><Ellipsis className="mx-auto" size={18} /></button></DropdownMenu.Trigger><DropdownMenu.Portal><DropdownMenu.Content onCloseAutoFocus={(e) => { if (dialog) e.preventDefault(); }} align="end" className="z-[120] min-w-44 rounded-card border border-border bg-surface-raised p-1 shadow-pop">
-              {(["credential", "edit", "refresh", "details", "disconnect"] as const).filter((action) => provider.allowed_actions.includes(action)).map((action) => <DropdownMenu.Item key={action} className="cursor-pointer rounded-input px-3 py-2 text-ui-caption text-text outline-none focus:bg-surface-hover" onSelect={() => { document.getElementById(`provider-actions-${provider.id}`)?.focus(); setDialog({ kind: action, provider }); }}>{t(`settings.connections.${action}`)}</DropdownMenu.Item>)}
+              {(["credential", "subscription", "edit", "refresh", "details", "disconnect"] as const).filter((action) => provider.allowed_actions.includes(action)).map((action) => <DropdownMenu.Item key={action} className="cursor-pointer rounded-input px-3 py-2 text-ui-caption text-text outline-none focus:bg-surface-hover" onSelect={() => { document.getElementById(`provider-actions-${provider.id}`)?.focus(); setDialog({ kind: action, provider }); }}>{t(action === "subscription" ? "settings.oauth.manage" : `settings.connections.${action}`)}</DropdownMenu.Item>)}
             </DropdownMenu.Content></DropdownMenu.Portal></DropdownMenu.Root>
           </div>
           <p className="pb-3 text-ui-meta text-muted">{t(`settings.native.source.${provider.authentication.source}`)}{provider.authentication.environment_variable ? `: ${provider.authentication.environment_variable}` : ""}</p>
@@ -72,7 +73,8 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
     </section>
     <button className="min-h-9 text-ui-caption text-muted hover:text-text disabled:opacity-40" disabled={!canConnect} onClick={() => setDialog({ kind: "advanced", revision: revision! })}>{t("settings.native.edit")}</button>
     {dialog?.kind === "connect" && <ConnectModelService providers={catalog.data?.providers ?? []} revision={dialog.revision} onClose={() => setDialog(null)} onSaved={committed} onFailure={failed} />}
-    {dialog && dialog.kind !== "connect" && <ManageDialog key={dialog.kind === "advanced" ? "advanced" : `${dialog.kind}-${dialog.provider.id}`} dialog={dialog} config={configuration.data?.config ?? { providers: {} }} onClose={() => setDialog(null)} onSaved={committed} onFailure={failed} />}
+    {dialog?.kind === "subscription" && <Modal title={`${dialog.provider.name} · ${t("settings.oauth.manage")}`} restoreFocusTo={document.getElementById(`provider-actions-${dialog.provider.id}`)} onClose={() => setDialog(null)} contentClassName="h-[min(620px,calc(100dvh-32px))] w-[min(600px,calc(100vw-32px))] max-h-none"><SubscriptionAuthorization provider={dialog.provider} revision={dialog.provider.revision} onSaved={committed} onFailure={failed} /></Modal>}
+    {dialog && dialog.kind !== "connect" && dialog.kind !== "subscription" && <ManageDialog key={dialog.kind === "advanced" ? "advanced" : `${dialog.kind}-${dialog.provider.id}`} dialog={dialog} config={configuration.data?.config ?? { providers: {} }} onClose={() => setDialog(null)} onSaved={committed} onFailure={failed} />}
   </div>;
 }
 

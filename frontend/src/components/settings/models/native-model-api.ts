@@ -4,7 +4,7 @@ import { apiRequest } from "../../../lib/client/api";
 
 export type Configuration = ModelConfigSnapshot & { backend: ModelConfigBackend; providers: ProviderConfigView[] };
 export type CatalogProvider = ProviderConfigView & {
-  name: string; source: "builtin" | "user"; auth_capabilities: ProviderAuthCapabilities; allowed_actions: string[];
+  name: string; subscription_name?: string; source: "builtin" | "user"; auth_capabilities: ProviderAuthCapabilities; allowed_actions: string[];
   models: Array<{ id: string; name: string; available: boolean; contextWindow: number | null; maxTokens?: number | null; thinking_levels?: string[] | null; input?: string[] | null; source: string }>;
 };
 export const useModelConfig = () => useQuery({ queryKey: ["model-config"], queryFn: () => apiRequest<Configuration>("/api/model-config"), staleTime: 3000, retry: false });

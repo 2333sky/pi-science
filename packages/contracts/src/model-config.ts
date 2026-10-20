@@ -52,7 +52,22 @@ export type ModelConfigBackend = z.infer<typeof modelConfigBackendSchema>;
 export type ProviderConfigView = {
   id: string; revision: number; config: ProviderConfig | null; legacy: boolean; editable: boolean;
   configured: boolean;
-  authentication: { source: "managed" | "environment" | "keyless" | "unconfigured" | "unsupported"; resolved: boolean; environment_variable?: string; restart_required?: boolean };
+  authentication: { configured?: boolean; source: "managed" | "environment" | "keyless" | "oauth" | "unconfigured" | "unsupported"; resolved: boolean; environment_variable?: string; restart_required?: boolean; oauth?: { expires_at: number | null; status: "authorized" | "expired" | "invalid"; account: string | null; plan: string | null } };
 };
 
 export type ProviderAuthCapabilities = { api_key: boolean; environment: boolean; keyless: boolean; subscription: boolean };
+
+export type ModelOAuthPrompt = {
+  id: string; type: "text" | "secret" | "select" | "manual_code"; message: string; placeholder?: string;
+  options?: Array<{ id: string; label: string; description?: string }>;
+};
+export type ModelOAuthEvent =
+  | { type: "auth_url"; url: string; instructions?: string }
+  | { type: "device_code"; userCode: string; verificationUri: string; expiresInSeconds?: number }
+  | { type: "info" | "progress"; message: string; links?: Array<{ url: string; label?: string }> };
+export type ModelOAuthSessionView = {
+  id: string; provider_id: string; status: "authorizing" | "succeeded" | "failed" | "cancelled" | "expired";
+  expires_at: number; events: ModelOAuthEvent[]; prompt?: ModelOAuthPrompt;
+  error_code?: "oauth_login_failed" | "revision_conflict" | "oauth_cancelled" | "oauth_timeout";
+  runtime?: "published" | "reload_pending";
+};

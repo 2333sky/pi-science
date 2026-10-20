@@ -269,7 +269,7 @@ export const providerViewSchema = z.object({
   configured: z.boolean().optional(),
   id: z.string().min(1), name: z.string().min(1), source: z.enum(["builtin", "user"]), enabled: z.boolean(),
   status: z.enum(["ready", "needs_key", "needs_login", "invalid", "unavailable", "disabled"]),
-  auth: z.object({ kind: providerAuthKindSchema, api_key_supported: z.boolean(), login_supported: z.literal(false) }),
+  auth: z.object({ kind: providerAuthKindSchema, api_key_supported: z.boolean(), login_supported: z.boolean() }),
   credential: z.object({ state: z.enum(["ready", "needs_key", "needs_login", "invalid", "unknown"]), configured: z.boolean() }),
   routing: z.object({ selectable_model_count: z.number().int().nonnegative(), configured_model_count: z.number().int().nonnegative(), issues: z.array(z.object({ code: z.string(), resource_id: z.string().optional() })) }),
   models: z.array(modelReadSchema.extend({ input_formats: z.array(z.string()).optional() })),

@@ -15,9 +15,9 @@ export async function nativeProviderViews(): Promise<ProviderView[]> {
     const native = builtin.getProvider(provider.id);
     const count = provider.getModels().filter((model) => selectable.has(`${provider.id}/${model.id}`)).length;
     return { id: provider.id, configured: view.configured, name: snapshot.config.providers[provider.id]?.name ?? provider.name, source: native ? "builtin" : "user", enabled: true,
-      status: count ? "ready" : view.authentication.resolved ? "unavailable" : "needs_key",
-      auth: { kind: view.authentication.source === "keyless" ? "none" : "api_key", api_key_supported: Boolean(provider.auth.apiKey), login_supported: false },
-      credential: { state: view.authentication.resolved ? "ready" : "needs_key", configured: view.authentication.resolved },
+      status: view.authentication.source === "oauth" && !view.authentication.resolved ? "needs_login" : count ? "ready" : view.authentication.resolved ? "unavailable" : "needs_key",
+      auth: { kind: view.authentication.source === "oauth" ? "oauth" : view.authentication.source === "keyless" ? "none" : "api_key", api_key_supported: Boolean(provider.auth.apiKey), login_supported: Boolean(provider.auth.oauth?.isSubscription) },
+      credential: { state: view.authentication.resolved ? "ready" : view.authentication.source === "oauth" ? "needs_login" : "needs_key", configured: view.authentication.resolved },
       routing: { selectable_model_count: count, configured_model_count: provider.getModels().length, issues: view.legacy ? [{ code: "legacy_route" }] : [] },
       last_verification: { state: "never", checked_at: null },
       allowed_actions: view.legacy ? [] : native ? ["replace_credential", "remove_credential"] : ["edit", "delete", "replace_credential", "remove_credential"],

@@ -1,3 +1,6 @@
+import type { OAuthCredential } from "@earendil-works/pi-ai";
+import { builtinModels } from "@earendil-works/pi-ai/providers/all";
+import { oauthCredential, readOAuthCredential } from "./oauth-credential.js";
 import { lstatSync, readFileSync } from "node:fs";
 import { copyFile, chmod, mkdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -28,7 +31,7 @@ export class ModelConfigService {
       throw configError("invalid_config", "models.json is invalid; repair it before using the native backend");
     }
   }
-  async preflight(config: ModelConfig, previous?: ModelConfig) {
+  async preflight(config: ModelConfig, previous?: ModelConfig, credentialRefs?: Record<string, string>) {
     const { builtinModels } = await import("@earendil-works/pi-ai/providers/all");
     const builtin = builtinModels();
     const settings = await new SettingsStore().read();
@@ -36,6 +39,11 @@ export class ModelConfigService {
       const native = builtin.getProvider(id);
       if (native && provider.api && !native.getModels().some((model) => model.api === provider.api)) throw configError("invalid_config", "API override is not supported by this native provider");
       if (!builtin.getProvider(id) && (!provider.api || !provider.baseUrl || !provider.models?.length)) throw configError("invalid_config", "Custom providers require api, baseUrl and models");
+      if (native && provider.baseUrl && provider.baseUrl !== native.baseUrl) {
+        const ref = (credentialRefs ?? this.readSync().credential_refs)[id];
+        const metadata = ref ? await this.credentials.metadata(ref) : null;
+        if (metadata?.kind === "oauth" && metadata.backend === "oauth") throw configError("unsupported_auth", "Subscriptions require the native provider endpoint");
+      }
       if (provider.baseUrl && provider.baseUrl !== previous?.providers[id]?.baseUrl) await validateOutboundHttpUrl(provider.baseUrl, { allowPrivate: settings.allow_private_providers !== false && process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0" });
       const known = new Set([...(builtin.getProvider(id)?.getModels().map((model) => model.id) ?? []), ...(provider.models?.map((model) => model.id) ?? [])]);
       if (Object.keys(provider.modelOverrides ?? {}).some((model) => !known.has(model))) throw configError("invalid_config", "Override refers to an unknown model");
@@ -48,7 +56,7 @@ export class ModelConfigService {
       const previous = structuredClone(snapshot.config);
       await operation(snapshot);
       const parsed = modelConfigSnapshotSchema.parse(snapshot);
-      await this.preflight(parsed.config, previous);
+      await this.preflight(parsed.config, previous, parsed.credential_refs);
       parsed.revision += 1;
       const { config, ...manifest } = parsed;
       await writeJsonAtomic(modelConfigPath(), { ...manifest, providers: config.providers }, { mode: 0o600 });
@@ -81,13 +89,35 @@ export class ModelConfigService {
   async view(id: string, snapshot = this.readSync()): Promise<ProviderConfigView> {
     const ref = snapshot.credential_refs[id];
     const credential = ref ? await this.credentials.getForRuntime(ref) : null;
-    const source = snapshot.keyless_providers.includes(id) ? "keyless" : !credential ? "unconfigured"
+    const oauth = credential?.metadata.kind === "oauth" && credential.metadata.backend === "oauth" && credential.metadata.owner_kind === "provider" && credential.metadata.owner_id === id && credential.metadata.owner_provider_id === id ? readOAuthCredential(credential.secret) : undefined;
+    const source = credential?.metadata.kind === "oauth" && credential.metadata.backend === "oauth" ? "oauth" : snapshot.keyless_providers.includes(id) ? "keyless" : !credential ? "unconfigured"
       : credential.metadata.backend === "environment" ? "environment" : credential.metadata.backend === "managed" ? "managed" : "unsupported";
     return { id, revision: snapshot.revision, config: snapshot.config.providers[id] ?? null,
       configured: Object.hasOwn(snapshot.config.providers, id) || Object.hasOwn(snapshot.credential_refs, id) || snapshot.keyless_providers.includes(id),
       legacy: false, editable: true,
-      authentication: { source, resolved: source === "keyless" || (source !== "unsupported" && credential?.metadata.kind === "api_key" && (source !== "environment" || isAllowedModelEnvRef(credential.metadata.environment_variable)) && Boolean(credential?.secret)),
+      authentication: { configured: Boolean(ref || snapshot.keyless_providers.includes(id)), source, resolved: source === "oauth" ? Boolean(oauth && oauth.expires > Date.now()) : source === "keyless" || (source !== "unsupported" && credential?.metadata.kind === "api_key" && (source !== "environment" || isAllowedModelEnvRef(credential.metadata.environment_variable)) && Boolean(credential?.secret)),
+        ...(source === "oauth" ? { oauth: { expires_at: oauth?.expires ?? null, status: !oauth ? "invalid" as const : oauth.expires <= Date.now() ? "expired" as const : "authorized" as const, account: null, plan: null } } : {}),
         ...(source === "environment" ? { environment_variable: credential!.metadata.environment_variable, restart_required: true } : {}) } };
+  }
+  async setOAuthCredential(id: string, revision: number, input: OAuthCredential, signal?: AbortSignal) {
+    const credential = oauthCredential(input);
+    if (JSON.stringify(credential).length > 262144) throw configError("invalid_config", "OAuth grant is too large");
+    const provider = builtinModels().getProvider(id);
+    if (!provider?.auth.oauth?.isSubscription) throw configError("unsupported_auth", "Subscription authentication is unavailable");
+    let created: string | undefined;
+    try {
+      return await this.update(revision, async (snapshot) => {
+        signal?.throwIfAborted();
+        const configured = snapshot.config.providers[id];
+        if (configured?.baseUrl && configured.baseUrl !== provider.baseUrl) throw configError("unsupported_auth", "Subscriptions require the native provider endpoint");
+        const metadata = await this.credentials.put({ kind: "oauth", backend: "oauth", secret: JSON.stringify(credential), owner_kind: "provider", owner_id: id, owner_provider_id: id });
+        created = metadata.id;
+        signal?.throwIfAborted();
+        snapshot.config.providers[id] ??= {};
+        snapshot.credential_refs[id] = metadata.id;
+        snapshot.keyless_providers = snapshot.keyless_providers.filter((entry) => entry !== id);
+      });
+    } catch (error) { if (created) await this.credentials.remove(created); throw error; }
   }
   // Copy-on-write credential replacement never mutates/deletes a credential shared with MCP.
   async setCredential(id: string, revision: number, input: { source: "managed" | "environment" | "keyless" | "remove"; secret?: string; environment_variable?: string }) {

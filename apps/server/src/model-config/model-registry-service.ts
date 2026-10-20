@@ -4,7 +4,7 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createProvider, lazyApi, type Api, type Model, type ProviderStreams } from "@earendil-works/pi-ai";
 import { modelConfigSnapshotSchema, type ModelConfigSnapshot } from "@pi-science/contracts";
 import { ModelCredentialAdapter } from "./model-credential-adapter.js";
-import { ModelConfigService } from "./model-config-service.js";
+import { ModelConfigService, configError } from "./model-config-service.js";
 
 const implementations: Record<string, ProviderStreams> = {
   "openai-completions": lazyApi(() => import("@earendil-works/pi-ai/api/openai-completions")),
@@ -28,6 +28,10 @@ export class ModelRegistryService {
       authContext: { env: async () => undefined, fileExists: async () => false } });
     for (const [id, config] of Object.entries(snapshot.config.providers)) {
       const native = models.getProvider(id);
+      if (native && config.baseUrl && config.baseUrl !== native.baseUrl) {
+        const ref = snapshot.credential_refs[id], metadata = ref ? this.service.credentials.readSync(ref)?.metadata : null;
+        if (metadata?.kind === "oauth" && metadata.backend === "oauth") throw configError("unsupported_auth", "OAuth credentials cannot be routed to an overridden endpoint");
+      }
       const catalog = new Map((native?.getModels() ?? []).map((model) => [model.id, model]));
       for (const model of config.models ?? []) {
         const base = catalog.get(model.id);

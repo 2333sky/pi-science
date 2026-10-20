@@ -27,10 +27,10 @@ it("distinguishes explicit broken credentials, keyless and untouched registry en
     const response = await server.inject("/api/model-config/catalog");
     expect(response.statusCode).toBe(200);
     const providers = response.json().providers;
-    expect(providers.find((p: { id: string }) => p.id === "openai")).toMatchObject({ configured: true, authentication: { resolved: false }, auth_capabilities: { api_key: true, environment: true, keyless: false, subscription: false } });
+    expect(providers.find((p: { id: string }) => p.id === "openai")).toMatchObject({ configured: true, authentication: { resolved: false }, auth_capabilities: { api_key: true, environment: true, keyless: false, subscription: true } });
     expect(providers.find((p: { id: string }) => p.id === "anthropic")).toMatchObject({ configured: true, authentication: { resolved: false } });
     expect(providers.some((p: { configured: boolean }) => !p.configured)).toBe(true);
-    expect(providers.every((p: { auth_capabilities: { subscription: boolean }; allowed_actions: string[] }) => !p.auth_capabilities.subscription && !p.allowed_actions.includes("login"))).toBe(true);
+    expect(providers.some((p: { auth_capabilities: { subscription: boolean } }) => p.auth_capabilities.subscription)).toBe(true);
     expect((await nativeProviderViews()).find((p) => p.id === "openai")?.configured).toBe(true);
   } finally { await server.close(); }
 });
