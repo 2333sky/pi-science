@@ -32,3 +32,11 @@ Unit/integration coverage checks explicit vs untouched providers, broken credent
 `pnpm --filter frontend test:uat:model-config` runs against the built real server and Chromium. It checks native authority, atomic Keyless creation, EnvRef redaction, default-model ownership, desktop frame invariance across tabs/forms, responsive bounds, footer containment, keyboard tabs/focus/discard and modal accessibility in light/dark/mobile. Set `MODEL_UAT_SCREENSHOTS` to an absolute directory to retain screenshots.
 
 The visual Settings performance fixture uses the new native catalog fields and menu controls, preserving the 100-provider/10,000-model regression case. Standard typechecks, production build, lint, bundle budget and backend/frontend suites remain applicable.
+
+## Recorded acceptance — 2026-10-20
+
+- Full package suites: Contracts 15 passed; Server 942 passed / 8 skipped; Frontend 1,755 passed; Skills 28 passed (2,740 passed in total).
+- Workspace typecheck, production build, frontend lint, visual-suite typecheck and bundle budget passed. The build retains the existing large-chunk advisory; initial JS gzip is 344,017 bytes.
+- Real-server Chromium model-config UAT passed, including modal accessibility scans and light/dark/mobile geometry/focus checks. The two desktop/mobile Settings performance cases passed with 100 providers and 10,000 models.
+- The unmodified general smoke reached job environment provisioning and returned HTTP 400 while setting up its fresh Conda environment. A scratch copy of the same smoke, with a pre-created local Python venv in its temporary workspace, passed end to end. No runtime/environment implementation was changed to accommodate this test.
+- Real subscription authorization and real paid-provider inference were not exercised. OAuth remains explicitly unavailable in this API-first release scope.
