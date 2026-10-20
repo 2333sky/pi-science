@@ -12,7 +12,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const nativeSnapshot = { backend: "pi_ai_v1", schema_version: 1, revision: 0, config: { providers: {} }, credential_refs: {}, keyless_providers: [], legacy_providers: [], aliases: {}, providers: [] };
-const nativeProvider = { id: "user-lab", name: "Lab", editable: true, legacy: false, config: {}, revision: 0, authentication: { source: "managed", resolved: true }, models: [{ id: "model-a", name: "Model A", available: true, contextWindow: 8192, source: "configured" }] };
+const nativeProvider = { id: "user-lab", name: "Lab", configured: true, source: "user", auth_capabilities: { api_key: true, environment: true, keyless: true, subscription: false }, allowed_actions: ["details", "credential", "edit", "disconnect"], editable: true, legacy: false, config: {}, revision: 0, authentication: { source: "managed", resolved: true }, models: [{ id: "model-a", name: "Model A", available: true, contextWindow: 8192, source: "configured" }] };
 const putCalls: { url: string; body: unknown }[] = [];
 
 function defaultFetch(url: string, init: RequestInit): Promise<Response> {
@@ -280,11 +280,12 @@ describe("SettingsContent", () => {
       return defaultFetch(url, init);
     });
     renderContent(null); fireEvent.click(await screen.findByRole("tab", { name: "AI Models" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Authentication" }));
-    const dialog = screen.getByRole("dialog", { name: "user-lab · Authentication" });
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Lab actions" }), { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage credentials" }));
+    const dialog = screen.getByRole("dialog", { name: "Lab · Manage credentials" });
     fireEvent.change(within(dialog).getByLabelText("API key"), { target: { value: "test-repair-key" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
-    expect(await screen.findByText("1 / 1")).toBeInTheDocument();
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
@@ -352,8 +353,9 @@ describe("SettingsContent", () => {
       return defaultFetch(String(input), init);
     });
     renderContent(null); fireEvent.click(screen.getByRole("tab", { name: "AI Models" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Authentication" }));
-    const dialog = screen.getByRole("dialog", { name: "user-lab · Authentication" });
+    fireEvent.pointerDown(await screen.findByRole("button", { name: "Lab actions" }), { button: 0, ctrlKey: false, pointerType: "mouse" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Manage credentials" }));
+    const dialog = screen.getByRole("dialog", { name: "Lab · Manage credentials" });
     if (operation === "save") fireEvent.change(within(dialog).getByLabelText("API key"), { target: { value: "retained-test-key" } });
     else fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "remove" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));

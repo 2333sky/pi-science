@@ -51,5 +51,8 @@ export type ModelConfigSnapshot = z.infer<typeof modelConfigSnapshotSchema>;
 export type ModelConfigBackend = z.infer<typeof modelConfigBackendSchema>;
 export type ProviderConfigView = {
   id: string; revision: number; config: ProviderConfig | null; legacy: boolean; editable: boolean;
+  configured: boolean;
   authentication: { source: "managed" | "environment" | "keyless" | "unconfigured" | "unsupported"; resolved: boolean; environment_variable?: string; restart_required?: boolean };
 };
+
+export type ProviderAuthCapabilities = { api_key: boolean; environment: boolean; keyless: boolean; subscription: boolean };

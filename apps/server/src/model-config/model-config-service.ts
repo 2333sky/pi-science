@@ -55,15 +55,16 @@ export class ModelConfigService {
       return parsed;
     });
   }
-  async createProvider(revision: number, id: string, config: ProviderConfig, credential?: { source: "managed" | "keyless"; secret?: string }) {
+  async createProvider(revision: number, id: string, config: ProviderConfig, credential?: { source: "managed" | "environment" | "keyless"; secret?: string; environment_variable?: string }) {
     const validated = modelConfigSchema.parse({ providers: { [id]: config } });
     let created: string | undefined;
     try {
       return await this.update(revision, async (snapshot) => {
         if (snapshot.config.providers[id]) throw configError("legacy_route", "Provider already exists");
         Object.assign(snapshot.config.providers, validated.providers);
-        if (credential?.source === "managed") {
-          const metadata = await this.credentials.put({ kind: "api_key", backend: "managed", secret: credential.secret, owner_kind: "provider", owner_id: id, owner_provider_id: id });
+        if (credential?.source === "environment" && !isAllowedModelEnvRef(credential.environment_variable)) throw configError("invalid_config", "Environment reference is reserved or missing");
+        if (credential?.source === "managed" || credential?.source === "environment") {
+          const metadata = await this.credentials.put({ kind: "api_key", backend: credential.source, secret: credential.secret, environment_variable: credential.environment_variable, owner_kind: "provider", owner_id: id, owner_provider_id: id });
           created = metadata.id; snapshot.credential_refs[id] = created;
         } else if (credential?.source === "keyless") snapshot.keyless_providers.push(id);
       });
@@ -83,6 +84,7 @@ export class ModelConfigService {
     const source = snapshot.keyless_providers.includes(id) ? "keyless" : !credential ? "unconfigured"
       : credential.metadata.backend === "environment" ? "environment" : credential.metadata.backend === "managed" ? "managed" : "unsupported";
     return { id, revision: snapshot.revision, config: snapshot.config.providers[id] ?? null,
+      configured: Object.hasOwn(snapshot.config.providers, id) || Object.hasOwn(snapshot.credential_refs, id) || snapshot.keyless_providers.includes(id),
       legacy: false, editable: true,
       authentication: { source, resolved: source === "keyless" || (source !== "unsupported" && credential?.metadata.kind === "api_key" && (source !== "environment" || isAllowedModelEnvRef(credential.metadata.environment_variable)) && Boolean(credential?.secret)),
         ...(source === "environment" ? { environment_variable: credential!.metadata.environment_variable, restart_required: true } : {}) } };

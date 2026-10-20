@@ -266,6 +266,7 @@ export type ModelResourceErrorCode = (typeof modelResourceErrorCodes)[number];
 
 /** Read-only management projection; routing and inference verification are independent. */
 export const providerViewSchema = z.object({
+  configured: z.boolean().optional(),
   id: z.string().min(1), name: z.string().min(1), source: z.enum(["builtin", "user"]), enabled: z.boolean(),
   status: z.enum(["ready", "needs_key", "needs_login", "invalid", "unavailable", "disabled"]),
   auth: z.object({ kind: providerAuthKindSchema, api_key_supported: z.boolean(), login_supported: z.literal(false) }),

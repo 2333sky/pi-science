@@ -2,7 +2,7 @@ import { expect, test } from "./fixtures/app.fixture";
 import { writeFile } from "node:fs/promises";
 
 test("Settings isolates delayed model loading and bounds a 10,000-model catalog", async ({ page }, testInfo) => {
-  const providers = Array.from({ length: 100 }, (_, index) => ({ id: `user-lab${index}`, name: `Lab ${index}`, revision: 0, editable: true, legacy: false, config: {}, authentication: { source: "managed", resolved: true }, models: Array.from({ length: 100 }, (_, model) => ({ id: `model-${index}-${model}`, name: `Model ${index}-${model}`, available: true, contextWindow: 65536, source: "configured" })) }));
+  const providers = Array.from({ length: 100 }, (_, index) => ({ id: `user-lab${index}`, name: `Lab ${index}`, revision: 0, editable: true, legacy: false, configured: true, source: "user", auth_capabilities: { api_key: true, environment: true, keyless: true, subscription: false }, allowed_actions: ["credential", "edit", "refresh", "details", "disconnect"], config: {}, authentication: { source: "managed", resolved: true }, models: Array.from({ length: 100 }, (_, model) => ({ id: `model-${index}-${model}`, name: `Model ${index}-${model}`, available: true, contextWindow: 65536, source: "configured" })) }));
   await page.route("**/api/model-config", (route) => route.fulfill({ json: { backend: "pi_ai_v1", revision: 0, config: { providers: {} }, providers: [] } }));
   let requests = 0;
   let release!: () => void;
@@ -44,22 +44,22 @@ test("Settings isolates delayed model loading and bounds a 10,000-model catalog"
   await dialog.getByRole("button", { name: "Lab 0", exact: true }).click();
   await expect(dialog.getByText("Model 0-0", { exact: false })).toBeVisible();
   const catalogReadyMs = Date.now() - catalogStart;
-  await expect(dialog.getByRole("button", { name: "Authentication" })).toHaveCount(20);
-  await expect(dialog.locator("section .break-all")).toHaveCount(50);
-  await dialog.locator("section").first().getByRole("button", { name: "Next", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: /Lab \d+ actions/ })).toHaveCount(20);
+  await expect(dialog.getByRole("region").locator(".border-b")).toHaveCount(50);
+  await dialog.getByRole("region", { name: "Lab 0 models", exact: true }).getByRole("button", { name: "Next", exact: true }).click();
   await expect(dialog.getByText("Model 0-50", { exact: false })).toBeVisible();
   await expect(dialog.getByText("Model 0-0", { exact: false })).toHaveCount(0);
   const searchStart = Date.now();
   await dialog.getByRole("textbox", { name: /Search/ }).pressSequentially("model-99-99", { delay: 20 });
   await expect(dialog.getByText("Lab 99", { exact: true })).toBeVisible();
   const searchReadyMs = Date.now() - searchStart;
-  await expect(dialog.getByRole("button", { name: "Authentication" })).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: /Lab \d+ actions/ })).toHaveCount(1);
   await dialog.getByRole("button", { name: "Lab 99", exact: true }).click();
   await expect(dialog.getByText("Model 99-99", { exact: false })).toBeVisible();
   await dialog.getByRole("textbox", { name: /Search/ }).fill("");
-  await dialog.getByRole("button", { name: "Lab 0", exact: true }).click();
+  if (await dialog.getByRole("button", { name: "Lab 0", exact: true }).getAttribute("aria-expanded") !== "true") await dialog.getByRole("button", { name: "Lab 0", exact: true }).click();
   await expect(dialog.getByText("Model 0-0", { exact: false })).toBeVisible();
-  await expect(dialog.locator("section .break-all")).toHaveCount(50);
+  await expect(dialog.getByRole("region").locator(".border-b")).toHaveCount(50);
   expect(await dialog.getByRole("tabpanel").evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const longTasks = await page.evaluate(async () => {
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));

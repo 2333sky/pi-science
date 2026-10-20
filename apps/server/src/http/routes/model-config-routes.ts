@@ -9,6 +9,7 @@ import type { ModelResourceService } from "../../model-resources/model-resource-
 import { ModelConfigService, configError, modelConfigBackend } from "../../model-config/model-config-service.js";
 import { ModelConfigMigration } from "../../model-config/model-config-migration.js";
 import { ModelRegistryService } from "../../model-config/model-registry-service.js";
+import { ModelCredentialAdapter } from "../../model-config/model-credential-adapter.js";
 
 const revision = z.number().int().nonnegative();
 const credentialInput = z.discriminatedUnion("source", [
@@ -43,6 +44,9 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
       const available = new Set((await models.getAvailable()).map((model) => `${model.provider}/${model.id}`));
       const providers = await Promise.all(models.getProviders().map(async (provider) => ({
         ...await service.view(provider.id, snapshot), editable: Boolean(provider.auth.apiKey), name: snapshot.config.providers[provider.id]?.name ?? provider.name,
+        source: builtin.getProvider(provider.id) ? "builtin" : "user",
+        auth_capabilities: { api_key: Boolean(provider.auth.apiKey), environment: Boolean(provider.auth.apiKey), keyless: !builtin.getProvider(provider.id), subscription: false },
+        allowed_actions: ["details", ...(provider.auth.apiKey ? ["credential"] : []), ...(!builtin.getProvider(provider.id) ? ["edit", "refresh"] : []), "disconnect"],
         models: provider.getModels().map((model) => {
           const config = snapshot.config.providers[provider.id];
           const declared = config?.models?.find((entry) => entry.id === model.id);
@@ -71,7 +75,7 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
   app.post("/api/model-config/providers", async (request, reply) => {
     try {
       const body = z.object({ revision, id: z.string().min(1), config: providerConfigSchema,
-        credential: z.discriminatedUnion("source", [z.object({ source: z.literal("managed"), secret: z.string().min(1).max(16000) }).strict(), z.object({ source: z.literal("keyless") }).strict()]).optional(),
+        credential: z.discriminatedUnion("source", [z.object({ source: z.literal("managed"), secret: z.string().min(1).max(16000) }).strict(), z.object({ source: z.literal("environment"), environment_variable: z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/) }).strict(), z.object({ source: z.literal("keyless") }).strict()]).optional(),
       }).strict().parse(request.body);
       return publish(await service.createProvider(body.revision, body.id, body.config, body.credential));
     } catch (error) { return fail(reply, error); }
@@ -108,6 +112,16 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
   });
   app.register(async (discovery) => {
     await discovery.register(rateLimit, { global: false });
+    discovery.post<{ Params: { id: string } }>("/api/model-config/providers/:id/discover", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+      try {
+        z.object({}).strict().parse(request.body ?? {});
+        const snapshot = service.readSync(), id = request.params.id, provider = snapshot.config.providers[id];
+        if (builtinModels().getProvider(id) || !provider?.baseUrl || !provider.api || !(await service.view(id, snapshot)).authentication.resolved) throw configError("invalid_config", "A configured custom connection is required");
+        const credential = await new ModelCredentialAdapter(service, snapshot).read(id);
+        const result = await resources.testProviderConfiguration({ base_url: provider.baseUrl, protocol: provider.api === "anthropic-messages" ? "anthropic" : "openai", auth: credential?.type === "api_key" ? { kind: "api_key", secret: credential.key } : { kind: "none" } });
+        return { models: result.models, inference_verified: false };
+      } catch (error) { return fail(reply, error); }
+    });
     discovery.post("/api/model-config/discover", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
       const body = z.object({ base_url: z.string().url(), api: z.enum(["openai-completions", "openai-responses", "anthropic-messages"]), secret: z.string().max(16000).optional() }).strict().parse(request.body);

@@ -14,7 +14,7 @@ export async function nativeProviderViews(): Promise<ProviderView[]> {
     const view = await service.view(provider.id, snapshot);
     const native = builtin.getProvider(provider.id);
     const count = provider.getModels().filter((model) => selectable.has(`${provider.id}/${model.id}`)).length;
-    return { id: provider.id, name: snapshot.config.providers[provider.id]?.name ?? provider.name, source: native ? "builtin" : "user", enabled: true,
+    return { id: provider.id, configured: view.configured, name: snapshot.config.providers[provider.id]?.name ?? provider.name, source: native ? "builtin" : "user", enabled: true,
       status: count ? "ready" : view.authentication.resolved ? "unavailable" : "needs_key",
       auth: { kind: view.authentication.source === "keyless" ? "none" : "api_key", api_key_supported: Boolean(provider.auth.apiKey), login_supported: false },
       credential: { state: view.authentication.resolved ? "ready" : "needs_key", configured: view.authentication.resolved },
