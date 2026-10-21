@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
+import * as connectorProbe from "../../mcp/connector-probe.js";
 import { McpConnectorService } from "../../mcp/connector-service.js";
 import { McpRuntimeProjection } from "../../mcp/runtime-projection.js";
 import { McpRepository } from "../../storage/sqlite/repositories/mcp-repository.js";
@@ -206,7 +207,13 @@ describe("canonical MCP routes", () => {
     expect(cachedTools.statusCode).toBe(200);
     expect(cachedTools.json().tools.map((tool: { name: string }) => tool.name).sort()).toEqual(["get_europe_pmc_full_text", "search_arxiv", "search_biorxiv_preprints", "search_crossref", "search_pubmed"]);
 
+    const connect = vi.spyOn(connectorProbe, "connectAndListMcpTools");
     const probe = await app.inject({ method: "POST", url: "/api/mcp/connectors/mcp_builtin_paper_search/probe" });
+    const probeWorkspace = connect.mock.calls.at(-1)![1];
+    expect(probeWorkspace).not.toBe(process.cwd());
+    expect(probeWorkspace).toContain("pi-science-mcp-probe-");
+    await expect(access(probeWorkspace)).rejects.toMatchObject({ code: "ENOENT" });
+    connect.mockRestore();
     expect(probe.statusCode).toBe(200);
     expect(probe.json().tools.map((tool: { name: string }) => tool.name).sort()).toEqual(["get_europe_pmc_full_text", "search_arxiv", "search_biorxiv_preprints", "search_crossref", "search_pubmed"]);
 

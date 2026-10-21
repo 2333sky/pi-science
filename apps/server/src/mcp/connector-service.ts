@@ -1,7 +1,8 @@
 import { bindingError } from "./bindings.js";
 import { createHash } from "node:crypto";
-import { stat } from "node:fs/promises";
-import { isAbsolute, normalize } from "node:path";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, normalize } from "node:path";
 import {
   mcpCredentialUpdateSchema,
   mcpConnectorCreateSchema,
@@ -254,14 +255,20 @@ export class McpConnectorService {
     const result = await probeMcpHealth(definition, process.env, { allowPrivate: connector.runtime_config.allow_private });
     const checkedAt = Date.now();
     if (result.health === "error") { const safeError = redactMcpError(result.error); return { connector_id: connectorId, runtime_state: "error", auth_state: this.authState(connector), error_code: classifyProbeError(safeError), error: safeError, tools: [], checked_at: checkedAt }; }
+    let probeWorkspace: string | undefined;
     try {
-      const tools = await connectAndListMcpTools(connector, process.cwd());
+      // Builtin discovery must not grant writes to the service installation
+      // (the launcher's cwd). Use a private disposable workspace instead.
+      if (connector.source === "builtin") probeWorkspace = await mkdtemp(join(await realpath(tmpdir()), "pi-science-mcp-probe-"));
+      const tools = await connectAndListMcpTools(connector, probeWorkspace ?? process.cwd());
       await this.repository.replaceToolCache({ connector_id: connectorId, config_revision: connector.revision, fingerprint: mcpConnectorFingerprint(connector), tools, fetched_at: checkedAt, expires_at: checkedAt + 5 * 60_000 });
       return { connector_id: connectorId, runtime_state: "ready", auth_state: this.authState(connector), error_code: null, error: null, tools, checked_at: checkedAt };
     } catch (error) {
       const message = redactMcpError(error instanceof Error ? error.message : String(error)) ?? "MCP probe failed";
       const auth = /401|403|unauthori[sz]ed|oauth|authentication/i.test(message) ? "needs-auth" : this.authState(connector);
       return { connector_id: connectorId, runtime_state: "error", auth_state: auth, error_code: classifyProbeError(message), error: message, tools: [], checked_at: checkedAt };
+    } finally {
+      if (probeWorkspace) await rm(probeWorkspace, { recursive: true, force: true });
     }
   }
 
