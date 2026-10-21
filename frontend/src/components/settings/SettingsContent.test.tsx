@@ -159,7 +159,7 @@ describe("SettingsContent", () => {
     expect(screen.getByRole("tab", { name: "AI Models" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tabpanel", { name: "AI Models" })).toHaveAttribute("aria-labelledby", "settings-tab-models");
-    expect(await screen.findByText("Advanced model configuration")).toBeInTheDocument();
+    expect(await screen.findByText("My model services")).toBeInTheDocument();
   });
 
   it("shows global Network scope when opened from a workspace and restores workspace scope on other tabs", async () => {
@@ -243,7 +243,7 @@ describe("SettingsContent", () => {
   it("keeps runtime model controls out of Settings", async () => {
     renderContent(null);
     fireEvent.click(await screen.findByRole("tab", { name: "AI Models" }));
-    expect(await screen.findByText("Advanced model configuration")).toBeInTheDocument();
+    expect(await screen.findByText("My model services")).toBeInTheDocument();
     expect(screen.queryByText("Default model")).not.toBeInTheDocument();
     expect(screen.queryByText("Thinking Level")).not.toBeInTheDocument();
     expect(screen.queryByText("Context Management")).not.toBeInTheDocument();
@@ -322,7 +322,7 @@ describe("SettingsContent", () => {
     fireEvent.click(screen.getByRole("tab", { name: "AI Models" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Catalog unavailable");
     fireEvent.click(screen.getByRole("button", { name: "Retry loading" }));
-    expect(await screen.findByText("Advanced model configuration")).toBeInTheDocument();
+    expect(await screen.findByText("My model services")).toBeInTheDocument();
     expect(attempts).toBe(3);
   });
 
@@ -357,7 +357,10 @@ describe("SettingsContent", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Manage credentials" }));
     const dialog = screen.getByRole("dialog", { name: "Lab · Manage credentials" });
     if (operation === "save") fireEvent.change(within(dialog).getByLabelText("API key"), { target: { value: "retained-test-key" } });
-    else fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "remove" } });
+    else {
+      fireEvent.pointerDown(within(dialog).getByRole("button", { name: /Credential source/ }), { button: 0, ctrlKey: false, pointerType: "mouse" });
+      fireEvent.click(await screen.findByRole("menuitemradio", { name: "Remove credential binding" }));
+    }
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent("Credential write failed");
     expect(dialog).toBeInTheDocument();

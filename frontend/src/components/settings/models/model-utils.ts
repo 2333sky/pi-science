@@ -1,4 +1,5 @@
-import type { ProviderView } from "@pi-science/contracts";
+import type { ProviderConfig, ProviderView } from "@pi-science/contracts";
+import type { DiscoveredModel } from "./useModelDiscovery";
 
 export type ModelView = {
   id: string;
@@ -50,4 +51,35 @@ export function formatContext(value: number | null) {
   if (value >= 1_000_000) return `${Math.round(value / 100_000) / 10}M`;
   if (value >= 1000) return `${Math.round(value / 1000)}K`;
   return String(value);
+}
+
+/** Maps the capabilities a provider advertised during discovery onto the configuration
+ *  schema. Fields the endpoint did not report stay absent so the runtime keeps its defaults. */
+export function modelConfigFromDiscovery(model?: DiscoveredModel) {
+  const capabilities = model?.capabilities ?? {};
+  return {
+    ...(model?.display_name && model.display_name !== model.id ? { name: model.display_name } : {}),
+    ...(capabilities.context_window ? { contextWindow: capabilities.context_window } : {}),
+    ...(capabilities.max_output_tokens ? { maxTokens: capabilities.max_output_tokens } : {}),
+    ...(capabilities.reasoning === undefined ? {} : { reasoning: capabilities.reasoning }),
+    ...(capabilities.vision ? { input: ["text", "image"] as Array<"text" | "image"> } : {}),
+  };
+}
+
+/** Discovery owns the capability fields it reports, so a refresh rewrites them on models that
+ *  already exist. Manual corrections belong in `modelOverrides`, which this never touches. */
+export function mergeDiscoveredModels(existing: NonNullable<ProviderConfig["models"]>, discovered: DiscoveredModel[]) {
+  const byId = new Map(discovered.map((model) => [model.id, model]));
+  let updated = 0;
+  const models = existing.map((model) => {
+    const found = byId.get(model.id);
+    if (!found) return model;
+    const patch = modelConfigFromDiscovery(found);
+    if (!Object.keys(patch).length) return model;
+    updated += 1;
+    return { ...model, ...patch, ...(model.name ? { name: model.name } : {}) };
+  });
+  const known = new Set(existing.map((model) => model.id));
+  const added = discovered.filter((model) => !known.has(model.id)).map((model) => ({ id: model.id, ...modelConfigFromDiscovery(model) }));
+  return { models: [...models, ...added], added: added.length, updated };
 }

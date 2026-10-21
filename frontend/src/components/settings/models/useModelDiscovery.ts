@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { apiRequest } from "../../../lib/client/api";
 
-export type DiscoveredModel = { id: string; display_name?: string };
+export type DiscoveredCapabilities = { context_window?: number; max_output_tokens?: number; reasoning?: boolean; thinking_levels?: string[]; vision?: boolean; tools?: boolean; structured_output?: boolean };
+export type DiscoveredModel = { id: string; display_name?: string; capabilities?: DiscoveredCapabilities };
 
 /** Discovery is a cancellable read of a draft, independent of saving the connection. */
 export function useModelDiscovery(enabled: boolean, url: string, api: string, source: string, secret: string, variable: string) {

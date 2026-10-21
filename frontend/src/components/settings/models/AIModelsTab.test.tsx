@@ -12,7 +12,7 @@ it("shows native load errors without exposing old controls or requesting the old
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<QueryClientProvider client={client}><AIModelsTab apiKeyInput={{}} setApiKeyInput={vi.fn()} showKey={{}} setShowKey={vi.fn()} saving={null} saveKey={saveKey} deleteKey={vi.fn()} /></QueryClientProvider>);
   expect(await screen.findByRole("alert")).toHaveTextContent("Repair native configuration");
-  expect(screen.getByRole("button", { name: "Advanced model configuration" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Advanced model configuration" })).not.toBeInTheDocument();
   expect(requests.sort()).toEqual(["/api/model-config", "/api/model-config/catalog"]);
   expect(saveKey).not.toHaveBeenCalled(); client.clear();
 });
