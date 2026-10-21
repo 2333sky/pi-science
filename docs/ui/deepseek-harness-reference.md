@@ -424,6 +424,10 @@ inside the frozen Settings panel so later changes stay inside the same budget.
 - Connect dialog rows are `40px` and carry no leading or trailing icon: the
   service name plus a monospace id is the whole row. The custom-API entry is a
   single `40px` accent-bordered row, and subscription rows use the same height.
+- A discovery row is editable in place: context window, max output, text and image input, and reasoning. Declared values prefill the inputs, and the user's edit wins over the declaration.
+- A model whose provider declares no context window defaults to `1000000` tokens, and the row says the value is a default rather than a declaration. `DEFAULT_MODEL_CONTEXT_WINDOW` in the contracts package is the one source for it.
+- A reasoning model exposes seven thinking levels. `xhigh` and `max` map to `high` on OpenAI-compatible endpoints through `thinkingLevelMap`, because pi hides both levels unless the map names them.
+- A refresh reports whether the runtime reloaded at once or waits for the current turn, using the `runtime` field the PATCH response returns.
 - Discovery carries the capabilities the provider reports (context window, max output, reasoning, vision), and a refresh rewrites them on models that already exist. Manual corrections belong in `modelOverrides`.
 - Form selects left-align their value like the neighbouring inputs. The settings select menu paints at z-index `130`, above the `115` modal overlay, because a nested dialog otherwise covers its own popup.
 - A discovery result is a bordered list with a `32px` summary header

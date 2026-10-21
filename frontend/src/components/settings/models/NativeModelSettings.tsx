@@ -12,7 +12,7 @@ import { DiscoveryList } from "./DiscoveryList";
 import type { DiscoveredModel } from "./useModelDiscovery";
 import type { ProviderConfig } from "@pi-science/contracts";
 import { button, field, primary, send, useModelConfig, type CatalogProvider, type Configuration } from "./native-model-api";
-import { formatContext, mergeDiscoveredModels } from "./model-utils";
+import { formatContext, mergeDiscoveredModels, type ModelConfigEdits } from "./model-utils";
 export { useModelConfig } from "./native-model-api";
 
 type Dialog = { kind: "credential" | "details" | "disconnect" | "edit" | "refresh" | "subscription"; provider: CatalogProvider } | { kind: "connect"; revision: number };
@@ -41,7 +41,7 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
   // models are appended and reported capabilities are rewritten in place. Removal stays a manual edit.
   const refreshModels = async () => {
     setRefreshing(true); setNotice(null);
-    let added = 0, updated = 0, failed = false;
+    let added = 0, updated = 0, failed = false, pendingRuntime = false;
     try {
       const snapshot = await apiRequest<Configuration>("/api/model-config");
       let revision = snapshot.revision;
@@ -53,14 +53,15 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
           const merged = mergeDiscoveredModels(config.models ?? [], [...new Map(found.models.map((model) => [model.id, model])).values()]);
           if (!merged.added && !merged.updated) continue;
           const next = { ...config, models: merged.models };
-          const saved = await send<{ revision?: number }>(`/api/model-config/providers/${encodeURIComponent(provider.id)}`, "PATCH", { revision, config: next });
+          const saved = await send<{ revision?: number; runtime?: "published" | "reload_pending" }>(`/api/model-config/providers/${encodeURIComponent(provider.id)}`, "PATCH", { revision, config: next });
           configs[provider.id] = next;
           if (typeof saved?.revision === "number") revision = saved.revision;
+          if (saved?.runtime === "reload_pending") pendingRuntime = true;
           added += merged.added; updated += merged.updated;
         } catch { failed = true; }
       }
       await refresh();
-      setNotice(added || updated ? t("settings.native.refreshedSummary", { added, updated }) : failed ? t("settings.native.reloadPending") : t("settings.native.refreshed"));
+      setNotice(added || updated ? `${t("settings.native.refreshedSummary", { added, updated })} ${t(pendingRuntime ? "settings.native.refreshedPending" : "settings.native.refreshedLive")}` : failed ? t("settings.native.reloadPending") : t("settings.native.refreshed"));
       window.setTimeout(() => setNotice(null), 2500);
     } catch { setNotice(t("settings.native.reloadPending")); }
     finally { setRefreshing(false); }
@@ -181,6 +182,7 @@ function ManageDialog({ dialog, config, onClose, onSaved, onFailure }: { dialog:
   const [name, setName] = useState(p?.name ?? ""); const [url, setUrl] = useState(p?.config?.baseUrl ?? "");
   const [api, setApi] = useState<string>(p?.config?.api ?? "openai-completions"); const [models, setModels] = useState(p?.config?.models?.map((m) => m.id).join("\n") ?? "");
   const [candidates, setCandidates] = useState<DiscoveredModel[]>([]);
+  const [edits, setEdits] = useState<Record<string, ModelConfigEdits>>({});
   const [discard, setDiscard] = useState(false); const [touched, setTouched] = useState(false);
   const dirty = touched || Boolean(secret || p && (name !== p.name || url !== (p.config?.baseUrl ?? "") || models !== (p.config?.models?.map((m) => m.id).join("\n") ?? "")));
   const close = () => { if (!busy) { if (dirty) setDiscard(true); else onClose(); } };
@@ -196,7 +198,7 @@ function ManageDialog({ dialog, config, onClose, onSaved, onFailure }: { dialog:
     if ((dialog.kind === "edit" || dialog.kind === "refresh")) {
       const ids = [...new Set(models.split("\n").map((s) => s.trim()).filter(Boolean))];
       const original = p!.config!;
-      const merged = mergeDiscoveredModels((original.models ?? []).filter((model) => ids.includes(model.id)), candidates.filter((candidate) => ids.includes(candidate.id)));
+      const merged = mergeDiscoveredModels((original.models ?? []).filter((model) => ids.includes(model.id)), candidates.filter((candidate) => ids.includes(candidate.id)), edits);
       const next = { ...original, name, baseUrl: url, api, models: [...merged.models, ...ids.filter((id) => !merged.models.some((model) => model.id === id)).map((id) => ({ id }))], modelOverrides: Object.fromEntries(Object.entries(original.modelOverrides ?? {}).filter(([id]) => ids.includes(id))) };
       await send("/api/model-config/preview", "POST", { providers: { ...config.providers, [p!.id]: next } });
       return send(path, "PATCH", { revision: p!.revision, config: next });
@@ -209,7 +211,7 @@ function ManageDialog({ dialog, config, onClose, onSaved, onFailure }: { dialog:
       {dialog.kind === "credential" && <CredentialFields capabilities={p!.auth_capabilities} source={source} setSource={(v) => { setSource(v); setSecret(""); }} secret={secret} setSecret={setSecret} variable={variable} setVariable={setVariable} allowRemove />}
       {dialog.kind === "disconnect" && <p>{t("settings.connections.disconnectHelp", { name: p!.name })}</p>}
       {dialog.kind === "details" && <><p>{p!.id}</p><p>{p!.config?.baseUrl}</p><p>{p!.config?.api}</p><p>{t(`settings.native.source.${p!.authentication.source}`)}</p><p>{t("settings.native.discoveryHelp")}</p></>}
-      {(dialog.kind === "edit" || dialog.kind === "refresh") && <><button className={button} disabled={busy} onClick={() => void run(async () => { const found = await send<{ models: DiscoveredModel[] }>(`/api/model-config/providers/${encodeURIComponent(p!.id)}/discover`, "POST", {}); const unique = [...new Map(found.models.map((model) => [model.id, model])).values()]; setCandidates(unique); setModels((current) => [...new Set([...current.split("\n").map((value) => value.trim()).filter(Boolean), ...unique.map((model) => model.id)])].join("\n")); return {}; }, false)}>{t("settings.native.discover")}</button>{candidates.length > 0 && <DiscoveryList models={candidates} selected={models.split("\n").map((value) => value.trim()).filter(Boolean)} onChange={(ids) => setModels(ids.join("\n"))} />}<p className="text-muted">{t("settings.native.discoveryHelp")}</p>{([["settings.resources.name", name, setName], ["settings.resources.baseUrl", url, setUrl]] as const).map(([label, value, update]) => <label key={label} className="block">{t(label)}<input className={field} value={value} onChange={(e) => update(e.target.value)} /></label>)}<div className="block"><span className="mb-1 block">{t("settings.native.api")}</span><SettingsSelectMenu variant="field" value={api} ariaLabel={t("settings.native.api")} onSelect={(value) => setApi(value)} options={["openai-completions", "openai-responses", "anthropic-messages"].map((value) => ({ value, label: value }))} /></div><label className="block">{t("settings.native.manualModels")}<textarea className={field} rows={4} value={models} onChange={(e) => setModels(e.target.value)} /></label></>}
+      {(dialog.kind === "edit" || dialog.kind === "refresh") && <><button className={button} disabled={busy} onClick={() => void run(async () => { const found = await send<{ models: DiscoveredModel[] }>(`/api/model-config/providers/${encodeURIComponent(p!.id)}/discover`, "POST", {}); const unique = [...new Map(found.models.map((model) => [model.id, model])).values()]; setCandidates(unique); setEdits({}); setModels((current) => [...new Set([...current.split("\n").map((value) => value.trim()).filter(Boolean), ...unique.map((model) => model.id)])].join("\n")); return {}; }, false)}>{t("settings.native.discover")}</button>{candidates.length > 0 && <DiscoveryList models={candidates} selected={models.split("\n").map((value) => value.trim()).filter(Boolean)} onChange={(ids) => setModels(ids.join("\n"))} edits={edits} onEdits={(value) => { setEdits(value); setTouched(true); }} />}<p className="text-muted">{t("settings.native.discoveryHelp")}</p>{([["settings.resources.name", name, setName], ["settings.resources.baseUrl", url, setUrl]] as const).map(([label, value, update]) => <label key={label} className="block">{t(label)}<input className={field} value={value} onChange={(e) => update(e.target.value)} /></label>)}<div className="block"><span className="mb-1 block">{t("settings.native.api")}</span><SettingsSelectMenu variant="field" value={api} ariaLabel={t("settings.native.api")} onSelect={(value) => setApi(value)} options={["openai-completions", "openai-responses", "anthropic-messages"].map((value) => ({ value, label: value }))} /></div><label className="block">{t("settings.native.manualModels")}<textarea className={field} rows={4} value={models} onChange={(e) => setModels(e.target.value)} /></label></>}
       {error && <p role="alert" className="text-error-text">{error}</p>}
       {discard && <div role="alert" className="space-y-2"><p>{t("settings.connections.discardHelp")}</p><button className={button} onClick={() => setDiscard(false)}>{t("settings.connections.keepEditing")}</button><button className={`${button} ml-2`} onClick={onClose}>{t("settings.connections.discard")}</button></div>}
     </div>

@@ -6,7 +6,7 @@ import type { ProviderAuthCapabilities } from "@pi-science/contracts";
 import { SubscriptionAuthorization } from "./SubscriptionAuthorization";
 import { useModelDiscovery } from "./useModelDiscovery";
 import { DiscoveryList } from "./DiscoveryList";
-import { modelConfigFromDiscovery } from "./model-utils";
+import { modelConfigFromDiscovery, type ModelConfigEdits } from "./model-utils";
 import { Modal } from "../../ui/Modal";
 import { SettingsSelectMenu } from "../SettingsSelectMenu";
 import { button, field, primary, send, type CatalogProvider } from "./native-model-api";
@@ -56,6 +56,7 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
   const [name, setName] = useState(""); const [id] = useState(() => `custom-${uuid()}`); const [url, setUrl] = useState(""); const [api, setApi] = useState("openai-completions");
   const [source, setSource] = useState("managed"); const [secret, setSecret] = useState(""); const [variable, setVariable] = useState("");
   const [manual, setManual] = useState(""); const [selected, setSelected] = useState<string[]>([]);
+  const [edits, setEdits] = useState<Record<string, ModelConfigEdits>>({});
   const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const discovery = useModelDiscovery(custom, url, api, source, secret, variable);
   // Discovered models are selectable by default: a connection exists to use its models, not to browse them.
@@ -63,7 +64,7 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
   const capabilities = custom ? { api_key: true, environment: true, keyless: true, subscription: false } : target.auth_capabilities;
   const valid = (source === "managed" ? Boolean(secret.trim()) : source === "environment" ? /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable) : true) && (!custom || Boolean(name.trim() && id && url && (selected.length || manual.trim())));
   useEffect(() => { onCanSave(valid); }, [valid, onCanSave]);
-  const invalidate = () => { setSelected([]); };
+  const invalidate = () => { setSelected([]); setEdits({}); };
   const execute = async (action: () => Promise<void>) => {
     setBusy(true); onBusy(true); setError(null);
     try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); await onFailure(cause); }
@@ -76,18 +77,18 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
       const ids = [...new Set([...selected, ...manual.split("\n").map((s) => s.trim()).filter(Boolean)])];
       if (!ids.length) throw new Error(t("settings.connections.modelsRequired"));
       if (providers.some((p) => p.id === id)) throw new Error(t("settings.connections.duplicateId"));
-      const config = { name: name.trim(), baseUrl: url, api, models: ids.map((id) => ({ id, ...modelConfigFromDiscovery(discovery.models.find((candidate) => candidate.id === id)) })) };
+      const config = { name: name.trim(), baseUrl: url, api, models: ids.map((id) => ({ id, ...modelConfigFromDiscovery(discovery.models.find((candidate) => candidate.id === id), edits[id]) })) };
       await send("/api/model-config/preview", "POST", { providers: { [id]: config } });
       result = await send("/api/model-config/providers", "POST", { revision, id, config, credential });
     } else result = await send(`/api/model-config/providers/${encodeURIComponent(target.id)}/credential`, "PUT", { revision, credential });
     setSecret(""); onDirty(false); await onSaved(result);
   });
   return <form id={formId} className="space-y-3" onChange={() => onDirty(true)} onSubmit={(e) => { e.preventDefault(); if (!busy) void save(); }}>
-    <fieldset disabled={busy} className="space-y-3">
+    <fieldset disabled={busy} className="min-w-0 space-y-3">
       {custom && <><label className="block text-ui-caption text-text">{t("settings.resources.name")}<input className={field} value={name} onChange={(e) => setName(e.target.value)} required /></label><label className="block text-ui-caption text-text">{t("settings.resources.baseUrl")}<input className={field} type="url" value={url} onChange={(e) => { setUrl(e.target.value); invalidate(); }} required /></label><div className="block text-ui-caption text-text"><span className="mb-1 block">{t("settings.native.api")}</span><SettingsSelectMenu variant="field" value={api} ariaLabel={t("settings.native.api")} onSelect={(value) => { setApi(value); invalidate(); }} options={["openai-completions", "openai-responses", "anthropic-messages"].map((value) => ({ value, label: value }))} /></div></>}
       <CredentialFields capabilities={capabilities} source={source} setSource={(v) => { setSource(v); setSecret(""); invalidate(); }} secret={secret} setSecret={(v) => { setSecret(v); invalidate(); }} variable={variable} setVariable={(v) => { setVariable(v); invalidate(); }} />
       {custom && <><div className="flex items-center gap-3"><button type="button" className={button} disabled={!discovery.ready || discovery.status === "loading"} onClick={() => { invalidate(); discovery.retry(); }}>{t("settings.native.discover")}</button><p role="status" className="text-ui-caption text-muted">{t(`settings.connections.discovery.${discovery.status === "success" && !discovery.models.length ? "empty" : discovery.status}`)}</p></div>
-        {discovery.models.length > 0 && <DiscoveryList models={discovery.models} selected={selected} onChange={setSelected} />}
+        {discovery.models.length > 0 && <DiscoveryList models={discovery.models} selected={selected} onChange={setSelected} edits={edits} onEdits={(value) => { setEdits(value); onDirty(true); }} />}
         <p className="text-ui-caption text-muted">{t("settings.native.discoveryHelp")}</p>
         <label className="block text-ui-caption text-text">{t("settings.native.manualModels")}<textarea className={field} rows={3} value={manual} onChange={(e) => setManual(e.target.value)} /></label></>}
     </fieldset>

@@ -2,7 +2,7 @@ import { validateOutboundHttpUrl } from "../security/outbound-security.js";
 import { SettingsStore } from "../storage/settings-store.js";
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { createProvider, lazyApi, type Api, type Model, type ProviderStreams } from "@earendil-works/pi-ai";
-import { modelConfigSnapshotSchema, type ModelConfigSnapshot } from "@pi-science/contracts";
+import { DEFAULT_MODEL_CONTEXT_WINDOW, modelConfigSnapshotSchema, type ModelConfigSnapshot } from "@pi-science/contracts";
 import { ModelCredentialAdapter } from "./model-credential-adapter.js";
 import { ModelConfigService, configError } from "./model-config-service.js";
 
@@ -38,7 +38,7 @@ export class ModelRegistryService {
         catalog.set(model.id, { ...(base ?? {}), ...model, provider: id, name: model.name ?? base?.name ?? model.id,
           api: config.api ?? base?.api ?? native?.getModels()[0]?.api ?? "openai-completions", baseUrl: config.baseUrl ?? base?.baseUrl ?? native?.baseUrl ?? "",
           reasoning: model.reasoning ?? base?.reasoning ?? false, input: model.input ?? base?.input ?? ["text"],
-          contextWindow: model.contextWindow ?? base?.contextWindow ?? 128000, maxTokens: model.maxTokens ?? base?.maxTokens ?? 16384,
+          contextWindow: model.contextWindow ?? base?.contextWindow ?? DEFAULT_MODEL_CONTEXT_WINDOW, maxTokens: model.maxTokens ?? base?.maxTokens ?? 16384,
           cost: model.cost ?? base?.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         } as Model<Api>);
       }

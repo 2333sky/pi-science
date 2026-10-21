@@ -1730,5 +1730,8 @@
   "settings.connections.discovery.selectAll": "全选",
   "settings.connections.discovery.clearAll": "清除选择",
   "settings.connections.discovery.summary": "发现 {{found}} 个 · 已选 {{selected}}",
-  "settings.native.refreshedSummary": "已刷新 · 新增 {{added}} 个 · 更新 {{updated}} 个"
+  "settings.native.refreshedSummary": "已刷新 · 新增 {{added}} 个 · 更新 {{updated}} 个",
+  "settings.native.refreshedLive": "已立即生效，新回合将使用更新后的模型。",
+  "settings.native.refreshedPending": "运行时尚待重载，活动任务继续使用原配置。",
+  "settings.native.defaultValue": "默认值"
 }

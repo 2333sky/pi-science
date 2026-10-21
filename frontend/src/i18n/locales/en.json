@@ -1730,5 +1730,8 @@
   "settings.connections.discovery.selectAll": "Select all",
   "settings.connections.discovery.clearAll": "Clear selection",
   "settings.connections.discovery.summary": "Found {{found}} · selected {{selected}}",
-  "settings.native.refreshedSummary": "Refreshed · {{added}} added · {{updated}} updated"
+  "settings.native.refreshedSummary": "Refreshed · {{added}} added · {{updated}} updated",
+  "settings.native.refreshedLive": "Live now; new turns use the updated models.",
+  "settings.native.refreshedPending": "Runtime reload pending; active turns keep their configuration.",
+  "settings.native.defaultValue": "default"
 }

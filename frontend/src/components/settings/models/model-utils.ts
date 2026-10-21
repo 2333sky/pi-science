@@ -1,4 +1,4 @@
-import type { ProviderConfig, ProviderView } from "@pi-science/contracts";
+import { DEFAULT_MODEL_CONTEXT_WINDOW, type ProviderConfig, type ProviderView } from "@pi-science/contracts";
 import type { DiscoveredModel } from "./useModelDiscovery";
 
 export type ModelView = {
@@ -53,33 +53,43 @@ export function formatContext(value: number | null) {
   return String(value);
 }
 
+/** Capabilities the user corrected in the discovery list. Absent keys stay undeclared. */
+export type ModelConfigEdits = { contextWindow?: number; maxTokens?: number; input?: Array<"text" | "image">; reasoning?: boolean };
+
 /** Maps the capabilities a provider advertised during discovery onto the configuration
- *  schema. Fields the endpoint did not report stay absent so the runtime keeps its defaults. */
-export function modelConfigFromDiscovery(model?: DiscoveredModel) {
+ *  schema. The user's edit wins, then the declaration, then for `contextWindow` the one
+ *  default the discovery list also shows. Pi hides `xhigh` and `max` unless a thinking
+ *  map entry exists, so a reasoning model gets both levels routed to `high`. */
+export function modelConfigFromDiscovery(model?: DiscoveredModel, edits: ModelConfigEdits = {}) {
   const capabilities = model?.capabilities ?? {};
+  const reasoning = edits.reasoning ?? capabilities.reasoning;
+  const contextWindow = edits.contextWindow ?? capabilities.context_window ?? (model ? DEFAULT_MODEL_CONTEXT_WINDOW : undefined);
+  const maxTokens = edits.maxTokens ?? capabilities.max_output_tokens;
+  const input = edits.input ?? (capabilities.vision ? ["text", "image"] as Array<"text" | "image"> : undefined);
   return {
     ...(model?.display_name && model.display_name !== model.id ? { name: model.display_name } : {}),
-    ...(capabilities.context_window ? { contextWindow: capabilities.context_window } : {}),
-    ...(capabilities.max_output_tokens ? { maxTokens: capabilities.max_output_tokens } : {}),
-    ...(capabilities.reasoning === undefined ? {} : { reasoning: capabilities.reasoning }),
-    ...(capabilities.vision ? { input: ["text", "image"] as Array<"text" | "image"> } : {}),
+    ...(contextWindow ? { contextWindow } : {}),
+    ...(maxTokens ? { maxTokens } : {}),
+    ...(reasoning === undefined ? {} : { reasoning }),
+    ...(input ? { input } : {}),
+    ...(reasoning ? { thinkingLevelMap: { xhigh: "high", max: "high" } } : {}),
   };
 }
 
 /** Discovery owns the capability fields it reports, so a refresh rewrites them on models that
  *  already exist. Manual corrections belong in `modelOverrides`, which this never touches. */
-export function mergeDiscoveredModels(existing: NonNullable<ProviderConfig["models"]>, discovered: DiscoveredModel[]) {
+export function mergeDiscoveredModels(existing: NonNullable<ProviderConfig["models"]>, discovered: DiscoveredModel[], edits: Record<string, ModelConfigEdits> = {}) {
   const byId = new Map(discovered.map((model) => [model.id, model]));
   let updated = 0;
   const models = existing.map((model) => {
     const found = byId.get(model.id);
     if (!found) return model;
-    const patch = modelConfigFromDiscovery(found);
+    const patch = modelConfigFromDiscovery(found, edits[model.id]);
     if (!Object.keys(patch).length) return model;
     updated += 1;
     return { ...model, ...patch, ...(model.name ? { name: model.name } : {}) };
   });
   const known = new Set(existing.map((model) => model.id));
-  const added = discovered.filter((model) => !known.has(model.id)).map((model) => ({ id: model.id, ...modelConfigFromDiscovery(model) }));
+  const added = discovered.filter((model) => !known.has(model.id)).map((model) => ({ id: model.id, ...modelConfigFromDiscovery(model, edits[model.id]) }));
   return { models: [...models, ...added], added: added.length, updated };
 }

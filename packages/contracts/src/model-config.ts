@@ -18,6 +18,9 @@ const headers = z.record(z.string(), z.string().max(1000)).superRefine((value, c
     seen.add(name);
   }
 });
+// Provider endpoints rarely declare a window, so one shared default keeps the
+// stored value and the Settings field showing it identical.
+export const DEFAULT_MODEL_CONTEXT_WINDOW = 1_000_000;
 export const modelConfigApiSchema = z.enum(["openai-completions", "openai-responses", "anthropic-messages"]);
 export const configuredModelSchema = z.object({
   id: z.string().min(1).max(500), name: z.string().min(1).max(500).optional(),

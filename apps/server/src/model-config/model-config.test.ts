@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify from "fastify";
-import { modelConfigSchema } from "@pi-science/contracts";
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
+import { DEFAULT_MODEL_CONTEXT_WINDOW, modelConfigSchema } from "@pi-science/contracts";
 import { ModelConfigService, modelConfigBackend, modelConfigPath } from "./model-config-service.js";
 import { ModelCredentialAdapter } from "./model-credential-adapter.js";
 import { ModelRegistryService } from "./model-registry-service.js";
@@ -34,6 +35,17 @@ describe("native model configuration", () => {
     expect(modelConfigBackend()).toBe("pi_ai_v1");
     vi.stubEnv("PI_SCIENCE_MODEL_CONFIG_BACKEND", "surprise");
     expect(() => modelConfigBackend()).toThrow();
+  });
+  it("defaults an undeclared context window to the shared value", async () => {
+    const service = new ModelConfigService();
+    await service.replace(0, { providers: { lab: { api: "openai-completions" as const, baseUrl: "http://127.0.0.1:9876/v1", models: [{ id: "bare" }] } } });
+    expect(new ModelRegistryService(service).compile().getModel("lab", "bare")).toMatchObject({ contextWindow: DEFAULT_MODEL_CONTEXT_WINDOW, maxTokens: 16384 });
+  });
+  it("offers seven thinking levels when a reasoning model maps the extended ones", async () => {
+    const service = new ModelConfigService();
+    await service.replace(0, { providers: { lab: { api: "openai-completions" as const, baseUrl: "http://127.0.0.1:9876/v1", models: [{ id: "reasoner", reasoning: true, thinkingLevelMap: { xhigh: "high", max: "high" } }] } } });
+    const model = new ModelRegistryService(service).compile().getModel("lab", "reasoner")!;
+    expect(getSupportedThinkingLevels(model)).toEqual(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
   });
   it("keeps reads pure and fails closed on corruption or symlinks", async () => {
     const service = new ModelConfigService();
