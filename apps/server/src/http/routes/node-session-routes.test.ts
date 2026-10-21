@@ -74,6 +74,10 @@ it("validates, persists and isolates session approval modes", async () => {
     expect((await server.inject({ method: "GET", url })).json()).toEqual({ mode: "auto", revision: 1 });
     const full = await server.inject({ method: "PUT", url, payload: { mode: "full", revision: 1, acknowledgeFullAccess: true } });
     expect(full.json()).toEqual({ mode: "full", revision: 2 });
+    const ask = await server.inject({ method: "PUT", url, payload: { mode: "ask", revision: 2 } });
+    expect(ask.statusCode).toBe(200);
+    expect(ask.json()).toEqual({ mode: "ask", revision: 3 });
+    expect((await server.inject({ method: "GET", url })).json()).toEqual({ mode: "ask", revision: 3 });
   } finally { await server.close(); }
 });
 

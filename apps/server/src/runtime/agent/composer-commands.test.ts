@@ -2,9 +2,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PiConfig } from "@pi-science/contracts";
 import { AgentCoreSessionService } from "./agent-core-session-service.js";
+import { createHash } from "node:crypto";
+import { workspaceFile, writeJsonAtomic } from "../../storage/persistence.js";
+import { workspaceIdentity } from "./workspace-session-identity.js";
 import { seedWorkspaceAssets } from "./runtime-config.js";
 
 /** Literal packaged catalogue. A new builtin skill updates this list on purpose. */
@@ -81,5 +84,47 @@ describe("composerCommands skill catalogue", () => {
     const { commands } = await service().composerCommands(cwd, configWithSkills([extra]));
 
     expect(skillNames(commands)).toEqual([...BUILTIN_SKILLS.map((name) => `skill:${name}`), "skill:team-lint"]);
+  });
+});
+
+
+describe("session command catalogue without runtime startup", () => {
+  it("lists cold-session skills with saved paths without needing a model or sandbox", async () => {
+    const cwd = await tempDir("pi-science-session-catalogue-");
+    home(cwd);
+    const extra = join(cwd, "saved-skills");
+    await mkdir(join(extra, "saved"), { recursive: true });
+    await writeFile(join(extra, "saved", "SKILL.md"), "---\nname: saved\ndescription: Saved session skill.\n---\n");
+    const instance = service();
+    const internals = instance as unknown as {
+      repository: { findPath: (...args: unknown[]) => Promise<string> };
+      manager: { start: (...args: unknown[]) => Promise<unknown> };
+    };
+    vi.spyOn(internals.repository, "findPath").mockResolvedValue(join(cwd, "session.jsonl"));
+    const start = vi.spyOn(internals.manager, "start");
+    const path = workspaceFile(cwd, `agent-session-config/${createHash("sha256").update("cold").digest("hex")}.json`);
+    await writeJsonAtomic(path, { skills: [extra] });
+    const result = await instance.command(cwd, "cold", "get_commands", {}, configWithSkills());
+    expect(result).toMatchObject({ success: true, data: { commands: expect.arrayContaining([
+      { name: "skill:saved", description: "Saved session skill.", source: "skill", group: "skill" },
+      expect.objectContaining({ name: "skill:literature-review" }),
+    ]) } });
+    expect(start).not.toHaveBeenCalled();
+    expect(existsSync(join(cwd, ".pi"))).toBe(false);
+  });
+
+  it("uses the live session's catalogue and does not expose workspace skills in its place", async () => {
+    const cwd = await tempDir("pi-science-live-catalogue-");
+    home(cwd);
+    const instance = service();
+    const result = { success: true, data: { commands: [] } };
+    const sendCommand = vi.fn().mockResolvedValue(result);
+    const internals = instance as unknown as { live: Map<string, unknown> };
+    internals.live.set(`${workspaceIdentity(cwd)}\0live`, {
+      runtime: { cwd, sessionId: "live", isClosed: false, sendCommand },
+    });
+    expect(await instance.command(cwd, "live", "get_commands", {}, configWithSkills())).toEqual(result);
+    expect(sendCommand).toHaveBeenCalledWith("get_commands", {});
+    expect(await instance.command(cwd, "missing", "get_commands", {}, configWithSkills())).toMatchObject({ success: false, code: "not_found" });
   });
 });

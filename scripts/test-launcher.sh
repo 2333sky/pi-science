@@ -209,10 +209,14 @@ CONTROL_PORT="$(free_port)"
 RUNTIME_PORT="$(free_port)"
 FRONTEND_PORT="$(free_port)"
 LOG="$TEMP_ROOT/start.log"
+LAUNCH_UMASK="$(umask)"
+umask 002
 PI_SCIENCE_PYTHON="$(command -v python3)" PI_SCIENCE_CONTROL_PLANE_PORT="$CONTROL_PORT" PI_SCIENCE_RUNTIME_PORT="$RUNTIME_PORT" PI_SCIENCE_FRONTEND_PORT="$FRONTEND_PORT" PI_SCIENCE_STARTUP_TIMEOUT_SECONDS=10 bash "$FIXTURE/scripts/start.sh" >"$LOG" 2>&1 &
 START_PID=$!
+umask "$LAUNCH_UMASK"
 wait_url "http://127.0.0.1:$CONTROL_PORT/internal/ready" || { cat "$LOG" >&2; fail "control plane did not become ready"; }
 wait_url "http://127.0.0.1:$FRONTEND_PORT" || { cat "$LOG" >&2; fail "frontend did not become ready"; }
+node -e 'const fs = require("node:fs"); if ((fs.statSync(process.env.PI_SCIENCE_HOME).mode & 0o777) !== 0o700) process.exit(1)' || fail "new application state is not private under umask 002"
 FIXTURE_CANONICAL="$(cd "$FIXTURE" && pwd -P)"
 [ "$(cat "$FIXTURE/control.cwd")" = "$FIXTURE_CANONICAL/apps/server" ] || fail "control plane CWD changed"
 [ "$(cat "$FIXTURE/frontend.cwd")" = "$FIXTURE_CANONICAL/frontend" ] || fail "frontend CWD changed"

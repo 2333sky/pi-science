@@ -432,6 +432,16 @@ export class AgentCoreSessionService {
   }
 
   private async commandOnce(cwd: string, sessionId: string, type: string, params: Record<string, unknown>, config: PiConfig): Promise<RuntimeResult> {
+    // Cold-session completions are metadata: no model credentials or execution
+    // sandbox should be needed. Live workers retain their current resource policy.
+    const key = identity(cwd, sessionId);
+    if (type === "get_commands" && !this.live.has(key) && !this.opening.has(key)) {
+      if ((await this.registry.get(cwd, sessionId))?.state === "deleted" || !await this.repository.findPath(cwd, sessionId)) {
+        return { success: false, code: "not_found", error: "session not found in this workspace" };
+      }
+      const saved = await readJson<Pick<PiConfig, "skills"> | null>(configPath(cwd, sessionId), null);
+      return { success: true, data: await this.composerCommands(cwd, { ...config, skills: saved?.skills ?? config.skills }) };
+    }
     const opened = await this.open(cwd, sessionId, config);
     if ("success" in opened) return opened;
     if (type === "prompt") {

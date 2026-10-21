@@ -187,3 +187,20 @@ checks that `example.org` is denied. It exercises Bash, Python state, detached
 descendants, deadline enforcement, installation writes, real MCP and Jobs.
 The sandbox acceptance workflow runs both macOS and Linux. A skipped suite is
 not platform acceptance.
+
+
+## Writable operator-config ancestors
+
+`Operator sandbox config has a writable ancestor` means a directory containing
+operator configuration allows group or other users to write (for example, mode
+`775` or `777` without the sticky bit). A private `600` config file or `700`
+immediate parent is insufficient when a higher directory can be replaced.
+The error includes the offending directory and its mode.
+
+New application state roots are created with mode `700`, including when the
+launcher runs under `umask 002`. Existing directories retain their permissions.
+For an existing installation, remove group/other write permission from the
+reported directory if you own and administer it (`chmod go-w /reported/path`),
+or move `PI_SCIENCE_HOME` (or the explicit operator config) under a trusted
+ancestor chain. This check applies to session approval state, network grants,
+and sandbox profile configuration; it remains enforced in every approval mode.

@@ -49,3 +49,25 @@ it("leaves the old mode visible when the server rejects a change", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent("Stop the current task");
   expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("请求批准");
 });
+
+it("switches ask → auto → full → ask using the latest persisted revision", async () => {
+  let approval = { mode: "ask", revision: 0 };
+  mock.mockImplementation(async (_url, options) => {
+    if (options?.method === "PUT") {
+      const input = JSON.parse(String(options.body));
+      if (input.revision !== approval.revision) return new Response(JSON.stringify({ error: "Stale revision" }), { status: 409 });
+      approval = { mode: input.mode, revision: approval.revision + 1 };
+    }
+    return new Response(JSON.stringify(approval), { status: 200 });
+  });
+  render(<ApprovalModeMenu cwd="/workspace" sessionId="session-a" disabled={false} />);
+  await open(); fireEvent.click(screen.getByRole("menuitem", { name: /帮我批准/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("帮我批准"));
+  await open(); fireEvent.click(screen.getByRole("menuitem", { name: /完全访问/ }));
+  fireEvent.click(await screen.findByRole("button", { name: "启用完全访问" }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("完全访问"));
+  await open(); fireEvent.click(screen.getByRole("menuitem", { name: /请求批准/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("请求批准"));
+  expect(approval).toEqual({ mode: "ask", revision: 3 });
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
