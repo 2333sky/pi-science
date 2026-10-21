@@ -1638,7 +1638,6 @@
   "settings.native.copied": "已复制",
   "settings.native.copyEndpoint": "复制",
   "settings.native.modelList": "模型列表",
-  "settings.native.showMore": "显示其余 {{remaining}} 个模型",
   "settings.native.input.image": "图片",
   "settings.native.input.text": "文本",
   "settings.native.thinkingLevels": "{{levels}} 档",

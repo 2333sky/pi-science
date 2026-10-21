@@ -86,8 +86,8 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
     <section aria-labelledby="connected-services-title" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-card">
         <h3 id="connected-services-title" className="text-ui-label font-medium text-text">{t("settings.connections.myServices")}</h3>
-        {connected.length > 0 && <div className="flex min-w-0 flex-1 items-center justify-end gap-2">
-          <label className="flex h-10 min-w-0 max-w-80 flex-1 items-center gap-2 rounded-input border border-border bg-bg px-3 focus-within:border-accent"><Search size={16} className="shrink-0 text-muted" /><input className="min-w-0 flex-1 bg-transparent text-ui-label text-text outline-none" aria-label={t("settings.redesign.searchModels")} placeholder={t("settings.redesign.searchModels")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />{search && <button type="button" className={iconButton} aria-label={t("settings.native.clearSearch")} onClick={() => { setSearch(""); setPage(0); }}><X size={14} /></button>}</label>
+        {connected.length > 0 && <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+          <label className="flex h-10 min-w-40 max-w-80 flex-1 items-center gap-2 rounded-input border border-border bg-bg px-3 focus-within:border-accent"><Search size={16} className="shrink-0 text-muted" /><input className="min-w-0 flex-1 bg-transparent text-ui-label text-text outline-none" aria-label={t("settings.redesign.searchModels")} placeholder={t("settings.redesign.searchModels")} value={search} onChange={(e) => { setSearch(e.target.value); setPage(0); }} />{search && <button type="button" className={iconButton} aria-label={t("settings.native.clearSearch")} onClick={() => { setSearch(""); setPage(0); }}><X size={14} /></button>}</label>
           <button type="button" className="grid h-10 w-10 shrink-0 place-items-center rounded-input border border-border text-muted hover:bg-surface-hover hover:text-text disabled:opacity-40" aria-label={t("settings.native.refresh")} title={t("settings.native.refresh")} disabled={refreshing} onClick={() => void refreshModels()}><RefreshCw size={15} className={refreshing ? "animate-spin motion-reduce:animate-none" : ""} /></button>
           <button className={`${primary} h-10 shrink-0`} disabled={!canConnect} onClick={() => setDialog({ kind: "connect", revision: revision! })}><PlugZap size={14} className="mr-1 inline" />{t("settings.models.connect")}</button>
         </div>}
@@ -134,7 +134,7 @@ function ServiceCard({ provider, search, open, onToggle, onDialog, dialogOpen }:
     </div>
     {provider.config?.baseUrl && <div className="flex min-w-0 items-center gap-2 pb-2 pl-12 pr-3"><code className="min-w-0 truncate font-mono text-ui-meta text-muted">{provider.config.baseUrl}</code><CopyEndpoint url={provider.config.baseUrl} /></div>}
     {provider.authentication.restart_required && <p className="pb-2 pl-12 pr-3 text-ui-caption text-muted">{t("settings.native.restart")}</p>}
-    {open && <div id={regionId} role="region" aria-label={`${provider.name} ${t("settings.native.modelList")}`} className="border-t border-faint"><ModelTable key={search} models={models} /></div>}
+    {open && <div id={regionId} role="region" aria-label={`${provider.name} ${t("settings.models.models")}`} className="border-t border-faint"><ModelTable key={search} models={models} /></div>}
   </section>;
 }
 
@@ -147,18 +147,18 @@ function CopyEndpoint({ url }: { url: string }) {
 
 function ModelTable({ models }: { models: CatalogProvider["models"] }) {
   const { t } = useTranslation();
-  const [shown, setShown] = useState(10);
+  const [page, setPage] = useState(0);
   return <>
     <table className="w-full table-fixed border-collapse text-ui-caption">
       <caption className="sr-only">{t("settings.native.modelList")}</caption>
-      <thead><tr className="border-b border-faint text-ui-meta text-muted">
+      <thead><tr className="text-ui-meta text-muted">
         <th scope="col" className="px-3 py-2 text-left font-medium">{t("settings.native.colModel")}</th>
         <th scope="col" className="w-[76px] px-2 py-2 text-left font-medium">{t("settings.native.colContext")}</th>
         <th scope="col" className="w-[72px] px-2 py-2 text-left font-medium">{t("settings.native.colOutput")}</th>
         <th scope="col" className="hidden w-[60px] px-2 py-2 text-left font-medium sm:table-cell">{t("settings.native.colInput")}</th>
         <th scope="col" className="w-[64px] px-2 py-2 text-left font-medium">{t("settings.native.colThinking")}</th>
       </tr></thead>
-      <tbody>{models.slice(0, shown).map((model) => <tr key={model.id} className="border-b border-faint last:border-0 hover:bg-surface-hover/60">
+      <tbody>{models.slice(page * 50, (page + 1) * 50).map((model) => <tr key={model.id} className="border-b border-faint last:border-0 hover:bg-surface-hover/60">
         <td className="h-10 px-3 align-middle">
           <span className="flex min-w-0 items-center gap-2"><span className={`truncate text-ui-label ${model.available ? "text-text" : "text-muted"}`}>{model.name}</span>{!model.available && <span className="shrink-0 text-ui-meta text-error-text">{t("settings.native.unavailable")}</span>}</span>
           {!sameModelId(model.id, model.name) && <span className="block truncate font-mono text-ui-meta text-muted">{model.id}</span>}
@@ -169,7 +169,7 @@ function ModelTable({ models }: { models: CatalogProvider["models"] }) {
         <td className="h-10 px-2 align-middle"><span title={model.thinking_levels?.join(" · ") || undefined} className="text-ui-caption tabular-nums text-text">{model.thinking_levels?.length ? t("settings.native.thinkingLevels", { levels: model.thinking_levels.length }) : t("settings.native.unknown")}</span></td>
       </tr>)}</tbody>
     </table>
-    {models.length > shown && <div className="border-t border-faint px-3 py-2"><button className={button} onClick={() => setShown(models.length)}>{t("settings.native.showMore", { remaining: models.length - shown })}</button></div>}
+    {models.length > 50 && <div className="flex gap-2 px-3 py-2"><button className={button} disabled={page === 0} onClick={() => setPage(page - 1)}>{t("settings.redesign.previousPage")}</button><button className={button} disabled={(page + 1) * 50 >= models.length} onClick={() => setPage(page + 1)}>{t("settings.redesign.nextPage")}</button></div>}
   </>;
 }
 

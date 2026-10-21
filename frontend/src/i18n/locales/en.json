@@ -1638,7 +1638,6 @@
   "settings.native.copied": "Copied",
   "settings.native.copyEndpoint": "Copy",
   "settings.native.modelList": "Model list",
-  "settings.native.showMore": "Show remaining {{remaining}} models",
   "settings.native.input.image": "Image",
   "settings.native.input.text": "Text",
   "settings.native.thinkingLevels": "{{levels}} levels",
