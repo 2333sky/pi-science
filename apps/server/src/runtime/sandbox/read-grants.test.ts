@@ -25,6 +25,15 @@ describe.skipIf(process.platform !== "linux")("shared operator runtime read gran
     expect(configured.filesystem.denyRead.map((entry) => typeof entry === "string" ? entry : entry.path)).toEqual(expect.arrayContaining([protectedRoot, file]));
     expect(configured.filesystem.denyWrite.map((entry) => typeof entry === "string" ? entry : entry.path)).toEqual(expect.arrayContaining([protectedRoot, file]));
   });
+  it("uses the configured Bubblewrap binary and enforces its operator read grants", async () => {
+    const bwrap = join(dependency, "bwrap");
+    await writeFile(bwrap, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    const policy = identifyPolicy({ mode: "required", scope: "workspace", cwd: workspace, readPaths: [workspace], writePaths: [], denyPaths: [], network: { mode: "none" } });
+    expect((await processSettings(policy, [], { bwrap })).bwrapPath).toBe(bwrap);
+    const undeclared = join(directory, "undeclared-bwrap");
+    await writeFile(undeclared, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    await expect(processSettings(policy, [], { bwrap: undeclared })).rejects.toThrow("outside the shared operator read policy");
+  });
   it("refuses undeclared per-workspace dependencies until the operator policy is updated", async () => {
     const extra = join(directory, "other-environment"); await mkdir(extra);
     await expect(settings([extra])).rejects.toThrow("outside the shared operator read policy");

@@ -204,3 +204,26 @@ reported directory if you own and administer it (`chmod go-w /reported/path`),
 or move `PI_SCIENCE_HOME` (or the explicit operator config) under a trusted
 ancestor chain. This check applies to session approval state, network grants,
 and sandbox profile configuration; it remains enforced in every approval mode.
+
+
+## Linux install/start preflight
+
+The POSIX installer checks `rg`, `socat` and `bwrap` before invoking pnpm, and
+startup repeats the check before launching services. `pi-science doctor` runs the
+same discovery and namespace probe. The probe is offline, has a 10-second timeout,
+and runs `/bin/true` with a read-only root in new user, mount, PID and network
+namespaces. It verifies Bubblewrap startup; it does not replace the full runtime
+acceptance suite above.
+
+Helpers are discovered on the install/start shell's absolute PATH entries and
+canonicalized. Explicit `PI_SCIENCE_SANDBOX_RIPGREP`, `PI_SCIENCE_SANDBOX_SOCAT` and
+`PI_SCIENCE_SANDBOX_BWRAP` absolute paths take precedence; invalid overrides fail
+instead of falling back. The resolved paths are exported to the server and its
+workers, so helper discovery still works when the launcher rebuilds PATH.
+
+Missing packages produce installation commands for Debian/Ubuntu, Fedora and
+Arch. A namespace failure reports Bubblewrap's error and directs the operator to
+host/container namespace and AppArmor policies; no automatic isolation downgrade
+is performed. Explicit administrator-selected `PI_SCIENCE_EXECUTION_MODE=trusted-host`
+retains its existing compatibility behavior and prints that the preflight is
+skipped. macOS is unaffected by this Linux-only check.

@@ -16,6 +16,8 @@ if ! pi_science_prepare_node 1; then
 fi
 NODE_PATH="$PI_SCIENCE_NODE_COMMAND"
 echo "  Node.js: $("$NODE_PATH" --version)"
+source "$SCRIPT_DIR/sandbox-prerequisites.sh"
+pi_science_check_linux_sandbox "$NODE_PATH"
 echo "  pnpm:    $("$NODE_PATH" "$SCRIPT_DIR/package-manager.mjs" --version)"
 
 echo "==> Installing JavaScript workspace dependencies..."

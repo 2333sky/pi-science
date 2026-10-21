@@ -69,6 +69,8 @@ powershell -File scripts/start.ps1
 
 打开 **http://127.0.0.1:8787**，在 **设置 → LLM** 配置提供商和默认模型，再打开工作区开始对话。**设置 → Skills** 管理技能，**设置 → MCP** 启用科学连接器；初始启用 Paper Search 和 Web Search & Fetch。控制面 API 位于同一端口。
 
+Linux/WSL 需要安装 `ripgrep`、`socat` 和 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install ripgrep socat bubblewrap`）。安装、启动和 `pi-science doctor` 都会检查这些工具，并离线验证 Bubblewrap 能否创建隔离命名空间；缺少依赖或系统禁止隔离时，会停止安装/启动并提示原因。
+
 安装器构建控制面、Agent Worker 和前端。默认启动运行**编译后的 JavaScript**，由控制面在同一个端口提供前端和 API，运行时不使用 Vite 或 tsx。Bash 支持 macOS/Linux 与 WSL，原生 Windows 不需要 Git Bash；Agent Core SDK 随项目依赖安装。
 
 ### 启动、诊断与停止

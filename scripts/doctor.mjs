@@ -7,6 +7,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import net from "node:net";
+import { checkLinuxSandbox } from "./check-linux-sandbox.mjs";
 import { resolveFrontendDist } from "./resolve-frontend-dist.mjs";
 
 export function supportedNode(version) {
@@ -67,6 +68,13 @@ export async function doctor(args = [], env = process.env) {
     if (!supportedNode(process.versions.node)) throw new Error(`found ${process.versions.node}; install Node.js >=24.16.0`);
     return process.versions.node;
   });
+  if (process.platform === "linux") {
+    await check("Linux sandbox", async () => {
+      if (env.PI_SCIENCE_EXECUTION_MODE === "trusted-host") return "skipped: operator explicitly selected trusted-host mode";
+      const helpers = await checkLinuxSandbox(env);
+      return `namespace startup passed; rg=${helpers.rg}, socat=${helpers.socat}, bwrap=${helpers.bwrap}`;
+    });
+  }
   const metadata = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
   // No package-manager invocation: even --version may auto-download via Corepack.
   results.push({ label: "Package manager", status: "optional", detail: `${metadata.packageManager}; installer bootstraps via npm (not required to start)` });

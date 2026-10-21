@@ -149,6 +149,18 @@ cp "$COMMAND_SCRIPT" "$FIXTURE/scripts/pi-science.sh"
 cp "$NODE_CHECK_SCRIPT" "$FIXTURE/scripts/check-node-version.mjs"
 cp "$NODE_RUNTIME_SCRIPT" "$FIXTURE/scripts/node-runtime.sh"
 cp "$PROJECT_DIR/scripts/check-http-health.mjs" "$FIXTURE/scripts/check-http-health.mjs"
+cp "$PROJECT_DIR/scripts/sandbox-prerequisites.sh" "$FIXTURE/scripts/sandbox-prerequisites.sh"
+cp "$PROJECT_DIR/scripts/check-linux-sandbox.mjs" "$FIXTURE/scripts/check-linux-sandbox.mjs"
+# Launcher lifecycle fixtures use fake services and helpers; these are not
+# sandbox isolation evidence. Real preflight failure cases have their own suite.
+mkdir -p "$TEMP_ROOT/sandbox-helpers"
+for helper in rg socat bwrap; do
+  printf '#!/bin/sh\nexit 0\n' > "$TEMP_ROOT/sandbox-helpers/$helper"
+  chmod +x "$TEMP_ROOT/sandbox-helpers/$helper"
+done
+export PI_SCIENCE_SANDBOX_RIPGREP="$TEMP_ROOT/sandbox-helpers/rg"
+export PI_SCIENCE_SANDBOX_SOCAT="$TEMP_ROOT/sandbox-helpers/socat"
+export PI_SCIENCE_SANDBOX_BWRAP="$TEMP_ROOT/sandbox-helpers/bwrap"
 # Any accidental curl dependency fails the lifecycle suite.
 mkdir -p "$TEMP_ROOT/no-curl"
 printf '#!/usr/bin/env bash\necho unexpected-curl >&2\nexit 97\n' > "$TEMP_ROOT/no-curl/curl"

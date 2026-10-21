@@ -10,9 +10,9 @@ import { requireSandboxPlatform } from "./platform.js";
 export { srtCli } from "./read-grants.js";
 
 export const SANDBOX_RUNTIME = "@anthropic-ai/sandbox-runtime@0.0.79";
-export interface RuntimeInstallation { socat?: string; ripgrep?: string }
+export interface RuntimeInstallation { socat?: string; ripgrep?: string; bwrap?: string }
 export function runtimeInstallation(): RuntimeInstallation {
-  return { socat: process.env.PI_SCIENCE_SANDBOX_SOCAT, ripgrep: process.env.PI_SCIENCE_SANDBOX_RIPGREP };
+  return { socat: process.env.PI_SCIENCE_SANDBOX_SOCAT, ripgrep: process.env.PI_SCIENCE_SANDBOX_RIPGREP, bwrap: process.env.PI_SCIENCE_SANDBOX_BWRAP };
 }
 export function bashDependencies(): string[] {
   const paths: unknown = JSON.parse(process.env.PI_SCIENCE_SANDBOX_RUNTIME_PATHS ?? "[]");
@@ -46,7 +46,7 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
   for (const canonical of dependencyReads) {
     if (policy.writePaths.some((write) => pathsOverlap(write, canonical)) && ![...policy.denyPaths, ...(policy.writeDenyPaths ?? [])].some((denied) => isWithin(denied, canonical))) throw new Error("Runtime dependencies must be outside writable sandbox paths");
   }
-  for (const binary of [installation.socat, installation.ripgrep]) if (binary) {
+  for (const binary of [installation.socat, installation.ripgrep, installation.bwrap]) if (binary) {
     if (!isAbsolute(binary)) throw new Error("Sandbox helper paths must be absolute");
     if (readPolicy.protectedRoots.some((protectedPath) => pathsOverlap(binary, protectedPath))) throw new Error("Protected paths overlap sandbox runtime read grants");
     const canonical = await realpath(binary);
@@ -64,6 +64,7 @@ export async function processSettings(policy: SandboxPolicy, dependencies: strin
     filesystem: { denyRead: [...["/", permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths].map(literal), ...credentials], allowRead: [...new Set([...reads, join(root, "vendor/seccomp"), ...(installation.socat ? [installation.socat] : []), ...policy.readPaths])].map(literal),
       allowWrite: policy.writePaths.map(literal), denyWrite: [...[permissionRoot, ...readPolicy.protectedRoots, ...policy.denyPaths, ...(policy.writeDenyPaths ?? []), ...dependencies, "/tmp/claude", "/private/tmp/claude"].map(literal), ...credentials], allowGitConfig: false },
     enableWeakerNestedSandbox: false, enableWeakerNetworkIsolation: false, allowAppleEvents: false, allowPty: false,
+    ...(installation.bwrap ? { bwrapPath: installation.bwrap } : {}),
     ripgrep: { command: installation.ripgrep ?? "/usr/bin/rg" }, ...(installation.socat ? { socatPath: installation.socat } : {}),
   };
 }

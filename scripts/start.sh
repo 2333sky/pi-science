@@ -39,6 +39,9 @@ else
   export PI_SCIENCE_FRONTEND_DIST
   [ -f "$CONTROL_PLANE_BUILD" ] && [ -f "${PI_SCIENCE_FRONTEND_DIST:-$PROJECT_DIR/frontend/dist}/index.html" ] || { echo "Error: production build missing. Run: bash scripts/install.sh" >&2; exit 1; }
 fi
+source "$SCRIPT_DIR/sandbox-prerequisites.sh"
+pi_science_check_linux_sandbox "$NODE_COMMAND"
+
 # The browser cookie is internal authentication, not a remote-user login.
 export PI_SCIENCE_HOST=127.0.0.1
 
