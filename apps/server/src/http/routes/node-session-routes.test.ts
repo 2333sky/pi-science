@@ -82,6 +82,42 @@ it("validates, persists and isolates session approval modes", async () => {
 });
 
 describe("native Node conversation routes", () => {
+  it("serves cold-session commands despite failed model migration while preserving validation and legacy import", async () => {
+    const cwd = await workspaceWithSessions("catalogue-session");
+    const ensureMigrated = vi.fn().mockRejectedValue(new Error("Model resource store unavailable"));
+    const environment = vi.fn().mockRejectedValue(new Error("A metadata request must not start a worker"));
+    const service = new NodeSessionService(undefined, sessionRepository, { environment }, null, undefined, {
+      ensureMigrated, isModelAvailable: vi.fn(),
+    });
+    const beforeStart = vi.fn();
+    service.configureBeforeRuntimeStart(beforeStart);
+    const server = Fastify();
+    registerNodeSessionRoutes(server, service, sessionRepository);
+    const url = `/api/sessions/catalogue-session/commands?${new URLSearchParams({ cwd })}`;
+    try {
+      // First request imports the legacy transcript; the second reads the cold native session.
+      for (let request = 0; request < 2; request++) {
+        const response = await server.inject({ method: "GET", url });
+        expect(response.statusCode).toBe(200);
+        expect(response.json().commands).toEqual(expect.arrayContaining([
+          expect.objectContaining({ name: "skill:literature-review", source: "skill" }),
+        ]));
+      }
+      expect(await sessionRepository.messages(cwd, "catalogue-session")).toHaveLength(2);
+      const missing = await server.inject({ method: "GET", url: url.replace("catalogue-session", "missing-session") });
+      expect(missing.json()).toEqual({ commands: [] });
+      const invalid = await server.inject({ method: "GET", url: `/api/sessions/catalogue-session/commands?${new URLSearchParams({ cwd: join(cwd, "missing-directory") })}` });
+      expect(invalid.statusCode).not.toBe(200);
+      expect(ensureMigrated).not.toHaveBeenCalled();
+      expect(environment).not.toHaveBeenCalled();
+      expect(beforeStart).not.toHaveBeenCalled();
+      expect(service.liveSessions(cwd)).toEqual([]);
+      // Runtime requests still enforce migration and report its failure.
+      expect(await service.command("catalogue-session", cwd, "get_state")).toMatchObject({ success: false, code: "model_resources_migration_failed" });
+      expect(ensureMigrated).toHaveBeenCalledOnce();
+    } finally { await server.close(); await service.shutdownAll(); }
+  });
+
   it("serves composer commands for a workspace without opening a session", async () => {
     const cwd = await workspaceWithSessions();
     const composerCommands = vi.fn(async (_workspace: string) => ({

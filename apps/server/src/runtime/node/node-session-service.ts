@@ -93,12 +93,16 @@ export class NodeSessionService {
     catch (error) { if (error instanceof WorkspaceLifecycleBusyError) return reject(error); throw error; }
   }
 
-  private async prepare(cwdValue: string, sessionId: string): Promise<{ cwd: string } | RuntimeResult> {
+  private async prepare(cwdValue: string, sessionId: string, options: { metadataOnly?: boolean } = {}): Promise<{ cwd: string } | RuntimeResult> {
     let cwd: string;
     try { cwd = await validateWorkspaceCwd(cwdValue); }
     catch (error) { return { success: false, error: String(error), code: "workspace_invalid" }; }
-    const migration = await this.ensureModelResources();
-    if (migration) return { success: false, ...migration };
+    // Command metadata needs workspace/session validation and legacy import,
+    // but no model migration, credentials, or runtime activation.
+    if (!options.metadataOnly) {
+      const migration = await this.ensureModelResources();
+      if (migration) return { success: false, ...migration };
+    }
     await this.agentCore.waitForMutation(cwd, sessionId);
     if (await this.agentCore.owns(cwd, sessionId)) return { cwd };
     const source = await this.repository.findPath(cwd, sessionId);
@@ -115,7 +119,7 @@ export class NodeSessionService {
 
   async command(sessionId: string, cwdValue: string, type: string, params: Record<string, unknown> = {}): Promise<RuntimeResult> { return this.admitted(cwdValue, () => this.commandAdmitted(sessionId, cwdValue, type, params), (error) => ({ success: false, error: error.message, code: "busy" })); }
   private async commandAdmitted(sessionId: string, cwdValue: string, type: string, params: Record<string, unknown> = {}): Promise<RuntimeResult> {
-    const prepared = await this.prepare(cwdValue, sessionId);
+    const prepared = await this.prepare(cwdValue, sessionId, { metadataOnly: type === "get_commands" });
     if ("success" in prepared) return prepared;
     const result = await this.agentCore.command(prepared.cwd, sessionId, type, params, effectiveConfig());
     return result.success && (result.data as { cancelled?: boolean } | undefined)?.cancelled

@@ -12,8 +12,10 @@ INSTALL_SCRIPT="$PROJECT_DIR/scripts/install.sh"
 WRITER_SCRIPT="$PROJECT_DIR/scripts/write-launcher.sh"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi science launcher.XXXXXX")"
 START_PID=""
-export PI_SCIENCE_HOME="$TEMP_ROOT/data"
+export PI_SCIENCE_HOME="$TEMP_ROOT/state-parent/new/deep/state"
 export PI_SCIENCE_WORKSPACES="$TEMP_ROOT/workspaces"
+mkdir -p "$TEMP_ROOT/state-parent"
+chmod 750 "$TEMP_ROOT/state-parent"
 cleanup() { [ -z "$START_PID" ] || kill "$START_PID" 2>/dev/null || true; rm -rf "$TEMP_ROOT"; }
 trap cleanup EXIT
 
@@ -216,7 +218,15 @@ START_PID=$!
 umask "$LAUNCH_UMASK"
 wait_url "http://127.0.0.1:$CONTROL_PORT/internal/ready" || { cat "$LOG" >&2; fail "control plane did not become ready"; }
 wait_url "http://127.0.0.1:$FRONTEND_PORT" || { cat "$LOG" >&2; fail "frontend did not become ready"; }
-node -e 'const fs = require("node:fs"); if ((fs.statSync(process.env.PI_SCIENCE_HOME).mode & 0o777) !== 0o700) process.exit(1)' || fail "new application state is not private under umask 002"
+node - "$TEMP_ROOT/state-parent" <<'EOF' || fail "nested application state permissions changed under umask 002"
+const fs = require("node:fs");
+const path = require("node:path");
+const existing = process.argv[2];
+if ((fs.statSync(existing).mode & 0o777) !== 0o750) process.exit(1);
+for (let directory = process.env.PI_SCIENCE_HOME; directory !== existing; directory = path.dirname(directory)) {
+  if ((fs.statSync(directory).mode & 0o777) !== 0o700) throw new Error(`State directory is not private: ${directory}`);
+}
+EOF
 FIXTURE_CANONICAL="$(cd "$FIXTURE" && pwd -P)"
 [ "$(cat "$FIXTURE/control.cwd")" = "$FIXTURE_CANONICAL/apps/server" ] || fail "control plane CWD changed"
 [ "$(cat "$FIXTURE/frontend.cwd")" = "$FIXTURE_CANONICAL/frontend" ] || fail "frontend CWD changed"
