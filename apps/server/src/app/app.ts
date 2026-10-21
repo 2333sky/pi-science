@@ -214,7 +214,7 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
     if (config.requireInternalToken !== false && config.internalToken && served.type.startsWith("text/html")) {
       reply.header("set-cookie", internalAuthCookie(config.internalToken));
     }
-    return reply.type(served.type).send(served.stream);
+    return reply.type(served.type).header("cache-control", served.cacheControl).send(served.stream);
   });
 
   return app;
