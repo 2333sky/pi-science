@@ -1,3 +1,4 @@
+import { McpDiagnosticsNotice } from "./McpDiagnosticsNotice";
 import { ApprovalModeMenu } from "./ApprovalModeMenu";
 import { lazy, Suspense, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
@@ -55,6 +56,7 @@ export function ConversationComposer({ workspaceCwd, status, activeSessionId, se
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { input, setInput, files, setFiles, workspaceReferences } = composer;
+  const mcpDiagnostics = useRuntimeStore((state) => state.cwd === workspaceCwd && state.activeSessionId === activeSessionId ? state.mcpDiagnostics : undefined);
   const sendPrompt = useRuntimeStore((state) => state.sendPrompt);
   const [composing, setComposing] = useState(false);
   const retryRequest = activeSessionId && input.trim()
@@ -81,6 +83,7 @@ export function ConversationComposer({ workspaceCwd, status, activeSessionId, se
         <ComposerTodo />
       </Suspense>
       <div className="relative mx-auto max-w-[var(--conversation-composer-width)]">
+        <McpDiagnosticsNotice diagnostics={mcpDiagnostics} />
         {promptDeliveryNotice === "indeterminate" && <div role="status" className="mb-2 rounded-input border border-warn/30 bg-warn/5 px-3 py-2 text-xs text-muted">{t("conversation.promptDelivery.indeterminate")}</div>}
         {retryRequest && <button type="button" onClick={() => { void sendPrompt(input.trim(), retryRequest.clientMessageId).catch(() => undefined); }} className="mb-2 text-xs text-accent hover:underline">{t("conversation.promptDelivery.retrySameRequest")}</button>}
         {/* Fixed 36px fade band above the composer card (reference:

@@ -113,6 +113,7 @@ export function installRuntimeTestEnvironment(): void {
       model: null,
       thinking: null,
       contextTokens: null,
+      mcpDiagnostics: [],
       contextWindow: null,
       contextPercent: null,
       compactionEnabled: true,

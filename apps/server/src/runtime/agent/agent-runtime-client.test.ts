@@ -51,6 +51,14 @@ describe("AgentCoreRuntimeClient", () => {
     expect(await client.sendCommand("fork")).toMatchObject({ success: true, sessionId: expect.any(String) });
   }, 45_000);
 
+  it("keeps the operator MCP lookup path separate from workspace PATH overrides", () => {
+    vi.stubEnv("PATH", "/operator/bin:/usr/bin");
+    vi.stubEnv("PI_SCIENCE_MCP_EXECUTABLE_PATH", "/trusted/mcp/bin");
+    const environment = workerEnvironment({ PATH: "/workspace/bin", PI_SCIENCE_MCP_EXECUTABLE_PATH: "/workspace/evil" }, ["PI_SCIENCE_MCP_EXECUTABLE_PATH"]);
+    expect(environment.PATH).toBe("/workspace/bin");
+    expect(environment.PI_SCIENCE_MCP_EXECUTABLE_PATH).toBe("/trusted/mcp/bin");
+    vi.unstubAllEnvs();
+  });
   it("passes only declared custom credential variables to a worker", () => {
     const input = { MY_LAB_TOKEN: "test-secret", UNRELATED_SECRET: "do-not-forward" };
     expect(workerEnvironment(input, ["MY_LAB_TOKEN"])).toMatchObject({ MY_LAB_TOKEN: "test-secret" });

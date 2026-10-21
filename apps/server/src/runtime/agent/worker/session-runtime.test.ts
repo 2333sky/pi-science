@@ -34,6 +34,16 @@ afterEach(async () => {
 });
 
 describe("agent-core worker mutations", () => {
+  it("exposes connector discovery failures in the runtime snapshot", async () => {
+    const { instance } = await runtime(async (cwd) => {
+      await mkdir(join(cwd, ".pi-science"), { recursive: true });
+      await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "project_test", mcpServers: {
+        unavailable: { command: process.execPath, args: [], __piScienceConnectorId: "missing-connector", __piScienceEnvironment: { TOKEN: { kind: "environment", name: "PI_TEST_MISSING_MCP_TOKEN" } } },
+      } }));
+    });
+    expect(await instance.command("get_state", {})).toMatchObject({ success: true, data: { mcpDiagnostics: ["unavailable: Missing MCP environment variable: PI_TEST_MISSING_MCP_TOKEN"] } });
+  });
+
   it("does not cancel a settled budget when its watch notification is delayed", async () => {
     const { instance } = await runtime();
     const state = instance as unknown as { watchedBudgetOperation?: string; budgetTools: ReturnType<typeof import("./execution-budget.js").executionBudgetTools> };

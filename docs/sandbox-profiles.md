@@ -227,3 +227,25 @@ host/container namespace and AppArmor policies; no automatic isolation downgrade
 is performed. Explicit administrator-selected `PI_SCIENCE_EXECUTION_MODE=trusted-host`
 retains its existing compatibility behavior and prints that the preflight is
 skipped. macOS is unaffected by this Linux-only check.
+
+
+## Linux runtime diagnostics and user-installed commands
+
+A session reports bounded, redacted MCP discovery failures in its state. The
+conversation shows a collapsible notice when some connectors failed; working
+connectors remain available. Authentication values and URL credentials/query
+strings are removed before diagnostics reach the browser.
+
+MCP command discovery uses the service operator's PATH, captured separately from
+workspace environment overrides. Writable workspace executables and relative PATH
+entries are excluded. Node package launchers such as npm/npx use the trusted Node
+executable directly and receive a narrow package read grant; uvx symlinks retain
+`uv tool run` behavior. Executable dependencies are protected from writes even in
+full-access sessions. Command discovery does not grant network access or authorize
+package downloads.
+
+Micromamba downloads honor `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` without
+requiring a Node startup flag, while preserving normal TLS certificate validation.
+Linux launcher status and doctor distinguish exited zombie processes from live
+processes, retain process identity checks, and tolerate a process disappearing
+while `/proc` is read.

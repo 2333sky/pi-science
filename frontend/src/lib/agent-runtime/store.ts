@@ -32,6 +32,7 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   model: null,
   thinking: null,
   contextTokens: null,
+  mcpDiagnostics: [],
   contextWindow: null,
   contextPercent: null,
   compactionEnabled: true,

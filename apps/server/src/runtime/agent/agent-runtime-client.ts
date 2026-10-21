@@ -49,7 +49,7 @@ export function workerEnvironment(overrides: Record<string, string> = {}, creden
   }));
   const allowed = new Set([...WORKSPACE_ENV_KEYS, ...credentialEnvNames]);
   const workspace = Object.fromEntries(Object.entries(overrides).filter(([name]) => allowed.has(name) && name !== "PI_SCIENCE_EXECUTION_MODE" && !name.startsWith("PI_SCIENCE_SANDBOX_")));
-  return { ...system, ...workspace };
+  return { ...system, ...workspace, PI_SCIENCE_MCP_EXECUTABLE_PATH: process.env.PI_SCIENCE_MCP_EXECUTABLE_PATH ?? process.env.PATH ?? "" };
 }
 
 /** One IPC connection and one OS child for an AgentHarness session. */

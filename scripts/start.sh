@@ -65,10 +65,28 @@ case "${PI_SCIENCE_SERVER_WATCH:-0}" in
   *) echo "Error: PI_SCIENCE_SERVER_WATCH must be 0 or 1." >&2; exit 1 ;;
 esac
 
+# A zombie has exited even though kill -0 succeeds until its parent reaps it.
+process_is_running() {
+  local value fields state
+  if [ -r "/proc/$1/stat" ]; then
+    value="$(cat "/proc/$1/stat" 2>/dev/null || true)"; fields="${value##*) }"; state="${fields%% *}"
+  else state="$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ' || true)"; fi
+  case "$state" in Z*|X*) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null
+}
 process_start_identity() {
-  if [ -n "${PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR:-}" ] && [ -f "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$1" ]; then cat "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$1"; return; fi
-  if [ -r "/proc/$1/stat" ]; then local value fields; value="$(cat "/proc/$1/stat" 2>/dev/null || true)"; fields="${value##*) }"; set -- $fields; [ "$#" -ge 20 ] && { shift 19; printf 'linux-proc-start-ticks:%s\n' "$1"; return; }; fi
-  ps -ww -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1
+  local pid="${1:-}" value fields
+  [ -n "$pid" ] || return 0
+  if [ -n "${PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR:-}" ] && [ -f "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$pid" ]; then cat "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$pid"; return; fi
+  if [ -r "/proc/$pid/stat" ]; then
+    value="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    [ -n "$value" ] || return 0
+    fields="${value##*) }"; set -- $fields
+    case "${1:-}" in Z|X) return 0 ;; esac
+    [ "$#" -ge 20 ] || return 0
+    shift 19; printf 'linux-proc-start-ticks:%s\n' "$1"; return
+  fi
+  ps -ww -o lstart= -p "$pid" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1 || true
 }
 
 process_tree_pids() {
@@ -112,7 +130,7 @@ stop_owned_process() {
   all="$initial${final:+
 $final}"
   if [ "$root_current" = "$expected" ]; then signal_snapshot "$all" KILL
-  elif ! kill -0 "$root" 2>/dev/null; then signal_snapshot "$initial" KILL
+  elif ! process_is_running "$root"; then signal_snapshot "$initial" KILL
   fi
   wait "$root" 2>/dev/null || true
   set -e
@@ -138,7 +156,7 @@ port_is_available() {
 wait_for_health() {
   local pid="$1" url="$2" label="$3"
   while [ "$(date +%s)" -lt "$STARTUP_DEADLINE" ]; do
-    kill -0 "$pid" 2>/dev/null || { echo "Error: $label exited during startup." >&2; return 1; }
+    process_is_running "$pid" || { echo "Error: $label exited during startup." >&2; return 1; }
     "$NODE_COMMAND" "$SCRIPT_DIR/check-http-health.mjs" "$url" "$STARTUP_DEADLINE" >/dev/null 2>&1 && return 0
     sleep 0.25
   done

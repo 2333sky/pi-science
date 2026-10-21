@@ -53,6 +53,7 @@ export const sessionStateSchema = z.object({
   is_streaming: z.boolean(),
   is_compacting: z.boolean(),
   pending_message_count: z.number().int().nonnegative(),
+  mcp_diagnostics: z.array(z.string().max(2048)).optional(),
   model: z.string().nullish(),
   thinking: z.string().nullish(),
   context_tokens: z.number().int().nonnegative().nullable().optional(),

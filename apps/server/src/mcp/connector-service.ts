@@ -1,3 +1,5 @@
+import { redactMcpError } from "./diagnostics.js";
+export { redactMcpError } from "./diagnostics.js";
 import { bindingError } from "./bindings.js";
 import { createHash } from "node:crypto";
 import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
@@ -487,13 +489,6 @@ function classifyProbeError(error: string | null): string {
   return "unknown";
 }
 
-export function redactMcpError(value: string | null): string | null {
-  if (!value) return value;
-  return value
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
-    .replace(/\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
-    .replace(/https?:\/\/[^\s"')]+/gi, (raw) => { try { return new URL(raw).origin; } catch { return "[redacted-url]"; } });
-}
 
 function sqliteConflict(error: unknown): McpServiceError {
   const message = error instanceof Error ? error.message : String(error);

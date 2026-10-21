@@ -118,6 +118,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           model: null,
           thinking: null,
           contextTokens: null,
+          mcpDiagnostics: [],
           contextWindow: null,
           contextPercent: null,
           compactionEnabled: true,
@@ -228,6 +229,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           nextState.model = runtimeState.model ?? null;
           nextState.thinking = runtimeState.thinking ?? null;
           nextState.contextTokens = runtimeState.context_tokens ?? null;
+          nextState.mcpDiagnostics = runtimeState.mcp_diagnostics ?? [];
           nextState.contextWindow = runtimeState.context_window ?? null;
           nextState.contextPercent = runtimeState.context_percent ?? null;
           nextState.compactionEnabled = runtimeState.compaction_enabled ?? true;
@@ -721,7 +723,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
               client.connect(nextSessionId, cwd);
             set({
               client,
-              activeSessionId: nextSessionId,
+              activeSessionId: nextSessionId, mcpDiagnostics: [],
               historyCursor: null,
               historyHasMore: false,
               historyLoading: false,
@@ -742,7 +744,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           }
           set({
             client,
-            activeSessionId: nextSessionId,
+            activeSessionId: nextSessionId, mcpDiagnostics: [],
             sessions: nextSessionId === activeSessionId
               ? current.sessions
               : [
@@ -872,7 +874,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       ++generations.activity;
       ++generations.localMutation;
       optimisticSessionIds.add(result.id);
-      set({ activeSessionId: result.id, status: "connecting", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
+      set({ activeSessionId: result.id, mcpDiagnostics: [], status: "connecting", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       registerEventListener(client);
       client.connect(result.id, cwd);
       let history = {
@@ -894,7 +896,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       if (latest.cwd !== cwd || latest.activeSessionId !== result.id) return result.id;
       set({
         client,
-        activeSessionId: result.id,
+        activeSessionId: result.id, mcpDiagnostics: [],
         thread: attachTurnArtifacts(threadFromMessages(history.messages), artifactTurns, { windowComplete: !history.has_more }),
         historyCursor: history.next_cursor,
         historyHasMore: history.has_more,
@@ -944,7 +946,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
         const live = get();
         set({
           client,
-          activeSessionId: result.id,
+          activeSessionId: result.id, mcpDiagnostics: [],
           draftModelSelection: selection && get().draftModelSelection === draft ? null : get().draftModelSelection,
           thread: live.thread.blocks.length > 0 ? live.thread : emptyThread(),
           historyCursor: null,

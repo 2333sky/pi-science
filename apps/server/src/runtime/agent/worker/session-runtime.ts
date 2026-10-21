@@ -311,6 +311,7 @@ export class SessionRuntime {
             model: snapshot.configuration.model,
             thinkingLevel: snapshot.configuration.thinkingLevel,
             activeTools: snapshot.configuration.activeToolNames,
+            mcpDiagnostics: this.mcp?.diagnostics ?? [],
             operation: snapshot.operation,
             queues: snapshot.queues,
             faulted: snapshot.faulted,

@@ -96,6 +96,7 @@ export interface RuntimeState {
   turnLifecycle: "queued" | "active" | "waiting" | "recovering" | "stopping" | "settled" | "aborted" | "failed";
   model: string | null;
   thinking: string | null;
+  mcpDiagnostics: string[];
   contextTokens: number | null;
   contextWindow: number | null;
   contextPercent: number | null;

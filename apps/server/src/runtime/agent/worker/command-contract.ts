@@ -26,7 +26,7 @@ export type CommandParams<K extends RuntimeCommandName> = z.infer<(typeof comman
 export type RuntimeCommand = { [K in RuntimeCommandName]: { command: K; params: CommandParams<K> } }[RuntimeCommandName];
 export interface RuntimeSnapshot {
   sessionId: string; busy: boolean; model: LaneSnapshot["configuration"]["model"];
-  thinkingLevel: LaneSnapshot["configuration"]["thinkingLevel"]; activeTools: string[];
+  thinkingLevel: LaneSnapshot["configuration"]["thinkingLevel"]; activeTools: string[]; mcpDiagnostics?: string[];
   operation: LaneSnapshot["operation"]; queues: LaneSnapshot["queues"]; faulted: boolean;
   lastResult?: LaneSnapshot["lastResult"]; eventSequence: number; runtimeEpoch: string; pendingInteraction?: boolean;
   context_tokens: number | null; context_window: number | null; context_percent: number | null;
@@ -79,7 +79,7 @@ const nonnegative = z.number().finite().nonnegative();
 const operationResultSchema = z.object({ operationId: text, kind: z.string(), status: z.enum(["completed", "declined", "aborted", "failed"]),
   fromTipId: z.string().nullable(), tipId: z.string().nullable(), startedAt: nonnegative, endedAt: nonnegative }).passthrough();
 export const runtimeSnapshotSchema = z.object({
-  sessionId: text, busy: z.boolean(), model: modelSchema, thinkingLevel: z.string(), activeTools: z.array(z.string()),
+  sessionId: text, busy: z.boolean(), model: modelSchema, thinkingLevel: z.string(), activeTools: z.array(z.string()), mcpDiagnostics: z.array(z.string().max(2048)).optional(),
   operation: z.object({ id: text, kind: z.string(), status: z.string(), startedAt: nonnegative,
     fromTipId: z.string().nullable(), runningTools: z.array(z.unknown()) }).passthrough().nullable(),
   queues: z.array(z.unknown()), faulted: z.boolean(), lastResult: operationResultSchema.optional(), eventSequence: nonnegative.int(), runtimeEpoch: text,

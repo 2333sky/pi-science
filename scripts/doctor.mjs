@@ -43,6 +43,17 @@ export async function instanceLockAvailable(home) {
   if (Number.isInteger(owner.pid) && owner.pid > 0) {
     let live = true;
     try { process.kill(owner.pid, 0); } catch (error) { if (error.code === "ESRCH") live = false; }
+    if (live && process.platform === "linux") {
+      try {
+        const status = await readFile(`/proc/${owner.pid}/stat`, "utf8");
+        if (/^[ZX] /.test(status.slice(status.lastIndexOf(")") + 2))) live = false;
+      } catch (error) {
+        if (error.code === "ENOENT" || error.code === "ESRCH") {
+          // /proc may be unavailable; only a second ESRCH proves an exit.
+          try { process.kill(owner.pid, 0); } catch (probe) { if (probe.code === "ESRCH") live = false; }
+        }
+      }
+    }
     if (live) throw new Error("instance owner is still running; stop the verified instance first");
   }
   if (Date.now() - info.mtimeMs < 30000) throw new Error("recent instance lock; wait 30 seconds after a crash or forced stop, then retry");

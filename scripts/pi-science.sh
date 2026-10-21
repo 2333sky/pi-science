@@ -51,10 +51,28 @@ control_plane_is_ready() { http_is_ready "http://127.0.0.1:${CONTROL_PLANE_PORT}
 frontend_is_ready() { http_is_ready "$FRONTEND_URL" "${1:-}"; }
 port_listener_pids() { command -v lsof >/dev/null 2>&1 || return 0; lsof -nP -iTCP:"$1" -sTCP:LISTEN -t 2>/dev/null | sort -u || true; }
 open_browser() { if command -v open >/dev/null 2>&1; then open "$1" >/dev/null 2>&1 || true; elif command -v xdg-open >/dev/null 2>&1; then xdg-open "$1" >/dev/null 2>&1 || true; fi; }
+# A zombie has exited even though kill -0 succeeds until its parent reaps it.
+process_is_running() {
+  local value fields state
+  if [ -r "/proc/$1/stat" ]; then
+    value="$(cat "/proc/$1/stat" 2>/dev/null || true)"; fields="${value##*) }"; state="${fields%% *}"
+  else state="$(ps -o stat= -p "$1" 2>/dev/null | tr -d ' ' || true)"; fi
+  case "$state" in Z*|X*) return 1 ;; esac
+  kill -0 "$1" 2>/dev/null
+}
 process_start_identity() {
-  if [ -n "${PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR:-}" ] && [ -f "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$1" ]; then cat "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$1"; return; fi
-  if [ -r "/proc/$1/stat" ]; then local value fields; value="$(cat "/proc/$1/stat" 2>/dev/null || true)"; fields="${value##*) }"; set -- $fields; [ "$#" -ge 20 ] && { shift 19; printf 'linux-proc-start-ticks:%s\n' "$1"; return; }; fi
-  LC_ALL=C LANG=C TZ=UTC ps -ww -o lstart= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1
+  local pid="${1:-}" value fields
+  [ -n "$pid" ] || return 0
+  if [ -n "${PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR:-}" ] && [ -f "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$pid" ]; then cat "$PI_SCIENCE_TEST_PROCESS_IDENTITY_DIR/$pid"; return; fi
+  if [ -r "/proc/$pid/stat" ]; then
+    value="$(cat "/proc/$pid/stat" 2>/dev/null || true)"
+    [ -n "$value" ] || return 0
+    fields="${value##*) }"; set -- $fields
+    case "${1:-}" in Z|X) return 0 ;; esac
+    [ "$#" -ge 20 ] || return 0
+    shift 19; printf 'linux-proc-start-ticks:%s\n' "$1"; return
+  fi
+  LC_ALL=C LANG=C TZ=UTC ps -ww -o lstart= -p "$pid" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | head -n 1 || true
 }
 process_command() { ps -ww -o command= -p "$1" 2>/dev/null | sed 's/^[[:space:]]*//' | head -n 1; }
 
@@ -82,7 +100,7 @@ cleanup_dead_launch_lock_artifacts() {
     case "$remainder" in claim.*) remainder="${remainder#claim.}" ;; stale.*) remainder="${remainder#stale.}" ;; esac
     owner_pid="${remainder%%.*}"
     case "$owner_pid" in ''|*[!0-9]*) continue ;; esac
-    kill -0 "$owner_pid" 2>/dev/null || rm -rf "$artifact"
+    process_is_running "$owner_pid" || rm -rf "$artifact"
   done
 }
 launch_lock_owner_is_live() {
@@ -93,6 +111,7 @@ launch_lock_owner_is_live() {
   if ! kill_error="$(LC_ALL=C kill -0 "$pid" 2>&1)"; then
     case "$kill_error" in *"Operation not permitted"*|*"Permission denied"*) return 2 ;; *) return 1 ;; esac
   fi
+  process_is_running "$pid" || return 1
   current="$(process_start_identity "$pid")"
   [ -n "$current" ] || return 2
   [ "$current" = "$started" ]
@@ -176,7 +195,7 @@ read_run_state() {
 
 running_supervisor() {
   read_run_state || return 1
-  if ! kill -0 "$STATE_PID" 2>/dev/null; then remove_run_state; return 1; fi
+  if ! process_is_running "$STATE_PID"; then remove_run_state; return 1; fi
   local current_started command
   current_started="$(process_start_identity "$STATE_PID")"
   command="$(process_command "$STATE_PID")"
@@ -241,7 +260,7 @@ stop_process_tree() {
   all="$initial${current:+
 $current}"
   if [ "$root_current" = "$expected" ]; then signal_snapshot "$all" KILL
-  elif ! kill -0 "$root" 2>/dev/null; then signal_snapshot "$initial" KILL
+  elif ! process_is_running "$root"; then signal_snapshot "$initial" KILL
   fi
   wait "$root" 2>/dev/null || true
   set -e
@@ -309,7 +328,7 @@ cmd_start() {
     supervisor_command="$(process_command "$pid")"
     case "$supervisor_command" in *"$SCRIPT_DIR/start.sh"*"--launch-token $token"*) [ -n "$started" ] && break ;; esac
     started=""
-    kill -0 "$pid" 2>/dev/null || break
+    process_is_running "$pid" || break
     sleep 0.025
   done
   if [ -z "$started" ]; then echo "Error: unable to establish detached supervisor identity." >&2; exit 1; fi
@@ -347,8 +366,8 @@ cmd_start() {
 
   echo "Error: Pi-Science did not become ready within ${READY_TIMEOUT_SECONDS}s. See $LOG_FILE" >&2
   cleanup_wait=0
-  while [ "$cleanup_wait" -lt "$SUPERVISOR_CLEANUP_GRACE_TENTHS" ] && kill -0 "$pid" 2>/dev/null; do sleep 0.1; cleanup_wait=$((cleanup_wait + 1)); done
-  kill -0 "$pid" 2>/dev/null && stop_process_tree "$pid" "$started" || true
+  while [ "$cleanup_wait" -lt "$SUPERVISOR_CLEANUP_GRACE_TENTHS" ] && process_is_running "$pid"; do sleep 0.1; cleanup_wait=$((cleanup_wait + 1)); done
+  process_is_running "$pid" && stop_process_tree "$pid" "$started" || true
   run_state_is_owned "$pid" "$token" && remove_run_state || true
   exit 1
 }

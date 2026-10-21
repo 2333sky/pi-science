@@ -562,6 +562,7 @@ export class AgentCoreSessionService {
     const operation = data.operation;
     return { id: sessionId, cwd, is_streaming: Boolean(data.busy), is_compacting: operation?.kind === "compaction",
       pending_message_count: Array.isArray(data.queues) ? data.queues.length : 0,
+      mcp_diagnostics: data.mcpDiagnostics ?? [],
       model: model?.provider && model.modelId ? `${model.provider}/${model.modelId}` : current.model,
       thinking: typeof data.thinkingLevel === "string" ? data.thinkingLevel : current.thinking,
       context_tokens: typeof data.context_tokens === "number" ? data.context_tokens : null,

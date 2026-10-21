@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
-import { constants } from "node:fs";
+import { resolveMcpExecutable } from "./executable.js";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -17,14 +17,9 @@ export async function localMcpTransport(workspace: string, command: string, args
   if (operatorExecutionMode() === "trusted-host") return new StdioClientTransport({ command, args, cwd, env: environment, stderr: "pipe" });
   workspace = await realpath(workspace); cwd = await realpath(cwd);
   if (!isWithin(workspace, cwd)) throw new Error("Local MCP cwd must remain inside the workspace");
-  let executable: string | undefined;
-  for (const path of isAbsolute(command) ? [command] : command === "node" ? [process.execPath] : [join("/usr/bin", command), join("/bin", command)]) {
-    if (!isAbsolute(command) && command.includes("/")) throw new Error("MCP commands require a trusted executable");
-    try { await access(path, constants.X_OK); executable = await realpath(path); break; } catch { /* try the next fixed system directory */ }
-  }
-  if (!executable) throw new Error("MCP executable is unavailable; install it through environment management first");
+  const { executable, prefix, dependencies: executableDependencies } = await resolveMcpExecutable(command, workspace);
   const policy = await workspacePolicy(workspace, undefined, "mcp", sessionId);
-  const dependencies = [...new Set([...bashDependencies(), executable, fileURLToPath(new URL("../", import.meta.url)), fileURLToPath(new URL("../../../../node_modules", import.meta.url))])];
+  const dependencies = [...new Set([...bashDependencies(), ...executableDependencies, fileURLToPath(new URL("../", import.meta.url)), fileURLToPath(new URL("../../../../node_modules", import.meta.url))])];
   // Source-mode TS loaders read package/tsconfig metadata. Grant only those
   // files, rather than opening the installation's parent directories.
   for (const relative of ["../../src", "../../dist", "../../node_modules", "../../package.json", "../../tsconfig.json", "../../../../package.json", "../../../../tsconfig.base.json"]) {
@@ -45,7 +40,7 @@ export async function localMcpTransport(workspace: string, command: string, args
     environment = { ...environment, PI_SCIENCE_WEB_ACCESS_CONFIG_JSON: settings };
   }
   // Only this connector's explicitly bound environment is passed to its child.
-  const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd }), [executable, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment);
+  const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd, writeDenyPaths: [...(policy.writeDenyPaths ?? []), ...executableDependencies] }), [executable, ...prefix, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment);
   return new SandboxedMcpTransport(prepared, cwd);
 }
 

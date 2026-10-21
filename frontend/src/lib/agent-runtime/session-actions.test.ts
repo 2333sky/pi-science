@@ -342,7 +342,7 @@ describe("runtime session actions", () => {
           content: [{ type: "text", text: "hello" }],
         }] });
       }
-      if (url.includes("/state")) return jsonResponse(state("session-a", { is_streaming: true }));
+      if (url.includes("/state")) return jsonResponse(state("session-a", { is_streaming: true, mcp_diagnostics: ["paper-search: connection closed"] }));
       if (url.startsWith("/api/sessions?")) return jsonResponse([]);
       throw new Error(`Unexpected request: ${url}`);
     }));
@@ -357,6 +357,7 @@ describe("runtime session actions", () => {
     expect(current.model).toBe("custom-custom-api/gpt-5.6-luna");
     expect(current.thinking).toBe("max");
     expect(current.contextTokens).toBe(24000);
+    expect(current.mcpDiagnostics).toEqual(["paper-search: connection closed"]);
     expect(current.contextWindow).toBe(128000);
     expect(current.contextPercent).toBe(18.75);
     expect(current.compactionThresholdPercent).toBe(85);

@@ -1,3 +1,4 @@
+import { redactMcpError } from "../../../mcp/diagnostics.js";
 import { sessionMode } from "../../sandbox/session-approval.js";
 import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -78,12 +79,16 @@ export class AgentMcpTools {
     const capabilities = allowedTools === undefined ? undefined : new Set(allowedTools);
     const rawSnapshot = loadProjectedSnapshot(cwd);
     const servers = loadProjectedServers(cwd, (name, error) => {
-      result.diagnostics.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
+      result.diagnostics.push((redactMcpError(`${name}: ${error instanceof Error ? error.message : String(error)}`) ?? "MCP discovery failed").slice(0, 2048));
     }, (name) => capabilities === undefined || [...capabilities].some((tool) => tool.split("__").length === 3 && tool.split("__")[1] === name)) as Record<string, ServerDefinition>;
     const deadline = Date.now() + budgetMs;
     await Promise.all(Object.entries(servers).map(async ([name, server]) => {
       try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, rawSnapshot.mcpServers[name], authorize, sessionId); }
-      catch (error) { result.diagnostics.push(`${name}: ${error instanceof Error ? error.message : String(error)}${typeof (error as { code?: unknown }).code === "number" ? ` (HTTP ${(error as { code: number }).code})` : ""}`); }
+      catch (error) {
+        const code = (error as { code?: unknown }).code;
+        const status = typeof code === "number" && code >= 400 && code <= 599 ? ` (HTTP ${code})` : "";
+        result.diagnostics.push((redactMcpError(`${name}: ${error instanceof Error ? error.message : String(error)}${status}`) ?? "MCP discovery failed").slice(0, 2048));
+      }
     }));
     return result;
   }

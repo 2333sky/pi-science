@@ -27,7 +27,7 @@ port_available() { python3 -c 'import socket,sys; s=socket.socket(); s.setsockop
 wait_url() { local url="$1" attempts=100; while [ "$attempts" -gt 0 ]; do node "$PROJECT_DIR/scripts/check-http-health.mjs" "$url" >/dev/null 2>&1 && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
 wait_port_available() { local port="$1" attempts=100; while [ "$attempts" -gt 0 ]; do port_available "$port" >/dev/null 2>&1 && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
 wait_file() { local file="$1" attempts=200; while [ "$attempts" -gt 0 ]; do [ -f "$file" ] && return 0; sleep 0.05; attempts=$((attempts - 1)); done; return 1; }
-wait_pid_gone() { local pid="$1" attempts=100; while [ "$attempts" -gt 0 ]; do ! kill -0 "$pid" 2>/dev/null && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
+wait_pid_gone() { local pid="$1" attempts=100; while [ "$attempts" -gt 0 ]; do { ! kill -0 "$pid" 2>/dev/null || [[ "$(ps -o stat= -p "$pid" 2>/dev/null)" =~ ^[[:space:]]*Z ]]; } && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
 
 if node "$NODE_CHECK_SCRIPT" 24.15.0; then fail "Node 24.15 was accepted"; fi
 node "$NODE_CHECK_SCRIPT" 24.16.0 || fail "Node 24.16 was rejected"
