@@ -114,6 +114,7 @@ function modelRows(payload: Record<string, unknown>): Array<{ id: string; raw: u
 }
 
 const CONTEXT_KEYS = new Set(["context_window", "context_length", "max_model_len", "max_context_length", "max_position_embeddings", "contextwindow"]);
+const MAX_OUTPUT_KEYS = new Set(["max_output_tokens", "max_completion_tokens"]);
 const THINKING_LEVEL_SET = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 function capabilityPatchFromPayload(value: unknown): CapabilityPatch {
@@ -127,6 +128,10 @@ function capabilityPatchFromPayload(value: unknown): CapabilityPatch {
       if (CONTEXT_KEYS.has(key) && patch.context_window === undefined) {
         const context = normalizeContextWindow(child);
         if (context) patch.context_window = context;
+      }
+      if (MAX_OUTPUT_KEYS.has(key) && patch.max_output_tokens === undefined) {
+        const maxOutput = Number(child);
+        if (Number.isInteger(maxOutput) && maxOutput > 0) patch.max_output_tokens = maxOutput;
       }
       if ((key === "reasoning" || key === "supports_reasoning") && typeof child === "boolean" && patch.reasoning === undefined) patch.reasoning = child;
       if ((key === "thinking_levels" || key === "supported_thinking_levels") && Array.isArray(child) && patch.thinking_levels === undefined) {
@@ -709,7 +714,7 @@ export class ModelResourceService {
   /** Probe a prospective provider configuration without persisting anything:
    *  fetch its model list and report the rows. Used by the UI's
    *  "Test & Discover" step before the aggregate create. */
-  async testProviderConfiguration(input: { protocol: Endpoint["protocol"]; base_url: string; api?: Endpoint["api"]; auth?: { kind: "api_key" | "none"; secret?: string } | null }): Promise<{ ok: true; health: "ready"; models: Array<{ id: string; display_name: string }> }> {
+  async testProviderConfiguration(input: { protocol: Endpoint["protocol"]; base_url: string; api?: Endpoint["api"]; auth?: { kind: "api_key" | "none"; secret?: string } | null }): Promise<{ ok: true; health: "ready"; models: Array<{ id: string; display_name: string; capabilities: CapabilityPatch }> }> {
     const protocol = normalizeProtocol(input.protocol);
     const baseUrl = normalizeBaseUrl(input.base_url);
     const endpoint = { protocol, base_url: baseUrl };
@@ -730,7 +735,7 @@ export class ModelResourceService {
     return { ok: true, health: "ready", models: rows.map((row) => {
       const raw = row.raw && typeof row.raw === "object" ? row.raw as Record<string, unknown> : {};
       const name = raw.display_name ?? raw.name;
-      return { id: row.id, display_name: typeof name === "string" && name.trim() ? name.trim() : row.id };
+      return { id: row.id, display_name: typeof name === "string" && name.trim() ? name.trim() : row.id, capabilities: capabilityPatchFromPayload(row.raw) };
     }) };
   }
 

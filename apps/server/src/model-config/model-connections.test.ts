@@ -57,13 +57,13 @@ it("discovers models with stored credentials on the server without selecting or 
   const service = new ModelConfigService();
   await service.createProvider(0, "lab", { name: "Lab", api: "openai-completions", baseUrl: "http://localhost:9876/v1", models: [{ id: "existing" }] }, { source: "managed", secret: "stored-private-key" });
   const resources = new ModelResourceService();
-  const discovery = vi.spyOn(resources, "testProviderConfiguration").mockResolvedValue({ models: [{ id: "candidate", display_name: "Candidate" }] } as Awaited<ReturnType<ModelResourceService["testProviderConfiguration"]>>);
+  const discovery = vi.spyOn(resources, "testProviderConfiguration").mockResolvedValue({ models: [{ id: "candidate", display_name: "Candidate", capabilities: { context_window: 200000, max_output_tokens: 32768 } }] } as Awaited<ReturnType<ModelResourceService["testProviderConfiguration"]>>);
   const server = app(resources);
   try {
     const before = service.readSync();
     const response = await server.inject({ method: "POST", url: "/api/model-config/providers/lab/discover", payload: {} });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ inference_verified: false, models: [{ id: "candidate" }] });
+    expect(response.json()).toMatchObject({ inference_verified: false, models: [{ id: "candidate", capabilities: { context_window: 200000, max_output_tokens: 32768 } }] });
     expect(response.body).not.toContain("stored-private-key");
     expect(discovery).toHaveBeenCalledWith({ base_url: "http://localhost:9876/v1", protocol: "openai", auth: { kind: "api_key", secret: "stored-private-key" } });
     expect(service.readSync()).toEqual(before);
@@ -74,7 +74,7 @@ it("discovers models with stored credentials on the server without selecting or 
 it("discovers draft connections with managed, environment or keyless auth without persisting credentials", async () => {
   vi.stubEnv("LAB_DRAFT_MODEL_KEY", "server-env-key");
   const resources = new ModelResourceService();
-  const discovery = vi.spyOn(resources, "testProviderConfiguration").mockResolvedValue({ models: [{ id: "candidate", display_name: "Candidate" }] } as Awaited<ReturnType<ModelResourceService["testProviderConfiguration"]>>);
+  const discovery = vi.spyOn(resources, "testProviderConfiguration").mockResolvedValue({ models: [{ id: "candidate", display_name: "Candidate", capabilities: {} }] } as Awaited<ReturnType<ModelResourceService["testProviderConfiguration"]>>);
   const server = app(resources), service = new ModelConfigService();
   try {
     const before = service.readSync();
