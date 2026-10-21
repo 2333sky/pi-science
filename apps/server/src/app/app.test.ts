@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "./app.js";
@@ -78,6 +78,24 @@ function kernelModules() {
 
 
 describe("Node control plane", () => {
+  it("allows composer skill discovery through the global API boundary without opening a session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-science-composer-app-"));
+    vi.stubEnv("PI_SCIENCE_HOME", join(root, "state"));
+    const cwd = join(root, "workspace");
+    await mkdir(join(cwd, ".pi-science"), { recursive: true });
+    const app = buildApp(config("http://127.0.0.1:1", { nodeSessions: true, nodePiManager: true }));
+    openApps.push(app);
+    try {
+      const response = await app.inject({ method: "GET", url: `/api/composer/commands?${new URLSearchParams({ cwd })}` });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["x-pi-science-runtime"]).toBe("node-control-plane");
+      expect(response.json().commands).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "skill:literature-review", source: "skill" }),
+      ]));
+      expect((await app.inject({ method: "GET", url: "/api/health" })).json().active_agent_workers).toBe(0);
+    } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  });
+
   it("exposes liveness and readiness separately", async () => {
     const app = buildApp(config("http://127.0.0.1:1"));
     openApps.push(app);
