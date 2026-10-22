@@ -68,18 +68,8 @@ jobs:
         if: runner.os != 'Windows'
         run: pnpm test
 
-      - name: Build the production worker for native Windows IPC tests
+      - name: Check Windows worker startup before the full IPC suite
         if: runner.os == 'Windows'
-        run: |
-          pnpm --filter @pi-science/contracts build
-          pnpm --filter @pi-science/server build
-          node apps/server/scripts/bundle-test-worker.mjs
-
-      - name: Warm and validate the Windows worker compilation cache
-        if: runner.os == 'Windows'
-        env:
-          PI_SCIENCE_AGENT_WORKER_MODE: bundled
-          NODE_COMPILE_CACHE: ${{ runner.temp }}/pi-science-worker-cache
         run: node scripts/check-worker-startup.mjs
 
       # Native process integration tests launch Node, bash and taskkill trees.
@@ -87,9 +77,6 @@ jobs:
       # 500 ms/15 s characterization deadlines from competing for process slots.
       - name: Test contracts, serialized control plane, frontend and skills
         if: runner.os == 'Windows'
-        env:
-          PI_SCIENCE_AGENT_WORKER_MODE: bundled
-          NODE_COMPILE_CACHE: ${{ runner.temp }}/pi-science-worker-cache
         run: |
           pnpm --filter @pi-science/contracts test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

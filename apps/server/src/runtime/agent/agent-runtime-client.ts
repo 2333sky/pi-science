@@ -20,13 +20,14 @@ type WorkerRequest =
   | ({ type: "notification" } & RuntimeNotification);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const WINDOWS_DIRECTORY_KEYS = ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)", "SystemDrive"] as const;
+// Preserve PowerShell module lookup in the minimal Windows worker environment.
+const WINDOWS_DIRECTORY_KEYS = ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)", "SystemDrive", "PSModulePath"] as const;
 const windowsDirectoryKeys = new Set(WINDOWS_DIRECTORY_KEYS.map((name) => name.toLowerCase()));
 const SYSTEM_ENV_KEYS = ["PATH", "HOME", "USER", ...WINDOWS_DIRECTORY_KEYS, "TMPDIR", "TEMP", "TMP", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "PI_SCIENCE_HOME", "PI_SCIENCE_STATE_ROOT",
   // Trusted launch configuration; never accept workspace overrides.
   "PI_SCIENCE_EXECUTION_MODE", "PI_SCIENCE_SANDBOX_PROFILES", "PI_SCIENCE_SANDBOX_READ_POLICY", "PI_SCIENCE_SANDBOX_RUNTIME_PATHS", "PI_SCIENCE_SANDBOX_PYTHON", "PI_SCIENCE_SANDBOX_PYTHON_ROOT", "PI_SCIENCE_SANDBOX_SOCAT", "PI_SCIENCE_SANDBOX_RIPGREP", "PI_SCIENCE_SANDBOX_BWRAP",
   "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
-  "PI_SCIENCE_AGENT_STARTUP_TRACE", "NODE_COMPILE_CACHE", "NODE_USE_ENV_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+  "NODE_USE_ENV_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
 ] as const;
 const WORKSPACE_ENV_KEYS = new Set([
   "PATH", "CONDA_PREFIX", "PI_SCIENCE_ENVIRONMENT_ID", "PI_SCIENCE_ENVIRONMENT_REVISION_ID",
@@ -40,21 +41,7 @@ const WORKSPACE_ENV_KEYS = new Set([
 
 function workerEntry(): { path: string; execArgv: string[] } {
   const compiled = fileURLToPath(new URL("./worker/main.js", import.meta.url));
-  if (process.env.PI_SCIENCE_AGENT_WORKER_MODE === "bundled") {
-    const bundled = fileURLToPath(new URL(import.meta.url.endsWith(".ts")
-      ? "../../../dist/runtime/agent/worker/main.test-bundle.mjs" : "./worker/main.test-bundle.mjs", import.meta.url));
-    if (!existsSync(bundled)) throw new Error("Bundled test worker is missing; build it before running IPC tests");
-    return { path: bundled, execArgv: [] };
-  }
   if (existsSync(compiled)) return { path: compiled, execArgv: [] };
-  // CI can exercise the production worker while testing the source facade.
-  // In particular, repeated cold TS-loader starts exceed short IPC deadlines
-  // on native Windows runners. Never accept an arbitrary executable path.
-  if (process.env.PI_SCIENCE_AGENT_WORKER_MODE === "compiled") {
-    const built = fileURLToPath(new URL("../../../dist/runtime/agent/worker/main.js", import.meta.url));
-    if (!existsSync(built)) throw new Error("Compiled agent worker is missing; build @pi-science/server first");
-    return { path: built, execArgv: [] };
-  }
   return { path: fileURLToPath(new URL("./worker/main.ts", import.meta.url)), execArgv: ["--import", import.meta.resolve("tsx")] };
 }
 
@@ -64,7 +51,7 @@ export function workerEnvironment(overrides: Record<string, string> = {}, creden
     return value === undefined ? [] : [[name, value]];
   }));
   const allowed = new Set([...WORKSPACE_ENV_KEYS, ...credentialEnvNames]);
-  const workspace = Object.fromEntries(Object.entries(overrides).filter(([name]) => allowed.has(name) && !windowsDirectoryKeys.has(name.toLowerCase()) && name !== "NODE_COMPILE_CACHE" && name !== "PI_SCIENCE_EXECUTION_MODE" && !name.startsWith("PI_SCIENCE_SANDBOX_")));
+  const workspace = Object.fromEntries(Object.entries(overrides).filter(([name]) => allowed.has(name) && !windowsDirectoryKeys.has(name.toLowerCase()) && name !== "PI_SCIENCE_EXECUTION_MODE" && !name.startsWith("PI_SCIENCE_SANDBOX_")));
   return { ...system, ...workspace, PI_SCIENCE_MCP_EXECUTABLE_PATH: process.env.PI_SCIENCE_MCP_EXECUTABLE_PATH ?? process.env.PATH ?? "" };
 }
 

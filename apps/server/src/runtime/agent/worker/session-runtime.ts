@@ -112,11 +112,6 @@ export class SessionRuntime {
   }
 
   static async open(options: AgentRuntimeStartOptions, publish: (event: RuntimeEvent) => void, fatal: (error: unknown) => void): Promise<SessionRuntime> {
-    const startupStarted = performance.now();
-    const startupTrace = (phase: string) => {
-      if (process.env.PI_SCIENCE_AGENT_STARTUP_TRACE === "1") console.error(JSON.stringify({ worker_startup: phase, elapsed_ms: Math.round(performance.now() - startupStarted) }));
-    };
-    startupTrace("start");
     const runtimeEpoch = randomUUID();
     let eventSequence = 0;
     const emit = (event: RuntimeEvent) => publish({ ...event, runtime_epoch: runtimeEpoch, runtime_sequence: ++eventSequence });
@@ -124,7 +119,6 @@ export class SessionRuntime {
     const requiredRoot = join(metadataRoot(options.cwd), "agent-sessions");
     if (resolve(options.sessionsRoot) !== resolve(requiredRoot)) throw new Error("agent sessions root must be workspace-local");
     const models = agentModels(options.settings);
-    startupTrace("models");
     const environment = toolEnvironment(options.env ?? {});
     const executionEnv = new NodeExecutionEnv({ cwd: options.cwd, shellEnv: environment });
     const repo = new JsonlSessionRepo({ fileSystem: executionEnv, sessionsRoot: requiredRoot });
@@ -144,7 +138,6 @@ export class SessionRuntime {
             return repo.open(metadata, context);
           })()
         : await retrySessionDirectory(() => repo.create({ cwd: options.cwd, ...(options.parentSessionId ? { parentSessionId: options.parentSessionId } : {}) }, context));
-      startupTrace("session");
       const saved = (await session.getValue(appliedRuntimeSettings, context))?.value;
       const recovering = (await session.getValue(laneState("main"), context))?.value.currentOperationId;
       // A requested model can be gone from the catalog while the session still has a usable
@@ -163,7 +156,6 @@ export class SessionRuntime {
       if (recovering && saved?.model === `${model.provider}/${model.id}`) model.contextWindow = saved.contextWindow;
       const discovered = await loadSkills(executionEnv, skillPaths, context);
       const templates = await loadPromptTemplates(executionEnv, join(options.cwd, ".pi", "prompts"), context);
-      startupTrace("resources");
       const subagents = new SubagentBridge(emit);
       const candidateScoped = !!options.executionGrantId || !!options.sandboxCandidateId || options.executionScope === "candidate" || options.executionScope === "confined";
       const sandboxIdentity: SandboxIdentity = { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId, delegatedAgent: options.delegatedAgent, executionScope: options.executionScope ?? (candidateScoped ? "confined" : "workspace") };
@@ -198,7 +190,6 @@ export class SessionRuntime {
         steeringMode: "one-at-a-time",
         followUpMode: "one-at-a-time",
       }, context);
-      startupTrace("harness");
       const lane = await harness.lane("main", context);
       openedLane = lane;
       const watch = await lane.watch(context);
@@ -268,7 +259,6 @@ export class SessionRuntime {
           void runtime.guardBudget(recovered.operationId).then(() => lane.resume(context)).catch(fatal);
         }
       };
-      startupTrace("ready");
       return runtime;
     } catch (error) {
       // Put the durable lane back when startup had already adopted the requested model. The
