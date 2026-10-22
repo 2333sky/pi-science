@@ -38,6 +38,12 @@ const WORKSPACE_ENV_KEYS = new Set([
 
 function workerEntry(): { path: string; execArgv: string[] } {
   const compiled = fileURLToPath(new URL("./worker/main.js", import.meta.url));
+  if (process.env.PI_SCIENCE_AGENT_WORKER_MODE === "bundled") {
+    const bundled = fileURLToPath(new URL(import.meta.url.endsWith(".ts")
+      ? "../../../dist/runtime/agent/worker/main.test-bundle.mjs" : "./worker/main.test-bundle.mjs", import.meta.url));
+    if (!existsSync(bundled)) throw new Error("Bundled test worker is missing; build it before running IPC tests");
+    return { path: bundled, execArgv: [] };
+  }
   if (existsSync(compiled)) return { path: compiled, execArgv: [] };
   // CI can exercise the production worker while testing the source facade.
   // In particular, repeated cold TS-loader starts exceed short IPC deadlines

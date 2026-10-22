@@ -73,11 +73,12 @@ jobs:
         run: |
           pnpm --filter @pi-science/contracts build
           pnpm --filter @pi-science/server build
+          node apps/server/scripts/bundle-test-worker.mjs
 
       - name: Warm and validate the Windows worker compilation cache
         if: runner.os == 'Windows'
         env:
-          PI_SCIENCE_AGENT_WORKER_MODE: compiled
+          PI_SCIENCE_AGENT_WORKER_MODE: bundled
           NODE_COMPILE_CACHE: ${{ runner.temp }}/pi-science-worker-cache
         run: node scripts/check-worker-startup.mjs
 
@@ -87,7 +88,7 @@ jobs:
       - name: Test contracts, serialized control plane, frontend and skills
         if: runner.os == 'Windows'
         env:
-          PI_SCIENCE_AGENT_WORKER_MODE: compiled
+          PI_SCIENCE_AGENT_WORKER_MODE: bundled
           NODE_COMPILE_CACHE: ${{ runner.temp }}/pi-science-worker-cache
         run: |
           pnpm --filter @pi-science/contracts test
