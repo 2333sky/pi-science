@@ -67,7 +67,7 @@ powershell -File scripts/install.ps1
 powershell -File scripts/start.ps1
 ```
 
-打开 **http://127.0.0.1:8787**，在 **设置 → LLM** 配置提供商和默认模型，再打开工作区开始对话。**设置 → Skills** 管理技能，**设置 → MCP** 启用科学连接器；初始启用 Paper Search 和 Web Search & Fetch。控制面 API 位于同一端口。
+打开 **http://127.0.0.1:8787**，在 **设置 → LLM** 配置提供商和默认模型，再打开工作区开始对话。**设置 → Skills** 管理技能，**设置 → MCP** 启用科学连接器；初始启用 Paper Search；在**设置 → 联网搜索**中配置内置网页搜索与抓取。控制面 API 位于同一端口。
 
 Linux/WSL 需要安装 `ripgrep`、`socat` 和 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install ripgrep socat bubblewrap`）。安装、启动和 `pi-science doctor` 都会检查这些工具，并离线验证 Bubblewrap 能否创建隔离命名空间；缺少依赖或系统禁止隔离时，会停止安装/启动并提示原因。
 
@@ -143,7 +143,6 @@ Pi-Science 内置 19 个 MCP 连接器，覆盖公共科学数据服务和通用
 | 连接器 | 上游服务 | 默认状态 |
 |---|---|---|
 | Paper Search | PubMed、arXiv、Crossref、bioRxiv、medRxiv、Europe PMC | 启用 |
-| Web Search & Fetch | pi-web-access：网页搜索、网页 / PDF 抓取、来源核查 | 启用 |
 | Literature Graph | OpenAlex | 关闭 |
 | Clinical Trials | ClinicalTrials.gov | 关闭 |
 | Structures & Interactions | RCSB PDB、AlphaFold DB、EMDB、IntAct、Complex Portal | 关闭 |
@@ -170,7 +169,7 @@ Pi-Science 内置 19 个 MCP 连接器，覆盖公共科学数据服务和通用
 
 连接器认证可引用托管密钥/令牌或具名环境变量，作为进程变量、HTTP Header 或 Bearer Token 传递。策略快照只含凭据引用，获准使用的凭据在 Worker 内存中解析。目前不支持 OAuth 登录与刷新。
 
-Web Search & Fetch 固定使用 `pi-web-access@0.40.0` 独立 MCP，不打开 Curator 页面，无需 `pi install`。Paper Search 用于结构化学术数据库检索；Web Access 用于通用网页与来源核查。默认询问授权，可在 MCP 设置中设为 `allow_all`；已有的显式 `ask` 需改为 `allow`，`deny` 继续生效。内置连接器使用 Pi-Science 独立配置，关闭 GitHub Clone / PR Issue 特殊处理；配置 Brave Key 不会自动选择 Brave，需显式设置 Provider。Provider 配置、缓存生存期和出站安全验收见 [Web Access 使用与验收说明](docs/web-access-mcp.md)。
+`web_search` 和 `web_fetch` 是 Agent 内置工具，复用固定版本的 `pi-web-access@0.40.0` 核心。在**设置 → 联网搜索**中配置全局工具开关、搜索服务和 API Key。工具直接在可信 Worker 中执行，不经过代码执行沙箱，保留公网地址、重定向和响应体大小检查。Paper Search 继续作为学术数据库 MCP 连接器。详见 [Web Access 配置与验证](docs/web-access-mcp.md)。
 
 ## 科学文件查看器
 

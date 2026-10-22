@@ -67,7 +67,7 @@ powershell -File scripts/install.ps1
 powershell -File scripts/start.ps1
 ```
 
-Open **http://127.0.0.1:8787**. In **Settings → LLM**, configure a provider and default model, then open a workspace and start a conversation. Use **Settings → Skills** to manage skills and **Settings → MCP** to enable scientific connectors; Paper Search and Web Search & Fetch are enabled initially. The control-plane API runs on `127.0.0.1:8787`.
+Open **http://127.0.0.1:8787**. In **Settings → LLM**, configure a provider and default model, then open a workspace and start a conversation. Use **Settings → Skills** to manage skills and **Settings → MCP** to enable scientific connectors; Paper Search is enabled initially; configure built-in web search and fetching in **Settings → Web search**. The control-plane API runs on `127.0.0.1:8787`.
 
 Linux/WSL requires `ripgrep`, `socat` and `bubblewrap` (Debian/Ubuntu: `sudo apt-get install ripgrep socat bubblewrap`). Installation, startup and `pi-science doctor` check these tools and run an offline Bubblewrap namespace probe. Missing dependencies or blocked namespaces stop installation/startup with a diagnostic.
 
@@ -138,7 +138,6 @@ the upstream searches still make outbound network requests.
 | Connector | Upstream services | Default |
 |---|---|---|
 | Paper Search | PubMed, arXiv, Crossref, bioRxiv, medRxiv, Europe PMC | Enabled |
-| Web Search & Fetch | pi-web-access: web search, webpage / PDF extraction, source checks | Enabled |
 | Literature Graph | OpenAlex | Disabled |
 | Clinical Trials | ClinicalTrials.gov | Disabled |
 | Structures & Interactions | RCSB PDB, AlphaFold DB, EMDB, IntAct, Complex Portal | Disabled |
@@ -167,7 +166,7 @@ active agent runtimes without manually editing Pi configuration files.
 
 Connector authentication can reference a managed key/token or a named environment variable, delivered as a process variable, HTTP header or Bearer token. Policy snapshots contain only credential references; permitted credentials are resolved in Worker memory. OAuth login/refresh is not currently supported.
 
-Web Search & Fetch uses the pinned standalone `pi-web-access@0.40.0` MCP CLI, with no Curator page or `pi install`. Use Paper Search for structured scholarly databases and Web Access for general web sources. Approval defaults to `ask`; select `allow_all` in MCP settings and change any explicit `ask` overrides to `allow` to avoid repeated confirmations. Explicit `deny` remains effective. The connector uses isolated Pi-Science configuration and disables GitHub Clone / PR Issue handling. Adding a Brave key does not select Brave; choose the Provider explicitly. See [Web Access configuration and validation](docs/web-access-mcp.md) for providers, cache lifetime, and outbound security limits.
+`web_search` and `web_fetch` are built-in Agent tools backed by the pinned `pi-web-access@0.40.0` core. Configure global tool switches, search provider and API keys in **Settings → Web search**. They execute directly in the trusted worker, outside the code-execution sandbox, with public-address/redirect/size checks. Paper Search remains an MCP connector for scholarly databases. See [Web access configuration](docs/web-access-mcp.md).
 
 ## Scientific Viewers
 

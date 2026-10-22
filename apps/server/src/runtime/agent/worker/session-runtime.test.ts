@@ -106,6 +106,14 @@ describe("agent-core worker mutations", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it("activates native web tools without exposing the retired MCP tool names", async () => {
+    const { instance, parts } = await runtime();
+    const names = (await parts.harness.getTools(context)).map((tool) => tool.name);
+    expect(names).toEqual(expect.arrayContaining(["web_search", "web_fetch"]));
+    expect(names.some((name) => name.startsWith("mcp__web-access__"))).toBe(false);
+    expect(await instance.command("get_state", {})).toMatchObject({ success: true, data: { activeTools: expect.arrayContaining(["web_search", "web_fetch"]) } });
+  });
+
   it("reports pending browser interactions in worker snapshots until they are answered", async () => {
     const { instance, events } = await runtime();
     const bridge = (instance as unknown as { interactions: InteractionBridge }).interactions;

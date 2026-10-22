@@ -38,6 +38,7 @@ function defaultFetch(url: string, init: RequestInit): Promise<Response> {
     return Promise.resolve(jsonResponse({ ok: true, model: "deepseek/deepseek-v4-flash", thinking: "high" }));
   }
   if (url.startsWith("/api/settings/subagents?")) return Promise.resolve(jsonResponse({ agents: [{ name: "reviewer", path: ".pi/agents/reviewer.md" }] }));
+  if (url === "/api/settings/web-access") return Promise.resolve(jsonResponse({ web_access: { search_enabled: true, fetch_enabled: true, provider: "auto", api_keys: {} } }));
   if (url === "/api/mcp/connectors") return Promise.resolve(jsonResponse({ connectors: [] }));
   if (url === "/api/settings/skills" || url.startsWith("/api/settings/skills?cwd=")) {
     return Promise.resolve(jsonResponse({
@@ -122,7 +123,7 @@ describe("SettingsContent", () => {
     // Every nav item uses a different outline icon (distinct svg content).
     const icons = screen.getAllByRole("tab").map((tab) => tab.querySelector("svg")?.innerHTML ?? null);
     expect(icons.every(Boolean)).toBe(true);
-    expect(new Set(icons).size).toBe(10);
+    expect(new Set(icons).size).toBe(11);
   });
 
   it("moves the close control into the content header, outside the sidebar", async () => {
@@ -171,6 +172,15 @@ describe("SettingsContent", () => {
     fireEvent.click(screen.getByRole("tab", { name: "General" }));
     expect(within(aside).getByText("Workspace settings")).toBeInTheDocument();
     expect(within(aside).getByText("/lab/project")).toBeInTheDocument();
+  });
+
+  it("opens global web search settings from a workspace", async () => {
+    renderContent("/lab/project");
+    const aside = (await screen.findByRole("tablist", { name: "Settings" })).closest("aside")!;
+    fireEvent.click(screen.getByRole("tab", { name: "Web search" }));
+    expect(await screen.findByRole("checkbox", { name: "Enable web search" })).toBeChecked();
+    expect(within(aside).getByText("Global settings")).toBeInTheDocument();
+    expect(within(aside).queryByText("/lab/project")).not.toBeInTheDocument();
   });
 
   it("shows separate Built-in and User Skills tables inside Settings", async () => {

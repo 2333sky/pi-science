@@ -88,6 +88,9 @@ export const mcpConnectorsQuery = (errorFallback: string) => ({
 });
 
 export const settingsApi = {
+  saveWebAccess<T>(body: unknown) {
+    return writeSettings<T>("/api/settings/web-access", json("PUT", body), "Could not save web search settings");
+  },
   async config<T>(cwd?: string | null): Promise<T> {
     // The replacement side effect runs on every call, cached or not, as it did before.
     const data = await queryClient.fetchQuery(configQuery<T>(cwd)) as T & SettingsEnvelope;

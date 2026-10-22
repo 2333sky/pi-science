@@ -1,3 +1,5 @@
+import { SettingsStore } from "../../storage/settings-store.js";
+import { readWebSettings } from "../../web/settings.js";
 import { access, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,7 +25,7 @@ async function fixture() {
   process.env.PI_SCIENCE_HOME = join(cwd, "control-home");
   const store = new InMemorySqliteStateStore(); stores.push(store); await store.start();
   const repository = new McpRepository(store);
-  const service = new McpConnectorService(repository, new WorkspaceRepository(store), { read: async () => ({}) } as never, undefined, new McpRuntimeProjection(repository));
+  const service = new McpConnectorService(repository, new WorkspaceRepository(store), new SettingsStore(), undefined, new McpRuntimeProjection(repository));
   const app = Fastify({ logger: false }); registerMcpRoutes(app, service);
   await service.materializeWorkspace(cwd);
   return { app, cwd, service };
@@ -142,7 +144,7 @@ describe("canonical MCP routes", () => {
     await app.close();
   });
 
-  it("seeds paper-search and web-access enabled and scientific domain connectors disabled", async () => {
+  it("seeds paper-search enabled and scientific connectors disabled without the retired web connector", async () => {
     const { app, cwd, service } = await fixture();
     await service.ensureBuiltins();
     const seededPaper = await service.repository.toolCache("mcp_builtin_paper_search");
@@ -156,9 +158,9 @@ describe("canonical MCP routes", () => {
     expect((await service.repository.toolCache("mcp_builtin_paper_search"))?.tools[0]?.description).not.toBe("stale description");
     const listed = await app.inject({ method: "GET", url: `/api/mcp/connectors?cwd=${encodeURIComponent(cwd)}` });
     const connectors = listed.json().connectors as Array<{ connector_id: string; name: string; revision: number; tool_count: number; settings: { enabled: boolean; revision: number } }>;
-    expect(connectors).toHaveLength(19);
+    expect(connectors).toHaveLength(18);
     expect(connectors.find((item) => item.name === "paper-search")).toMatchObject({ connector_id: "mcp_builtin_paper_search", tool_count: 5, settings: { enabled: true } });
-    expect(connectors.find((item) => item.name === "web-access")).toMatchObject({ connector_id: "mcp_builtin_web_access", tool_count: 4, settings: { enabled: true } });
+    expect(connectors.find((item) => item.name === "web-access")).toBeUndefined();
     expect(connectors.filter((item) => item.name !== "paper-search")).toEqual(expect.arrayContaining([
       expect.objectContaining({ name: "literature-graph", tool_count: 5, settings: expect.objectContaining({ enabled: false }) }),
       expect.objectContaining({ name: "clinical-trials", tool_count: 4, settings: expect.objectContaining({ enabled: false }) }),
@@ -180,7 +182,7 @@ describe("canonical MCP routes", () => {
     ]));
     const runtimeSnapshot = JSON.parse(await readFile(join(cwd, ".pi-science", "mcp-runtime.json"), "utf8"));
     expect(runtimeSnapshot.mcpServers["paper-search"]).toMatchObject({ __piScienceCacheVersion: 4, __piScienceToolCount: 5 });
-    expect(runtimeSnapshot.mcpServers["web-access"]).toMatchObject({ __piScienceCacheVersion: 4, __piScienceToolCount: 4, approveTools: true });
+    expect(runtimeSnapshot.mcpServers).not.toHaveProperty("web-access");
 
     const proteinRecords = connectors.find((item) => item.name === "protein-records")!;
     await service.setSettings(proteinRecords.connector_id, {
@@ -194,7 +196,6 @@ describe("canonical MCP routes", () => {
     expect(proteinSnapshot.mcpServers["protein-records"].directTools).toEqual(["get_uniprot_entry"]);
 
     expect(await service.credential("mcp_builtin_paper_search")).toMatchObject({ capability: "optional", suggested_target_name: "NCBI_API_KEY" });
-    expect(await service.credential("mcp_builtin_web_access")).toMatchObject({ capability: "optional", suggested_target_name: "BRAVE_API_KEY" });
     expect(await service.credential("mcp_builtin_literature_graph")).toMatchObject({ capability: "optional", suggested_target_name: "OPENALEX_API_KEY" });
     expect(await service.credential("mcp_builtin_drug_regulatory")).toMatchObject({ capability: "optional", suggested_target_name: "OPENFDA_API_KEY" });
     expect(await service.credential("mcp_builtin_clinical_trials")).toMatchObject({ capability: "unsupported", suggested_delivery: null, suggested_target_name: null });
@@ -243,36 +244,28 @@ describe("canonical MCP routes", () => {
     expect(await service.get(custom.connector_id)).toMatchObject({ name: "chembl", display_name: "My ChEMBL", description: "user-owned", source: "custom", command: process.execPath, args: ["custom-server.js"] });
     expect(await service.get("mcp_builtin_chembl")).toMatchObject({ source: "builtin", display_name: "ChEMBL" });
     expect((await service.get("mcp_builtin_chembl")).name).toMatch(/^chembl-builtin-/);
-    expect((await service.list()).connectors).toHaveLength(20);
+    expect((await service.list()).connectors).toHaveLength(19);
     await app.close();
   });
 
-  it("preserves Web Access policy and credential references across startup", async () => {
+  it("retires Web Access while preserving its key and global disabled-tool policy", async () => {
     const { app, cwd, service } = await fixture();
     try {
       await service.ensureBuiltins();
-      const web = await service.get("mcp_builtin_web_access");
-      await service.setCredential(web.connector_id, { backend: "managed", delivery: "environment", target_name: "BRAVE_API_KEY", secret: "web-access-test-secret", revision: web.revision });
-      await service.setToolGrant(web.connector_id, "source_check", "deny");
-      await service.setToolGrant(web.connector_id, "fetch_content", "ask", cwd);
-      const granted = await service.get(web.connector_id);
-      await service.setSettings(web.connector_id, { enabled: true, include_tools: [], exclude_tools: [], approval_mode: "allow_all", revision: granted.settings.revision });
+      const paper = await service.repository.get("mcp_builtin_paper_search");
+      const old = await service.repository.upsertBuiltin("mcp_builtin_web_access", {
+        name: "web-access", display_name: "Web Search & Fetch", description: "legacy", transport: "stdio", command: process.execPath,
+        args: [], endpoint_url: null, socket_path: null, credential_ref: null, runtime_config: paper!.runtime_config,
+      }, true);
+      await service.setCredential(old.connector_id, { backend: "managed", delivery: "environment", target_name: "BRAVE_API_KEY", secret: "web-access-test-secret", revision: old.revision });
+      await service.repository.setGlobalToolGrant(old.connector_id, "fetch_content", "deny");
       await service.ensureBuiltins();
-      const snapshot = await readFile(join(cwd, ".pi-science", "mcp-runtime.json"), "utf8");
-      expect(snapshot).not.toContain("web-access-test-secret");
-      expect(JSON.parse(snapshot).mcpServers["web-access"]).toMatchObject({
-        approveTools: ["fetch_content"], excludeTools: ["source_check"],
-        __piScienceEnvironment: { BRAVE_API_KEY: { kind: "credential", credential_ref: expect.any(String) } },
-      });
-      expect((await service.tools(web.connector_id, cwd)).tools.map(({ name, decision }) => ({ name, decision }))).toEqual([
-        { name: "web_search", decision: "allow" }, { name: "fetch_content", decision: "ask" },
-        { name: "get_search_content", decision: "allow" }, { name: "source_check", decision: "deny" },
-      ]);
-      const current = await service.get(web.connector_id);
-      await service.setSettings(web.connector_id, { enabled: false, include_tools: [], exclude_tools: [], approval_mode: "allow_all", revision: current.settings.revision });
-      await service.ensureBuiltins();
-      expect((await service.get(web.connector_id)).settings.enabled).toBe(false);
+      expect(await service.repository.get(old.connector_id)).toBeNull();
+      expect(await readWebSettings()).toMatchObject({ search_enabled: true, fetch_enabled: false, api_keys: { brave: "web-access-test-secret" } });
       expect(JSON.parse(await readFile(join(cwd, ".pi-science", "mcp-runtime.json"), "utf8")).mcpServers).not.toHaveProperty("web-access");
+      expect(await readFile(join(process.env.PI_SCIENCE_HOME!, "config.json"), "utf8")).not.toContain("web-access-test-secret");
+      await service.ensureBuiltins();
+      expect((await readWebSettings()).fetch_enabled).toBe(false);
     } finally { await app.close(); }
   });
 

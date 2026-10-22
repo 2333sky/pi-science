@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-kernel-bridges.mjs && node scripts/copy-sqlite-assets.mjs",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-kernel-bridges.mjs && node scripts/copy-sqlite-assets.mjs && node scripts/build-web-core.mjs",
     "dev": "tsx watch src/app/main.ts",
     "start": "node dist/app/main.js",
     "test": "vitest run",
@@ -19,6 +19,7 @@
     "@fastify/rate-limit": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@pi-science/contracts": "workspace:*",
+    "defuddle": "0.19.3",
     "fastify": "^5.10.0",
     "jszip": "^3.10.1",
     "pi-web-access": "0.40.0",
@@ -29,6 +30,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "esbuild": "0.28.1",
     "tsx": "^4.23.1",
     "typescript": "^7.0.2",
     "vitest": "^4.1.10"

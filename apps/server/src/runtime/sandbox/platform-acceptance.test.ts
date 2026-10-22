@@ -109,7 +109,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
       expect(result.content).toEqual([{ type: "text", text: JSON.stringify({ token: "connector-only", hostKey: false, passwd: false }) }]);
     } finally { await client.close(); }
   }, 30_000);
-  it.each(["paper-search", "literature-graph", "web-access"])("starts builtin %s inside the narrow MCP sandbox within discovery budget", async (name) => {
+  it.each(["paper-search", "literature-graph"])("starts builtin %s inside the narrow MCP sandbox within discovery budget", async (name) => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const builtin = builtinMcpConnectors().find((connector) => connector.definition.name === name)!;
     const definition = builtin.definition;
@@ -121,10 +121,10 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
       expect(Date.now() - started).toBeLessThan(10_000);
     } finally { await client.close(); }
   }, 30_000);
-  it("discovers all three builtin connectors concurrently within the worker budget", async () => {
+  it("discovers builtin connectors concurrently within the worker budget", async () => {
     const cwd = await fixture(), home = await fixture();
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("PI_SCIENCE_HOME", home);
-    const builtins = builtinMcpConnectors().filter((connector) => ["paper-search", "literature-graph", "web-access"].includes(connector.definition.name));
+    const builtins = builtinMcpConnectors().filter((connector) => ["paper-search", "literature-graph"].includes(connector.definition.name));
     await mkdir(join(cwd, ".pi-science"));
     await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "sandbox-budget", mcpServers: Object.fromEntries(builtins.map(({ definition, connector_id }) => [definition.name, {
       transport: "stdio", command: definition.command, args: definition.args, __piScienceBuiltin: true, __piScienceConnectorId: connector_id,

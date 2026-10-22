@@ -1,3 +1,4 @@
+import { webSettingsPatchSchema, updateWebSettings, publicWebSettings, webSettingsFromConfig } from "../../web/settings.js";
 import { registerNetworkGrantRoutes } from "./network-grant-routes.js";
 import { discoverAgentDefinitions } from "../../runtime/agent/agent-definitions.js";
 import { registerModelSelectionRoutes } from "./model-selection-routes.js";
@@ -664,6 +665,13 @@ export function registerSettingsRoutes(app: FastifyInstance, nodeSessionService:
       for (const [id, ref] of Object.entries(resourceState.credential_refs)) if (modelResources.credentials.readSync(ref)?.secret) apiKeys[id] = true;
     }
     return { api_keys: apiKeys, model: configured, unavailable_model: unavailableModel, thinking, model_context_window: config.model_context_window ?? null, model_context_window_override: config.model_context_window_override ?? null, model_max_output_tokens: Number(selected?.max_output_tokens ?? 0) || null, progress_appearance: effectiveProgressAppearance, compaction_enabled: config.compaction_enabled !== false, compaction_threshold_percent: compactionThreshold(config, available, configured), allow_private_providers: config.allow_private_providers !== false, providers, custom_providers: (config.custom_providers ?? []).map(publicCustom), available_models: available, model_catalog_source: catalog.source };
+  });
+  app.get("/api/settings/web-access", async () => ({ web_access: publicWebSettings(await webSettingsFromConfig(await load())) }));
+  app.put("/api/settings/web-access", async (request, reply) => {
+    const patch = webSettingsPatchSchema.safeParse(request.body);
+    if (!patch.success) return reply.code(400).send({ error: "Invalid web access settings" });
+    const settings = await mutate(async (config) => publicWebSettings(await updateWebSettings(config, patch.data)));
+    return respondWithRuntimeReload(nodeSessionService, reply, { ok: true, web_access: settings });
   });
   // UI-only state: a dedicated cheap read (no provider inventory or model
   // catalog work) and a write that never reloads runtimes or replaces

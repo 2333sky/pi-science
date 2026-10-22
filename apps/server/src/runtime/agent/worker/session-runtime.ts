@@ -20,6 +20,7 @@ import { todoHarnessTool } from "./todo-tool.js";
 import { SubagentBridge, subagentHarnessTool, subagentControlTool } from "./subagent-tool.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 import { questionnaireHarnessTool } from "./questionnaire-tool.js";
+import { webTools } from "../../../web/tools.js";
 import { AgentMcpTools } from "./mcp-tools.js";
 import type { RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
 import { metadataRoot } from "../../../storage/persistence.js";
@@ -168,6 +169,7 @@ export class SessionRuntime {
         } : undefined, options.delegatedAgent ? undefined : session.metadata.id);
       }
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
+      const nativeWebTools = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name === "web_search" || name === "web_fetch")) ? await webTools() : [];
       const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
       const { harness, open } = await AgentHarness.create({
         session,
@@ -176,7 +178,7 @@ export class SessionRuntime {
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
         tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions, options.cwd, session.metadata.id)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
-          todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? []).map(budgets.wrap)]
+          todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...nativeWebTools, ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
             if (options.executionGrantId) await assertExecutionGrantTool(sandboxIdentity, tool.name);
@@ -207,6 +209,7 @@ export class SessionRuntime {
       const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
       const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
       if (available.has("request_network_access") && !activeTools.includes("request_network_access")) activeTools.push("request_network_access");
+      for (const name of ["web_search", "web_fetch"]) if (available.has(name) && !activeTools.includes(name)) activeTools.push(name);
       if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
       if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
       // A restored lane keeps its durable model, and the seed only applies to a lane that has

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { access, realpath } from "node:fs/promises";
 import { resolveMcpExecutable } from "./executable.js";
-import { isAbsolute, join } from "node:path";
+import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ReadBuffer, serializeMessage } from "@modelcontextprotocol/sdk/shared/stdio.js";
@@ -10,8 +10,6 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { workspacePolicy, identifyPolicy, operatorExecutionMode, isWithin } from "../runtime/sandbox/policy.js";
 import { bashDependencies } from "../runtime/sandbox/settings.js";
 import { prepareSandbox, launcherPath, killSandboxGroup, type PreparedSandbox } from "../runtime/sandbox/process.js";
-import { readRegularFile } from "../runtime/sandbox/file-read.js";
-import { configRoot } from "../storage/persistence.js";
 import { applySandboxProfile } from "../runtime/sandbox/profiles.js";
 
 export async function localMcpTransport(workspace: string, command: string, args: string[], cwd: string, environment: Record<string, string>, builtinName?: string, sessionId?: string): Promise<Transport> {
@@ -41,12 +39,7 @@ export async function localMcpTransport(workspace: string, command: string, args
     if (!isAbsolute(arg)) return arg;
     try { return await realpath(arg); } catch { return arg; }
   }));
-  if (builtinName === "web-access") {
-    let settings = "{}";
-    try { settings = (await readRegularFile(join(await realpath(configRoot()), "mcp", "web-access", "config.json"), 64 * 1024)).toString("utf8"); }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    environment = { ...environment, PI_SCIENCE_WEB_ACCESS_CONFIG_JSON: settings };
-  }
+
   // Only this connector's explicitly bound environment is passed to its child.
   const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd, writeDenyPaths: [...(policy.writeDenyPaths ?? []), ...executableDependencies] }), [executable, ...prefix, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment);
   return new SandboxedMcpTransport(prepared, cwd);

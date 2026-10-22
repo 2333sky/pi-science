@@ -1,65 +1,77 @@
-// Run after building the server. --live additionally needs public-web access.
+// Run after building the server. --live also contacts public search/page services.
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { CredentialStore } from "../dist/model-resources/credential-store.js";
+import { SettingsStore } from "../dist/storage/settings-store.js";
+import { webTools } from "../dist/web/tools.js";
 import { builtinMcpConnectors } from "../dist/mcp/builtin-connectors.js";
-import { builtinNetworkEnvironment, mcpBaseEnvironment } from "../dist/mcp/bindings.js";
 
 const live = process.argv.includes("--live");
-const cwd = await mkdtemp(join(tmpdir(), "pi-science-web-smoke-"));
-const foreign = join(cwd, "foreign");
-const data = join(cwd, "data");
-const previousDataRoot = process.env.PI_SCIENCE_HOME;
-process.env.PI_SCIENCE_HOME = data;
-const builtin = builtinMcpConnectors().find((item) => item.connector_id === "mcp_builtin_web_access");
-if (previousDataRoot === undefined) delete process.env.PI_SCIENCE_HOME;
-else process.env.PI_SCIENCE_HOME = previousDataRoot;
-assert.ok(builtin);
-assert.equal(builtin.definition.command, process.execPath);
-const client = new Client({ name: "pi-science-web-smoke", version: "1" });
-const transport = new StdioClientTransport({
-  command: builtin.definition.command, args: builtin.definition.args, cwd,
-  env: { ...mcpBaseEnvironment(), ...builtinNetworkEnvironment(), PI_SCIENCE_HOME: join(cwd, "wrong-child-root"), PI_CODING_AGENT_DIR: foreign, HOME: join(cwd, "home"), USERPROFILE: join(cwd, "home"), XDG_CONFIG_HOME: join(cwd, "xdg") }, stderr: "pipe",
-});
-try {
-  for (const directory of [foreign, join(cwd, "home", ".pi", "agent"), join(cwd, "xdg", "pi")]) {
-    await mkdir(directory, { recursive: true });
-    await writeFile(join(directory, "web-search.json"), JSON.stringify({ provider: "brave", braveApiKey: "foreign-key", tools: { webSearch: { enabled: false } }, ssrf: { allowRanges: ["127.0.0.0/8"] } }));
-  }
-  await client.connect(transport, { timeout: 10_000 });
-  const { tools } = await client.listTools();
-  assert.deepEqual(tools.map((tool) => tool.name).sort(), builtin.tools.map((tool) => tool.name).sort());
-  const generated = JSON.parse(await readFile(join(data, "mcp", "web-access", "runtime", "web-search.json"), "utf8"));
-  assert.equal(generated.provider, "auto");
-  assert.equal(generated.githubClone.enabled, false);
-  assert.equal(generated.githubPrIssue.enabled, false);
-  assert.deepEqual(generated.ssrf, { allowRanges: [], trustEnvProxy: false });
-  assert.equal(generated.braveApiKey, undefined);
-  console.log("Web Access compiled entry: isolated defaults, handshake and four tools OK");
-  if (live) {
-    const failures = [];
-    const call = async (name, args) => {
-      const result = await client.callTool({ name, arguments: args }, undefined, { timeout: 60_000 });
-      const text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
-      if (result.isError) throw new Error(`${name}: ${text.slice(0, 1200)}`);
-      console.log(`${name}: OK`);
-      return text;
-    };
-    try { await call("web_search", { query: "MCP model context protocol", provider: "exa", numResults: 1 }); }
-    catch (error) { failures.push(error); }
-    try {
-      const text = await call("fetch_content", { url: "https://raw.githubusercontent.com/nicobailon/pi-web-access/main/README.md", mode: "raw" });
-      const responseId = text.match(/responseId "([^"]+)"/)?.[1];
-      assert.ok(responseId, "fetch must return a retrievable responseId");
-      await call("get_search_content", { responseId, urlIndex: 0, offset: 0, limit: 500 });
-    } catch (error) { failures.push(error); }
-    if (failures.length) throw new AggregateError(failures, "Live Web Access validation failed");
-  }
-} finally {
-  await client.close();
-  assert.equal(transport.pid, null);
-  await rm(cwd, { recursive: true, force: true });
+const root = await mkdtemp(join(tmpdir(), "pi-native-web-smoke-"));
+process.env.PI_SCIENCE_HOME = root;
+assert.equal(builtinMcpConnectors().some(item => item.connector_id === "mcp_builtin_web_access"), false);
+function pdfFixture() {
+  const stream = "BT /F1 12 Tf 72 720 Td (Scientific PDF fixture.) Tj ET";
+  const objects = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>", `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`];
+  let pdf = "%PDF-1.4\n";
+  const offsets = [0];
+  objects.forEach((object, index) => { offsets.push(pdf.length); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+  const xref = pdf.length;
+  pdf += `xref\n0 6\n0000000000 65535 f \n${offsets.slice(1).map(offset => `${String(offset).padStart(10, "0")} 00000 n \n`).join("")}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return Buffer.from(pdf);
 }
+if (!live) globalThis.fetch = async (input) => {
+  const url = new URL(String(input));
+  if (url.pathname.endsWith(".pdf")) return new Response(pdfFixture(), { headers: { "content-type": "application/pdf" } });
+  return new Response(`<html><head><title>Fixture</title></head><body><article><h1>Native web fixture</h1><p>${"Scientific evidence. ".repeat(100)}</p></article></body></html>`, { headers: { "content-type": "text/html" } });
+};
+try {
+  const tools = await webTools();
+  assert.deepEqual(tools.map(tool => tool.name), ["web_search", "web_fetch"]);
+  const call = async (name, params) => {
+    const result = await tools.find(tool => tool.name === name).execute("smoke", params, () => {}, {}, {}, { abortSignal: AbortSignal.timeout(60_000) });
+    assert.equal(result.isError, undefined, JSON.stringify(result.content).slice(0, 1000));
+    return result;
+  };
+  const page = await call("web_fetch", { url: live ? "https://example.com" : "https://93.184.216.34/page", mode: "raw" });
+  assert.ok(page.content.some(part => part.type === "text" && part.text.length > 20));
+  if (!live) {
+    const readable = await call("web_fetch", { url: "https://93.184.216.34/readable" });
+    assert.ok(JSON.stringify(readable.content).includes("Scientific evidence"));
+    const pdf = await call("web_fetch", { url: "https://93.184.216.34/document.pdf" });
+    assert.ok(JSON.stringify(pdf.content).includes("Scientific PDF fixture"), JSON.stringify(pdf.content));
+    const cachedPdf = await call("web_fetch", { responseId: pdf.details.responseId, offset: 0, limit: 500 });
+    assert.ok(JSON.stringify(cachedPdf.content).includes("Scientific PDF fixture"));
+  }
+  const config = JSON.parse(await readFile(join(root, "web/runtime/web-search.json"), "utf8"));
+  assert.deepEqual(config.ssrf, { allowRanges: [], trustEnvProxy: false });
+  assert.equal(config.githubClone.enabled, false);
+  const blocked = await tools[1].execute("blocked", { url: "http://127.0.0.1", mode: "raw" }, () => {}, {}, {}, {});
+  assert.equal(blocked.isError, true);
+  if (live) await call("web_search", { query: "scientific research", numResults: 1 });
+  if (!live) {
+    const credential = await new CredentialStore().put({ kind: "api_key", backend: "managed", secret: "deepseek-smoke-key" });
+    await new SettingsStore().update(config => { config.web_access = { provider: "deepseek", credential_refs: { deepseek: credential.id } }; });
+    const paths = [];
+    globalThis.fetch = async (input, init) => {
+      const url = new URL(String(input)); paths.push(url.pathname);
+      assert.equal(url.origin, "https://api.deepseek.com");
+      assert.equal(init.headers.Authorization, "Bearer deepseek-smoke-key");
+      return Response.json(url.pathname.endsWith("/search")
+        ? { results: [{ title: "DeepSeek fixture", url: "https://example.com", snippet: "Evidence", summary: "Search evidence" }] }
+        : { title: "DeepSeek fixture", content: "# Fetch evidence" });
+    };
+    const search = await call("web_search", { query: "science" });
+    assert.ok(JSON.stringify(search.content).includes("Search evidence"));
+    const page = await call("web_fetch", { url: "https://93.184.216.34/page" });
+    assert.ok(JSON.stringify(page.content).includes("# Fetch evidence"));
+    const cached = await call("web_fetch", { responseId: page.details.responseId, offset: 0, limit: 100 });
+    assert.ok(JSON.stringify(cached.content).includes("# Fetch evidence"));
+    assert.deepEqual(paths, ["/v1/tools/search", "/v1/tools/fetch"]);
+  }
+  console.log("Native web_search/web_fetch: compiled core, DeepSeek Search/Fetch, extraction, isolated configuration and SSRF guard OK");
+} finally { await rm(root, { recursive: true, force: true }); }

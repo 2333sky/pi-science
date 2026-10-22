@@ -24,7 +24,7 @@ async function fixture() {
   return { cwd, home, grant };
 }
 const supported = ["linux", "darwin"].includes(process.platform);
-it.skipIf(!supported).each(["paper-search", "literature-graph", "web-access"])("keeps %s outside workspace/full-session filesystem grants and scans", async (name) => {
+it.skipIf(!supported).each(["paper-search", "literature-graph"])("keeps %s outside workspace/full-session filesystem grants and scans", async (name) => {
   const { cwd, grant } = await fixture();
   vi.stubEnv("PI_SCIENCE_SANDBOX_RUNTIME_PATHS", JSON.stringify([grant]));
   vi.stubEnv("PI_SCIENCE_SANDBOX_PYTHON_ROOT", grant);

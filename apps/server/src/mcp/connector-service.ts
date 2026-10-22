@@ -1,3 +1,4 @@
+import { updateWebSettings, webSettingsSchema } from "../web/settings.js";
 import { redactMcpError } from "./diagnostics.js";
 export { redactMcpError } from "./diagnostics.js";
 import { bindingError } from "./bindings.js";
@@ -51,6 +52,27 @@ export class McpConnectorService {
   ) {}
 
   async ensureBuiltins(): Promise<void> {
+    // Retire the built-in connector; web access is now a native harness capability.
+    const oldWeb = await this.repository.get("mcp_builtin_web_access");
+    if (oldWeb) {
+      const grants = await this.repository.globalToolGrants(oldWeb.connector_id);
+      await this.settings.update(async (config) => {
+        if (config.web_access !== undefined) return;
+        const enabled = (tool: string) => oldWeb.enabled && !oldWeb.exclude_tools.includes(tool)
+          && (!oldWeb.include_tools.length || oldWeb.include_tools.includes(tool)) && grants.get(tool) !== "deny";
+        await updateWebSettings(config, { search_enabled: enabled("web_search"), fetch_enabled: enabled("fetch_content") });
+        const migrated = webSettingsSchema.parse(config.web_access);
+        const binding = oldWeb.runtime_config.environment.BRAVE_API_KEY;
+        if (binding?.kind === "credential") {
+          migrated.credential_refs.brave ??= binding.credential_ref;
+        } else if (binding?.kind === "environment") {
+          const entry = await this.credentials.put({ kind: "api_key", backend: "environment", environment_variable: binding.name, label: "Web search: brave" });
+          migrated.credential_refs.brave ??= entry.id;
+        }
+        config.web_access = migrated;
+      });
+      await this.repository.delete(oldWeb.connector_id);
+    }
     for (const builtin of builtinMcpConnectors()) {
       const connector = await this.repository.upsertBuiltin(builtin.connector_id, builtin.definition, builtin.enabled_by_default);
       const cache = await this.repository.toolCache(connector.connector_id);
