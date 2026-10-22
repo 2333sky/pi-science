@@ -6,19 +6,25 @@ import { performance } from "node:perf_hooks";
 import { flushCompileCache } from "node:module";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { AgentCoreRuntimeClient } from "../apps/server/dist/runtime/agent/agent-runtime-client.js";
+import { AgentCoreRuntimeClient, workerEnvironment } from "../apps/server/dist/runtime/agent/agent-runtime-client.js";
 
 const root = await mkdtemp(join(tmpdir(), "pi-worker-startup-"));
 const previousHome = process.env.PI_SCIENCE_HOME;
 process.env.PI_SCIENCE_HOME = join(root, "private");
 const elapsed = [];
+process.env.PI_SCIENCE_AGENT_STARTUP_TRACE = "1";
+const originalEmit = AgentCoreRuntimeClient.prototype.emit;
+AgentCoreRuntimeClient.prototype.emit = function (name, ...args) {
+  if (name === "stderr") process.stderr.write(String(args[0]));
+  return originalEmit.call(this, name, ...args);
+};
 try {
   // Make the parent's module cache available to the first child as well.
   flushCompileCache();
   const moduleUrl = new URL(process.env.PI_SCIENCE_AGENT_WORKER_MODE === "bundled"
     ? "../apps/server/dist/runtime/agent/worker/main.test-bundle.mjs" : "../apps/server/dist/runtime/agent/worker/main.js", import.meta.url).href;
   const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval",
-    `const start=performance.now(); const cpu=process.cpuUsage(); await import(${JSON.stringify(moduleUrl)}); console.log(JSON.stringify({phase:'module-load',elapsedMs:Math.round(performance.now()-start),cpu:process.cpuUsage(cpu)}));`], { timeout: 30_000 });
+    `const start=performance.now(); const cpu=process.cpuUsage(); await import(${JSON.stringify(moduleUrl)}); console.log(JSON.stringify({phase:'module-load',elapsedMs:Math.round(performance.now()-start),cpu:process.cpuUsage(cpu)}));`], { timeout: 30_000, env: workerEnvironment() });
   console.log(stdout.trim());
   for (let index = 0; index < 3; index++) {
     const cwd = join(root, `workspace-${index}`);
@@ -36,6 +42,7 @@ try {
     throw new Error(`Warm worker startup exceeds the existing 5s IPC deadline: ${elapsed.join(", ")}ms`);
   }
 } finally {
+  AgentCoreRuntimeClient.prototype.emit = originalEmit;
   if (previousHome === undefined) delete process.env.PI_SCIENCE_HOME;
   else process.env.PI_SCIENCE_HOME = previousHome;
   await rm(root, { recursive: true, force: true });

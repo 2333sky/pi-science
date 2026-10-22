@@ -51,6 +51,16 @@ describe("AgentCoreRuntimeClient", () => {
     expect(await client.sendCommand("fork")).toMatchObject({ success: true, sessionId: expect.any(String) });
   }, 45_000);
 
+  it("preserves Windows runtime directories without accepting workspace replacements", () => {
+    const trusted = { USERPROFILE: "C:\\Users\\operator", APPDATA: "C:\\Users\\operator\\AppData\\Roaming",
+      LOCALAPPDATA: "C:\\Users\\operator\\AppData\\Local", ProgramFiles: "C:\\Program Files", "ProgramFiles(x86)": "C:\\Program Files (x86)", SystemDrive: "C:" };
+    for (const [name, value] of Object.entries(trusted)) vi.stubEnv(name, value);
+    expect(workerEnvironment({ USERPROFILE: "/workspace/evil", programfiles: "/workspace/evil" }, ["USERPROFILE", "programfiles"]))
+      .toMatchObject(trusted);
+    expect(workerEnvironment({ programfiles: "/workspace/evil" }, ["programfiles"])).not.toHaveProperty("programfiles");
+    vi.unstubAllEnvs();
+  });
+
   it("keeps the operator compilation cache outside workspace overrides", () => {
     vi.stubEnv("NODE_COMPILE_CACHE", "/operator/cache");
     expect(workerEnvironment({ NODE_COMPILE_CACHE: "/workspace/cache" }, ["NODE_COMPILE_CACHE"]).NODE_COMPILE_CACHE).toBe("/operator/cache");
