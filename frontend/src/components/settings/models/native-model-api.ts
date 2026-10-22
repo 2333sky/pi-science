@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import type { ModelConfigSnapshot, ModelConfigBackend, ProviderConfigView, ProviderAuthCapabilities } from "@pi-science/contracts";
+import type { ModelCapabilitySources, ModelConfigSnapshot, ModelConfigBackend, ProviderConfigView, ProviderAuthCapabilities } from "@pi-science/contracts";
 import { apiRequest } from "../../../lib/client/api";
 
 export type Configuration = ModelConfigSnapshot & { backend: ModelConfigBackend; providers: ProviderConfigView[] };
 export type CatalogProvider = ProviderConfigView & {
   name: string; subscription_name?: string; source: "builtin" | "user"; auth_capabilities: ProviderAuthCapabilities; allowed_actions: string[];
-  models: Array<{ id: string; name: string; available: boolean; contextWindow: number | null; maxTokens?: number | null; thinking_levels?: string[] | null; input?: string[] | null; source: string }>;
+  models: Array<{ id: string; name: string; available: boolean; contextWindow: number | null; maxTokens?: number | null; thinking_levels?: string[] | null; input?: string[] | null; capability_sources?: ModelCapabilitySources; source: string }>;
 };
 export const useModelConfig = () => useQuery({ queryKey: ["model-config"], queryFn: () => apiRequest<Configuration>("/api/model-config"), staleTime: 3000, retry: false });
 export const send = <T,>(path: string, method: string, body: unknown) => apiRequest<T>(path, { method, body: JSON.stringify(body), headers: { "Content-Type": "application/json" } });

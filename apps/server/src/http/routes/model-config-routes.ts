@@ -3,7 +3,7 @@ import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import type { FastifyInstance, FastifyReply } from "fastify";
 import { z } from "zod";
-import { modelConfigSchema, providerConfigSchema } from "@pi-science/contracts";
+import { modelCapabilitySources, modelConfigSchema, providerConfigSchema } from "@pi-science/contracts";
 import type { NodeSessionService } from "../../runtime/node/node-session-service.js";
 import type { ModelResourceService } from "../../model-resources/model-resource-service.js";
 import { ModelConfigService, configError, isAllowedModelEnvRef, modelConfigBackend } from "../../model-config/model-config-service.js";
@@ -101,8 +101,8 @@ export function registerModelConfigRoutes(app: FastifyInstance, resources: Model
           const known = builtin.getModel(provider.id, model.id);
           const reasoningKnown = Boolean(known) || declared?.reasoning !== undefined || override?.reasoning !== undefined;
           return { id: model.id, name: model.name, available: available.has(`${provider.id}/${model.id}`),
-            contextWindow: known ? model.contextWindow : override?.contextWindow ?? declared?.contextWindow ?? null,
-            maxTokens: known ? model.maxTokens : override?.maxTokens ?? declared?.maxTokens ?? null,
+            contextWindow: model.contextWindow, maxTokens: model.maxTokens,
+            capability_sources: modelCapabilitySources(config, model.id, Boolean(known)),
             reasoning: reasoningKnown ? model.reasoning : null, thinking_levels: reasoningKnown ? getSupportedThinkingLevels(model) : null,
             input: known ? model.input : override?.input ?? declared?.input ?? null,
             source: declared || override ? "configured" : known ? "pi-ai" : "unknown" };

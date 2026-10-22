@@ -6,7 +6,7 @@ import type { ProviderAuthCapabilities } from "@pi-science/contracts";
 import { SubscriptionAuthorization } from "./SubscriptionAuthorization";
 import { useModelDiscovery } from "./useModelDiscovery";
 import { DiscoveryList } from "./DiscoveryList";
-import { modelConfigFromDiscovery, type ModelConfigEdits } from "./model-utils";
+import { applyModelEdits, modelConfigFromDiscovery, type ModelConfigEdits } from "./model-utils";
 import { Modal } from "../../ui/Modal";
 import { SettingsSelectMenu } from "../SettingsSelectMenu";
 import { button, field, primary, send, type CatalogProvider } from "./native-model-api";
@@ -59,8 +59,8 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
   const [edits, setEdits] = useState<Record<string, ModelConfigEdits>>({});
   const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const discovery = useModelDiscovery(custom, url, api, source, secret, variable);
-  // Discovered models are selectable by default: a connection exists to use its models, not to browse them.
-  useEffect(() => { if (discovery.status === "success") setSelected(discovery.models.map((model) => model.id)); }, [discovery.status, discovery.models]);
+  // Only declared chat models are selected automatically; unknown types need a choice.
+  useEffect(() => { if (discovery.status === "success") setSelected(discovery.models.filter((model) => model.kind === "chat").map((model) => model.id)); }, [discovery.status, discovery.models]);
   const capabilities = custom ? { api_key: true, environment: true, keyless: true, subscription: false } : target.auth_capabilities;
   const valid = (source === "managed" ? Boolean(secret.trim()) : source === "environment" ? /^[A-Za-z_][A-Za-z0-9_]*$/.test(variable) : true) && (!custom || Boolean(name.trim() && id && url && (selected.length || manual.trim())));
   useEffect(() => { onCanSave(valid); }, [valid, onCanSave]);
@@ -77,7 +77,8 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
       const ids = [...new Set([...selected, ...manual.split("\n").map((s) => s.trim()).filter(Boolean)])];
       if (!ids.length) throw new Error(t("settings.connections.modelsRequired"));
       if (providers.some((p) => p.id === id)) throw new Error(t("settings.connections.duplicateId"));
-      const config = { name: name.trim(), baseUrl: url, api, models: ids.map((id) => ({ id, ...modelConfigFromDiscovery(discovery.models.find((candidate) => candidate.id === id), edits[id]) })) };
+      const modelOverrides = Object.fromEntries(ids.map((id) => [id, applyModelEdits({}, edits[id])]).filter(([, value]) => Object.keys(value).length));
+      const config = { name: name.trim(), baseUrl: url, api, models: ids.map((id) => ({ id, ...modelConfigFromDiscovery(discovery.models.find((candidate) => candidate.id === id)) })), ...(Object.keys(modelOverrides).length ? { modelOverrides } : {}) };
       await send("/api/model-config/preview", "POST", { providers: { [id]: config } });
       result = await send("/api/model-config/providers", "POST", { revision, id, config, credential });
     } else result = await send(`/api/model-config/providers/${encodeURIComponent(target.id)}/credential`, "PUT", { revision, credential });
@@ -87,7 +88,7 @@ function ApiForm({ target, providers, revision, formId, onDirty, onBusy, onCanSa
     <fieldset disabled={busy} className="min-w-0 space-y-3">
       {custom && <><label className="block text-ui-caption text-text">{t("settings.resources.name")}<input className={field} value={name} onChange={(e) => setName(e.target.value)} required /></label><label className="block text-ui-caption text-text">{t("settings.resources.baseUrl")}<input className={field} type="url" value={url} onChange={(e) => { setUrl(e.target.value); invalidate(); }} required /></label><div className="block text-ui-caption text-text"><span className="mb-1 block">{t("settings.native.api")}</span><SettingsSelectMenu variant="field" value={api} ariaLabel={t("settings.native.api")} onSelect={(value) => { setApi(value); invalidate(); }} options={["openai-completions", "openai-responses", "anthropic-messages"].map((value) => ({ value, label: value }))} /></div></>}
       <CredentialFields capabilities={capabilities} source={source} setSource={(v) => { setSource(v); setSecret(""); invalidate(); }} secret={secret} setSecret={(v) => { setSecret(v); invalidate(); }} variable={variable} setVariable={(v) => { setVariable(v); invalidate(); }} />
-      {custom && <><div className="flex items-center gap-3"><button type="button" className={button} disabled={!discovery.ready || discovery.status === "loading"} onClick={() => { invalidate(); discovery.retry(); }}>{t("settings.native.discover")}</button><p role="status" className="text-ui-caption text-muted">{t(`settings.connections.discovery.${discovery.status === "success" && !discovery.models.length ? "empty" : discovery.status}`)}</p></div>
+      {custom && <><div className="flex items-center gap-3"><button type="button" className={button} disabled={!discovery.ready || discovery.status === "loading"} onClick={() => { invalidate(); discovery.retry(); }}>{t("settings.native.discover")}</button>{discovery.status === "loading" && <button type="button" className={button} onClick={discovery.cancel}>{t("common.cancel")}</button>}<p role="status" className="text-ui-caption text-muted">{discovery.errorCode ? t(`settings.native.error.${discovery.errorCode}`) : t(`settings.connections.discovery.${discovery.status === "success" && !discovery.models.length ? "empty" : discovery.status}`)}</p></div>
         {discovery.models.length > 0 && <DiscoveryList models={discovery.models} selected={selected} onChange={setSelected} edits={edits} onEdits={(value) => { setEdits(value); onDirty(true); }} />}
         <p className="text-ui-caption text-muted">{t("settings.native.discoveryHelp")}</p>
         <label className="block text-ui-caption text-text">{t("settings.native.manualModels")}<textarea className={field} rows={3} value={manual} onChange={(e) => setManual(e.target.value)} /></label></>}

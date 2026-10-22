@@ -50,6 +50,49 @@ cleans it up after failed commits; it never deletes shared historical credential
 Deleting a provider removes its native mapping, not CredentialStore records or
 persisted session model IDs. Busy Workers reload after their current turn.
 
+### Discovery and capability ownership
+
+Run `pnpm --filter frontend test:uat:model-discovery` after `pnpm build` for the
+real-browser discover/edit/save/refresh/reset/inference flow, including mobile
+overflow and accessibility checks. Protocol HTTP tests also cover all three
+streaming APIs with explicit keyless and managed authentication.
+
+Discovery is an explicit **Test connection and discover** action. Typing or changing
+credentials never sends a discovery request. It reads the model list, does not
+save the draft, and always reports `inference_verified: false`. Errors use safe
+categories rather than upstream payloads. Manual model IDs remain available when
+the endpoint does not implement a model-list API. Only declared chat models are
+selected automatically; embedding, rerank and unknown types require selection.
+
+`models` holds upstream declarations. Its optional `discoveredFields` records
+which capability fields discovery owns; this metadata is stripped before models
+reach Pi. User corrections live in `modelOverrides`, and effective values use
+override → declaration/native catalog → runtime default precedence. Refresh updates
+declarations without changing corrections. Resetting a correction exposes the
+current upstream value. Missing metadata on old entries is **unknown**, not proof
+of a user override or an upstream declaration: conflicting values require a diff
+review to keep them as corrections or replace them. There is no silent migration.
+Older strict readers may reject `discoveredFields`; a rollback must restore the
+matching configuration backup together with the older application version.
+
+Catalog and provider views expose per-field `capability_sources` with `declared`,
+`user_override`, `default` or `unknown`. Runtime defaults (including the 1,000,000
+context fallback) are never written as discovered facts. An identical refresh
+does not PATCH, increment revision or reload Workers. Partial failures retain
+successful saves, name the affected services and offer targeted retries; revision
+conflicts stop subsequent writes and require reloading.
+
+Anthropic discovery supports `has_more` / `last_id` / `after_id` with at most 10
+pages, 1,000 unique models, 8 MiB total response data and a 10-second total deadline.
+Every page and redirect is independently checked against outbound policy. Cursor
+cycles, truncated pagination and failed pages reject the whole discovery result.
+The adapter maps `max_input_tokens` to the usable input/context budget without
+adding the output limit; `max_tokens` is the output limit. Nested image/thinking
+support preserves explicit false. Anthropic accepts base URLs with or without a
+trailing `/v1`, consistently for discovery and inference. Explicit keyless custom
+connections strip SDK-generated authentication before network dispatch; managed
+and OAuth requests retain their configured authentication.
+
 ## API and retired entry points
 
 | Endpoint | Behavior |

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { modelCapabilityFields } from "./model-config.js";
 
 /** Shared contracts for the Provider/Model/Endpoint/Credential/Binding domain.
  *  Secrets are intentionally absent from every resource schema in this file. */
@@ -47,6 +48,7 @@ export const modelSchema = z.object({
 });
 
 export const modelReadSchema = modelSchema.extend({
+  capability_sources: z.record(z.enum(modelCapabilityFields), z.enum(["declared", "user_override", "default", "unknown"])).optional(),
   id: z.string().min(1),
   available: z.boolean(),
   availability_reason: z.string().optional(),

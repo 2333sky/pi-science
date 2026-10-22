@@ -1,6 +1,6 @@
 import { builtinModels } from "@earendil-works/pi-ai/providers/all";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
-import type { ProviderView } from "@pi-science/contracts";
+import { modelCapabilitySources, type ProviderView } from "@pi-science/contracts";
 import { ModelConfigService } from "./model-config-service.js";
 import { ModelRegistryService } from "./model-registry-service.js";
 
@@ -30,10 +30,10 @@ export async function nativeProviderViews(): Promise<ProviderView[]> {
         return { id: `${provider.id}/${model.id}`, provider_id: provider.id, model_id: model.id, display_name: model.name, enabled: true, available,
           ...(available ? {} : { availability_reason: "missing_credential" }), routes: [],
           capabilities: { reasoning: model.reasoning, thinking_levels: getSupportedThinkingLevels(model),
-            context_window: known || declared?.contextWindow || override?.contextWindow ? model.contextWindow : null,
-            max_output_tokens: known || declared?.maxTokens || override?.maxTokens ? model.maxTokens : null },
+            vision: model.input.includes("image"), context_window: model.contextWindow, max_output_tokens: model.maxTokens },
+          capability_sources: modelCapabilitySources(configured, model.id, Boolean(known)),
           input_formats: known || declared?.input || override?.input ? [...model.input] : [],
-          capability_source: override || declared ? "manual" : known ? "runtime" : "fallback" };
+          capability_source: override && Object.keys(override).length ? "manual" : declared?.discoveredFields?.length ? "discovery" : declared ? "manual" : known ? "runtime" : "fallback" };
       }),
     };
   }));

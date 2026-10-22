@@ -26,6 +26,8 @@ import { resolveCapabilities, normalizeContextWindow, normalizeThinkingLevels, t
 import { type MigrationResult } from "./migration/migrate-custom-providers.js";
 import { ModelResourceRepository } from "./model-resource-repository.js";
 import { canonicalModelRef, resolvedModelToRead, RuntimeModelResolver } from "./runtime-model-resolver.js";
+import { discoverModelRows } from "./model-discovery.js";
+import { anthropicBaseUrl } from "../model-config/protocol-endpoints.js";
 
 export type ProviderRead = Provider & {
   models: string[];
@@ -117,7 +119,7 @@ const CONTEXT_KEYS = new Set(["context_window", "context_length", "max_model_len
 const MAX_OUTPUT_KEYS = new Set(["max_output_tokens", "max_completion_tokens"]);
 const THINKING_LEVEL_SET = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
-function capabilityPatchFromPayload(value: unknown): CapabilityPatch {
+function capabilityPatchFromPayload(value: unknown, protocol?: string): CapabilityPatch {
   const patch: CapabilityPatch = {};
   const visit = (current: unknown, depth: number): void => {
     if (depth > 5 || current === null || current === undefined) return;
@@ -149,6 +151,17 @@ function capabilityPatchFromPayload(value: unknown): CapabilityPatch {
     }
   };
   visit(value, 0);
+  if (protocol === "anthropic" && value && typeof value === "object") {
+    const raw = value as Record<string, unknown>;
+    const positive = (v: unknown) => typeof v === "number" && Number.isSafeInteger(v) && v > 0 ? v : undefined;
+    // max_input_tokens is an input budget, not input + output. Do not add limits.
+    patch.context_window = positive(raw.context_window) ?? positive(raw.max_input_tokens) ?? patch.context_window;
+    patch.max_output_tokens = positive(raw.max_tokens) ?? patch.max_output_tokens;
+    const capabilities = raw.capabilities as Record<string, { supported?: unknown }> | undefined;
+    if (typeof capabilities?.image_input?.supported === "boolean") patch.vision = capabilities.image_input.supported;
+    if (typeof capabilities?.thinking?.supported === "boolean") patch.reasoning = capabilities.thinking.supported;
+    for (const key of Object.keys(patch) as Array<keyof CapabilityPatch>) if (patch[key] === undefined) delete patch[key];
+  }
   return patch;
 }
 
@@ -173,6 +186,7 @@ function redactSecret(message: string, secret: string | null | undefined): strin
 
 function authHeaders(protocol: Endpoint["protocol"], secret: string | null): Record<string, string> {
   const headers: Record<string, string> = { accept: "application/json" };
+  if (protocol === "anthropic") headers["anthropic-version"] = "2023-06-01";
   if (!secret) return headers;
   if (protocol === "anthropic") {
     headers["x-api-key"] = secret;
@@ -193,6 +207,7 @@ async function readBoundedJson(response: Response, maxBytes = MAX_MODEL_DISCOVER
 
 function discoveryPath(endpoint: Pick<Endpoint, "protocol" | "base_url">): string {
   if (endpoint.protocol === "ollama") return `${endpoint.base_url}/api/tags`;
+  if (endpoint.protocol === "anthropic") return `${anthropicBaseUrl(endpoint.base_url)}/v1/models`;
   return `${endpoint.base_url}/models`;
 }
 
@@ -714,28 +729,20 @@ export class ModelResourceService {
   /** Probe a prospective provider configuration without persisting anything:
    *  fetch its model list and report the rows. Used by the UI's
    *  "Test & Discover" step before the aggregate create. */
-  async testProviderConfiguration(input: { protocol: Endpoint["protocol"]; base_url: string; api?: Endpoint["api"]; auth?: { kind: "api_key" | "none"; secret?: string } | null }): Promise<{ ok: true; health: "ready"; models: Array<{ id: string; display_name: string; capabilities: CapabilityPatch }> }> {
+  async testProviderConfiguration(input: { protocol: Endpoint["protocol"]; base_url: string; api?: Endpoint["api"]; auth?: { kind: "api_key" | "none"; secret?: string } | null }): Promise<{ ok: true; health: "ready"; models: Array<{ id: string; display_name: string; kind?: "chat" | "embedding" | "rerank" | "unknown"; capabilities: CapabilityPatch }> }> {
     const protocol = normalizeProtocol(input.protocol);
     const baseUrl = normalizeBaseUrl(input.base_url);
     const endpoint = { protocol, base_url: baseUrl };
     const secret = input.auth?.kind === "api_key" ? input.auth.secret : undefined;
     const settings = await this.settings.read();
     const allowPrivate = settings.allow_private_providers !== false && process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0";
-    const response = await safeConnectorFetch(discoveryPath(endpoint), {
-      allowPrivate,
-      maxRedirects: 3,
-      maxResponseBytes: MAX_MODEL_DISCOVERY_BYTES,
-      timeoutMs: 10_000,
-      headers: authHeaders(protocol, secret ?? null),
-    }).catch((error) => { throw resourceError("endpoint_probe_failed", error instanceof Error ? error.message : String(error)); });
-    const payload = await readBoundedJson(response).catch((error) => { throw resourceError("endpoint_probe_failed", error instanceof Error ? error.message : String(error)); });
-    if (!response.ok) throw resourceError("endpoint_probe_failed", redactSecret(String(payload.error ?? payload.message ?? `endpoint returned ${response.status}`), secret));
-    const rows = modelRows(payload);
-    if (rows.length === 0) throw resourceError("discovery_empty", "No models were returned by this endpoint");
+    const rows = await discoverModelRows(discoveryPath(endpoint), protocol, authHeaders(protocol, secret ?? null), allowPrivate);
     return { ok: true, health: "ready", models: rows.map((row) => {
       const raw = row.raw && typeof row.raw === "object" ? row.raw as Record<string, unknown> : {};
       const name = raw.display_name ?? raw.name;
-      return { id: row.id, display_name: typeof name === "string" && name.trim() ? name.trim() : row.id, capabilities: capabilityPatchFromPayload(row.raw) };
+      const kind = String(raw.model_type ?? raw.task ?? raw.type ?? "").toLowerCase();
+      const modelKind = ["embedding", "embeddings", "text-embedding"].includes(kind) ? "embedding" : ["rerank", "reranker", "text-reranking"].includes(kind) ? "rerank" : ["chat", "chat-completion", "text-generation"].includes(kind) || protocol === "anthropic" ? "chat" : undefined;
+      return { id: row.id, display_name: typeof name === "string" && name.trim() ? name.trim() : row.id, ...(modelKind ? { kind: modelKind as "chat" | "embedding" | "rerank" } : {}), capabilities: capabilityPatchFromPayload(row.raw, protocol) };
     }) };
   }
 

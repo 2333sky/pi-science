@@ -18,12 +18,18 @@ const headers = z.record(z.string(), z.string().max(1000)).superRefine((value, c
     seen.add(name);
   }
 });
-// Provider endpoints rarely declare a window, so one shared default keeps the
-// stored value and the Settings field showing it identical.
+// Runtime fallback only: discovery leaves an undeclared window absent.
+// Settings labels this default rather than presenting it as a provider fact.
 export const DEFAULT_MODEL_CONTEXT_WINDOW = 1_000_000;
+export const modelCapabilityFields = ["contextWindow", "maxTokens", "input", "reasoning", "thinkingLevelMap"] as const;
+export type ModelCapabilityField = typeof modelCapabilityFields[number];
+export type ModelCapabilitySource = "declared" | "user_override" | "default" | "unknown";
+export type ModelCapabilitySources = Record<ModelCapabilityField, ModelCapabilitySource>;
 export const modelConfigApiSchema = z.enum(["openai-completions", "openai-responses", "anthropic-messages"]);
 export const configuredModelSchema = z.object({
   id: z.string().min(1).max(500), name: z.string().min(1).max(500).optional(),
+  /** Ownership of discovery fields; absent metadata on older files is deliberately unknown. */
+  discoveredFields: z.array(z.enum(modelCapabilityFields)).optional(),
   thinkingLevelMap: z.object({ off: z.union([z.string(), z.null()]).optional(), minimal: z.union([z.string(), z.null()]).optional(), low: z.union([z.string(), z.null()]).optional(), medium: z.union([z.string(), z.null()]).optional(), high: z.union([z.string(), z.null()]).optional(), xhigh: z.union([z.string(), z.null()]).optional(), max: z.union([z.string(), z.null()]).optional() }).strict().optional(),
   reasoning: z.boolean().optional(), input: z.array(z.enum(["text", "image"])).min(1).optional(),
   contextWindow: z.number().int().positive().optional(), maxTokens: z.number().int().positive().optional(),
@@ -34,7 +40,7 @@ export const providerConfigSchema = z.object({
   name: z.string().min(1).max(200).optional(), baseUrl: z.string().url().refine((raw) => { const url = new URL(raw); return ["https:", "http:"].includes(url.protocol) && !url.username && !url.password && !url.search && !url.hash; }).optional(),
   api: modelConfigApiSchema.optional(), headers: headers.optional(),
   models: z.array(configuredModelSchema).max(10000).optional(),
-  modelOverrides: z.record(z.string().min(1), configuredModelSchema.omit({ id: true })).optional(),
+  modelOverrides: z.record(z.string().min(1), configuredModelSchema.omit({ id: true, discoveredFields: true })).optional(),
 }).strict().superRefine((value, ctx) => {
   const ids = value.models?.map((model) => model.id) ?? [];
   if (new Set(ids).size !== ids.length) ctx.addIssue({ code: "custom", message: "Duplicate model IDs" });
@@ -50,6 +56,11 @@ export const modelConfigSnapshotSchema = z.object({
 }).strict();
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 export type ProviderConfig = z.infer<typeof providerConfigSchema>;
+export function modelCapabilitySources(config: ProviderConfig | undefined, id: string, builtin = false): ModelCapabilitySources {
+  const declared = config?.models?.find((model) => model.id === id), override = config?.modelOverrides?.[id];
+  return Object.fromEntries(modelCapabilityFields.map((key) => [key, override?.[key] !== undefined ? "user_override"
+    : declared?.[key] !== undefined ? declared.discoveredFields?.includes(key) ? "declared" : "unknown" : builtin ? "declared" : "default"])) as ModelCapabilitySources;
+}
 export type ModelConfigSnapshot = z.infer<typeof modelConfigSnapshotSchema>;
 export type ModelConfigBackend = z.infer<typeof modelConfigBackendSchema>;
 export type ProviderConfigView = {

@@ -9,13 +9,13 @@ import { Modal } from "../../ui/Modal";
 import { SubscriptionAuthorization } from "./SubscriptionAuthorization";
 import { ConnectModelService, CredentialFields } from "./ConnectModelService";
 import { DiscoveryList } from "./DiscoveryList";
-import type { DiscoveredModel } from "./useModelDiscovery";
+import { discoveryErrorCode, type DiscoveryErrorCode, type DiscoveredModel } from "./useModelDiscovery";
 import type { ProviderConfig } from "@pi-science/contracts";
 import { button, field, primary, send, useModelConfig, type CatalogProvider, type Configuration } from "./native-model-api";
-import { formatContext, mergeDiscoveredModels, type ModelConfigEdits } from "./model-utils";
+import { formatContext, mergeDiscoveredModels, type LegacyDiscoveryPolicy, type ModelConfigEdits } from "./model-utils";
 export { useModelConfig } from "./native-model-api";
 
-type Dialog = { kind: "credential" | "details" | "disconnect" | "edit" | "refresh" | "subscription"; provider: CatalogProvider } | { kind: "connect"; revision: number };
+type Dialog = { kind: "credential" | "details" | "disconnect" | "edit" | "refresh" | "subscription"; provider: CatalogProvider; candidates?: DiscoveredModel[] } | { kind: "connect"; revision: number };
 
 const chip = "inline-flex h-5 shrink-0 items-center rounded-full border border-border px-2 text-ui-micro text-muted";
 const iconButton = "grid h-6 w-6 shrink-0 place-items-center rounded-small text-muted hover:bg-surface-hover hover:text-text";
@@ -34,39 +34,64 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [issues, setIssues] = useState<Array<{ provider: CatalogProvider; code: DiscoveryErrorCode | "discovery_review" | "discovery_selection"; candidates?: DiscoveredModel[] }>>([]);
   const refresh = async () => {
     await Promise.all([client.invalidateQueries({ queryKey: ["model-config"] }), client.invalidateQueries({ queryKey: ["settings"] }), client.invalidateQueries({ queryKey: ["model-resources"] })]);
   };
   // Refresh re-reads the runtime catalog, then re-runs discovery for custom connections: new
   // models are appended and reported capabilities are rewritten in place. Removal stays a manual edit.
-  const refreshModels = async () => {
+  const refreshModels = async (onlyIds?: string[]) => {
     setRefreshing(true); setNotice(null);
-    let added = 0, updated = 0, failed = false, pendingRuntime = false;
+    let added = 0, updated = 0, pendingRuntime = false;
+    const failures: typeof issues = [];
     try {
       const snapshot = await apiRequest<Configuration>("/api/model-config");
       let revision = snapshot.revision;
       const configs = { ...snapshot.config.providers };
-      for (const provider of (catalog.data?.providers ?? []).filter((item) => item.configured && item.allowed_actions.includes("refresh") && item.authentication.resolved)) {
+      const eligible = (catalog.data?.providers ?? []).filter((item) => item.configured && item.allowed_actions.includes("refresh") && (!onlyIds || onlyIds.includes(item.id)));
+      for (const [index, provider] of eligible.entries()) {
+        if (!provider.authentication.resolved) { failures.push({ provider, code: "discovery_auth" }); continue; }
         try {
           const found = await send<{ models: DiscoveredModel[] }>(`/api/model-config/providers/${encodeURIComponent(provider.id)}/discover`, "POST", {});
-          const config = configs[provider.id] ?? {};
-          const merged = mergeDiscoveredModels(config.models ?? [], [...new Map(found.models.map((model) => [model.id, model])).values()]);
-          if (!merged.added && !merged.updated) continue;
-          const next = { ...config, models: merged.models };
-          const saved = await send<{ revision?: number; runtime?: "published" | "reload_pending" }>(`/api/model-config/providers/${encodeURIComponent(provider.id)}`, "PATCH", { revision, config: next });
-          configs[provider.id] = next;
-          if (typeof saved?.revision === "number") revision = saved.revision;
-          if (saved?.runtime === "reload_pending") pendingRuntime = true;
-          added += merged.added; updated += merged.updated;
-        } catch { failed = true; }
+          const config = configs[provider.id];
+          if (!config) continue;
+          const candidates = [...new Map(found.models.map((model) => [model.id, model])).values()];
+          const selected = candidates.filter((model) => config.models?.some((existing) => existing.id === model.id) || model.kind === "chat");
+          const merged = mergeDiscoveredModels(config.models ?? [], selected, config.modelOverrides);
+          if (merged.conflicts.length) { failures.push({ provider, code: "discovery_review", candidates }); continue; }
+          if (merged.added || merged.updated) {
+            const next = { ...config, models: merged.models, ...(Object.keys(merged.modelOverrides).length ? { modelOverrides: merged.modelOverrides } : {}) };
+            const saved = await send<{ revision?: number; runtime?: "published" | "reload_pending" }>(`/api/model-config/providers/${encodeURIComponent(provider.id)}`, "PATCH", { revision, config: next });
+            configs[provider.id] = next;
+            if (typeof saved?.revision === "number") revision = saved.revision;
+            if (saved?.runtime === "reload_pending") pendingRuntime = true;
+            added += merged.added; updated += merged.updated;
+          }
+          if (candidates.some((model) => (!model.kind || model.kind === "unknown") && !config.models?.some((existing) => existing.id === model.id))) failures.push({ provider, code: "discovery_selection", candidates });
+        } catch (error) {
+          const code = discoveryErrorCode(error);
+          failures.push({ provider, code });
+          if (code === "revision_conflict") { failures.push(...eligible.slice(index + 1).map((provider) => ({ provider, code }))); break; }
+        }
       }
       await refresh();
-      setNotice(added || updated ? `${t("settings.native.refreshedSummary", { added, updated })} ${t(pendingRuntime ? "settings.native.refreshedPending" : "settings.native.refreshedLive")}` : failed ? t("settings.native.reloadPending") : t("settings.native.refreshed"));
-      window.setTimeout(() => setNotice(null), 2500);
-    } catch { setNotice(t("settings.native.reloadPending")); }
+      const outstanding = onlyIds ? [...issues.filter((issue) => !onlyIds.includes(issue.provider.id)), ...failures] : failures;
+      setIssues(outstanding);
+      setNotice(outstanding.length ? t(added || updated ? "settings.native.refreshPartial" : "settings.native.refreshFailed", { count: outstanding.length, added, updated })
+        : added || updated ? `${t("settings.native.refreshedSummary", { added, updated })} ${t(pendingRuntime ? "settings.native.refreshedPending" : "settings.native.refreshedLive")}` : t("settings.native.refreshed"));
+    } catch (error) { setNotice(t(`settings.native.error.${discoveryErrorCode(error)}`)); }
     finally { setRefreshing(false); }
   };
+  const review = async (issue: typeof issues[number]) => {
+    try {
+      const current = await apiRequest<Configuration>("/api/model-config");
+      const config = current.config.providers[issue.provider.id];
+      if (!config) { await refresh(); return; }
+      setDialog({ kind: "refresh", provider: { ...issue.provider, revision: current.revision, config }, candidates: issue.candidates });
+    } catch (error) { setNotice(t(`settings.native.error.${discoveryErrorCode(error)}`)); }
+  };
   const committed = async (result?: { runtime?: string }) => {
+    if (dialog && "provider" in dialog) setIssues((current) => current.filter((issue) => issue.provider.id !== dialog.provider.id));
     setDialog(null);
     setNotice(t(result?.runtime === "reload_pending" ? "settings.native.reloadPending" : "settings.native.saved"));
     try { await refresh(); await onConfigReload?.(); } catch { setNotice(t("settings.native.reloadPending")); }
@@ -84,6 +109,8 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
     {(catalog.isPending || configuration.isPending) && <p role="status">{t("common.loading")}</p>}
     {(catalog.error || configuration.error) && <p role="alert" className="text-ui-caption text-error-text">{catalog.error?.message ?? configuration.error?.message}<button className={`${button} ml-2`} onClick={() => void refresh()}>{t("settings.redesign.retryLoad")}</button></p>}
     {notice && <p role="status" className="text-ui-caption text-muted">{notice}</p>}
+    {issues.length > 0 && <div className="space-y-2" role="alert">{issues.map((issue) => <div key={issue.provider.id} className="flex flex-wrap items-center gap-2 text-ui-caption text-warn-text"><span>{issue.provider.name}: {t(`settings.native.error.${issue.code}`)}</span>{issue.candidates ? <button className={button} disabled={refreshing} onClick={() => void review(issue)}>{t("settings.native.reviewChanges")}</button> : issue.code === "revision_conflict" ? <button className={button} disabled={refreshing} onClick={() => void refresh()}>{t("settings.redesign.retryLoad")}</button> : <button className={button} disabled={refreshing} onClick={() => void refreshModels([issue.provider.id])}>{t("settings.native.retryFailed")}</button>}</div>)}</div>}
+
     <section aria-labelledby="connected-services-title" className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-card">
         <h3 id="connected-services-title" className="text-ui-label font-medium text-text">{t("settings.connections.myServices")}</h3>
@@ -164,10 +191,10 @@ function ModelTable({ models }: { models: CatalogProvider["models"] }) {
           <span className="flex min-w-0 items-center gap-2"><span className={`truncate text-ui-label ${model.available ? "text-text" : "text-muted"}`}>{model.name}</span>{!model.available && <span className="shrink-0 text-ui-meta text-error-text">{t("settings.native.unavailable")}</span>}</span>
           {!sameModelId(model.id, model.name) && <span className="block truncate font-mono text-ui-meta text-muted">{model.id}</span>}
         </td>
-        <td className="h-10 px-2 align-middle text-ui-caption tabular-nums text-text">{formatContext(model.contextWindow)}</td>
-        <td className="h-10 px-2 align-middle text-ui-caption tabular-nums text-text">{formatContext(model.maxTokens ?? null)}</td>
-        <td className="hidden h-10 px-2 align-middle sm:table-cell"><span className="flex gap-1">{model.input?.map((format) => <span key={format} title={t(`settings.native.input.${format}`)} className="grid h-5 w-5 place-items-center rounded-small bg-surface-inset text-ui-micro font-medium text-muted">{format === "image" ? "I" : "T"}</span>)}</span></td>
-        <td className="h-10 px-2 align-middle"><span title={model.thinking_levels?.join(" · ") || undefined} className="text-ui-caption tabular-nums text-text">{model.thinking_levels?.length ? t("settings.native.thinkingLevels", { levels: model.thinking_levels.length }) : t("settings.native.unknown")}</span></td>
+        <td title={t(`settings.native.capabilitySource.${model.capability_sources?.contextWindow ?? "unknown"}`)} className={`h-10 px-2 align-middle text-ui-caption tabular-nums ${model.capability_sources?.contextWindow === "default" ? "italic text-muted" : "text-text"}`}>{formatContext(model.contextWindow)}</td>
+        <td title={t(`settings.native.capabilitySource.${model.capability_sources?.maxTokens ?? "unknown"}`)} className={`h-10 px-2 align-middle text-ui-caption tabular-nums ${model.capability_sources?.maxTokens === "default" ? "italic text-muted" : "text-text"}`}>{formatContext(model.maxTokens ?? null)}</td>
+        <td className="hidden h-10 px-2 align-middle sm:table-cell"><span className="flex gap-1">{model.input?.map((format) => <span key={format} title={`${t(`settings.native.input.${format}`)} · ${t(`settings.native.capabilitySource.${model.capability_sources?.input ?? "unknown"}`)}`} className="grid h-5 w-5 place-items-center rounded-small bg-surface-inset text-ui-micro font-medium text-muted">{format === "image" ? "I" : "T"}</span>)}</span></td>
+        <td className="h-10 px-2 align-middle"><span title={[model.thinking_levels?.join(" · "), t(`settings.native.capabilitySource.${model.capability_sources?.thinkingLevelMap ?? "unknown"}`)].filter(Boolean).join(" · ")} className="text-ui-caption tabular-nums text-text">{model.thinking_levels?.length ? t("settings.native.thinkingLevels", { levels: model.thinking_levels.length }) : t("settings.native.unknown")}</span></td>
       </tr>)}</tbody>
     </table>
     {models.length > 50 && <div className="flex gap-2 px-3 py-2"><button className={button} disabled={page === 0} onClick={() => setPage(page - 1)}>{t("settings.redesign.previousPage")}</button><button className={button} disabled={(page + 1) * 50 >= models.length} onClick={() => setPage(page + 1)}>{t("settings.redesign.nextPage")}</button></div>}
@@ -180,16 +207,17 @@ function ManageDialog({ dialog, config, onClose, onSaved, onFailure }: { dialog:
   const [source, setSource] = useState<string>(["managed", "environment", "keyless"].includes(p?.authentication.source ?? "") ? p!.authentication.source : "managed"); const [secret, setSecret] = useState(""); const [variable, setVariable] = useState(p?.authentication.environment_variable ?? "");
   const [busy, setBusy] = useState(false); const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(p?.name ?? ""); const [url, setUrl] = useState(p?.config?.baseUrl ?? "");
-  const [api, setApi] = useState<string>(p?.config?.api ?? "openai-completions"); const [models, setModels] = useState(p?.config?.models?.map((m) => m.id).join("\n") ?? "");
-  const [candidates, setCandidates] = useState<DiscoveredModel[]>([]);
+  const [api, setApi] = useState<string>(p?.config?.api ?? "openai-completions"); const [models, setModels] = useState([...new Set([...(p?.config?.models?.map((m) => m.id) ?? []), ...(dialog.candidates ?? []).filter((model) => model.kind === "chat").map((model) => model.id)])].join("\n"));
+  const [candidates, setCandidates] = useState<DiscoveredModel[]>(dialog.candidates ?? []);
+  const [legacyPolicy, setLegacyPolicy] = useState<LegacyDiscoveryPolicy>();
   const [edits, setEdits] = useState<Record<string, ModelConfigEdits>>({});
   const [discard, setDiscard] = useState(false); const [touched, setTouched] = useState(false);
   const dirty = touched || Boolean(secret || p && (name !== p.name || url !== (p.config?.baseUrl ?? "") || models !== (p.config?.models?.map((m) => m.id).join("\n") ?? "")));
   const close = () => { if (!busy) { if (dirty) setDiscard(true); else onClose(); } };
-  const run = async (action: () => Promise<{ runtime?: string }>, save = true) => {
+  const run = async (action: () => Promise<{ runtime?: string }>, save = true, discovering = false) => {
     setBusy(true); setError(null);
     try { const result = await action(); if (save) { setSecret(""); await onSaved(result); } }
-    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); await onFailure(cause); }
+    catch (cause) { setError(discovering ? t(`settings.native.error.${discoveryErrorCode(cause)}`) : cause instanceof Error ? cause.message : String(cause)); await onFailure(cause); }
     finally { setBusy(false); }
   };
   const save = () => run(async () => {
@@ -198,20 +226,22 @@ function ManageDialog({ dialog, config, onClose, onSaved, onFailure }: { dialog:
     if ((dialog.kind === "edit" || dialog.kind === "refresh")) {
       const ids = [...new Set(models.split("\n").map((s) => s.trim()).filter(Boolean))];
       const original = p!.config!;
-      const merged = mergeDiscoveredModels((original.models ?? []).filter((model) => ids.includes(model.id)), candidates.filter((candidate) => ids.includes(candidate.id)), edits);
-      const next = { ...original, name, baseUrl: url, api, models: [...merged.models, ...ids.filter((id) => !merged.models.some((model) => model.id === id)).map((id) => ({ id }))], modelOverrides: Object.fromEntries(Object.entries(original.modelOverrides ?? {}).filter(([id]) => ids.includes(id))) };
+      const merged = mergeDiscoveredModels((original.models ?? []).filter((model) => ids.includes(model.id)), candidates.filter((candidate) => ids.includes(candidate.id)), original.modelOverrides, edits, legacyPolicy);
+      if (merged.conflicts.length) throw new Error(t("settings.native.error.discovery_review"));
+      const next = { ...original, name, baseUrl: url, api, models: [...merged.models, ...ids.filter((id) => !merged.models.some((model) => model.id === id)).map((id) => ({ id }))], modelOverrides: Object.fromEntries(Object.entries(merged.modelOverrides).filter(([id]) => ids.includes(id))) };
       await send("/api/model-config/preview", "POST", { providers: { ...config.providers, [p!.id]: next } });
       return send(path, "PATCH", { revision: p!.revision, config: next });
     }
     return send(`${path}/credential`, "PUT", { revision: p!.revision, credential: source === "managed" ? { source, secret } : source === "environment" ? { source, environment_variable: variable } : { source } });
   });
+  const conflicts = mergeDiscoveredModels(p.config?.models ?? [], candidates.filter((candidate) => models.split("\n").map((id) => id.trim()).includes(candidate.id)), p.config?.modelOverrides).conflicts;
   const title = `${p.name} · ${t(`settings.connections.${dialog.kind}`)}`;
-  return <Modal title={title} onClose={close} restoreFocusTo={p ? document.getElementById(`provider-actions-${p.id}`) : undefined} footer={<div className="flex justify-end gap-2"><button className={button} disabled={busy} onClick={close}>{t("common.cancel")}</button>{dialog.kind !== "details" && <button className={primary} disabled={busy || dialog.kind === "credential" && (source === "managed" && !secret.trim() || source === "environment" && !variable.trim()) || (dialog.kind === "edit" || dialog.kind === "refresh") && (!models.trim() || !name.trim() || !url.trim())} onClick={() => void save()}>{t(dialog.kind === "disconnect" ? "settings.connections.disconnect" : "common.save")}</button>}</div>}>
+  return <Modal title={title} onClose={close} restoreFocusTo={p ? document.getElementById(`provider-actions-${p.id}`) : undefined} footer={<div className="flex justify-end gap-2"><button className={button} disabled={busy} onClick={close}>{t("common.cancel")}</button>{dialog.kind !== "details" && <button className={primary} disabled={busy || Boolean(conflicts.length && !legacyPolicy) || dialog.kind === "credential" && (source === "managed" && !secret.trim() || source === "environment" && !variable.trim()) || (dialog.kind === "edit" || dialog.kind === "refresh") && (!models.trim() || !name.trim() || !url.trim())} onClick={() => void save()}>{t(dialog.kind === "disconnect" ? "settings.connections.disconnect" : "common.save")}</button>}</div>}>
     <div className="space-y-3 text-ui-caption text-text" onChange={() => setTouched(true)}>
       {dialog.kind === "credential" && <CredentialFields capabilities={p!.auth_capabilities} source={source} setSource={(v) => { setSource(v); setSecret(""); }} secret={secret} setSecret={setSecret} variable={variable} setVariable={setVariable} allowRemove />}
       {dialog.kind === "disconnect" && <p>{t("settings.connections.disconnectHelp", { name: p!.name })}</p>}
       {dialog.kind === "details" && <><p>{p!.id}</p><p>{p!.config?.baseUrl}</p><p>{p!.config?.api}</p><p>{t(`settings.native.source.${p!.authentication.source}`)}</p><p>{t("settings.native.discoveryHelp")}</p></>}
-      {(dialog.kind === "edit" || dialog.kind === "refresh") && <><button className={button} disabled={busy} onClick={() => void run(async () => { const found = await send<{ models: DiscoveredModel[] }>(`/api/model-config/providers/${encodeURIComponent(p!.id)}/discover`, "POST", {}); const unique = [...new Map(found.models.map((model) => [model.id, model])).values()]; setCandidates(unique); setEdits({}); setModels((current) => [...new Set([...current.split("\n").map((value) => value.trim()).filter(Boolean), ...unique.map((model) => model.id)])].join("\n")); return {}; }, false)}>{t("settings.native.discover")}</button>{candidates.length > 0 && <DiscoveryList models={candidates} selected={models.split("\n").map((value) => value.trim()).filter(Boolean)} onChange={(ids) => setModels(ids.join("\n"))} edits={edits} onEdits={(value) => { setEdits(value); setTouched(true); }} />}<p className="text-muted">{t("settings.native.discoveryHelp")}</p>{([["settings.resources.name", name, setName], ["settings.resources.baseUrl", url, setUrl]] as const).map(([label, value, update]) => <label key={label} className="block">{t(label)}<input className={field} value={value} onChange={(e) => update(e.target.value)} /></label>)}<div className="block"><span className="mb-1 block">{t("settings.native.api")}</span><SettingsSelectMenu variant="field" value={api} ariaLabel={t("settings.native.api")} onSelect={(value) => setApi(value)} options={["openai-completions", "openai-responses", "anthropic-messages"].map((value) => ({ value, label: value }))} /></div><label className="block">{t("settings.native.manualModels")}<textarea className={field} rows={4} value={models} onChange={(e) => setModels(e.target.value)} /></label></>}
+      {(dialog.kind === "edit" || dialog.kind === "refresh") && <><button className={button} disabled={busy} onClick={() => void run(async () => { const found = await send<{ models: DiscoveredModel[] }>(`/api/model-config/providers/${encodeURIComponent(p!.id)}/discover`, "POST", {}); const unique = [...new Map(found.models.map((model) => [model.id, model])).values()]; setCandidates(unique); setLegacyPolicy(undefined); setModels((current) => [...new Set([...current.split("\n").map((value) => value.trim()).filter(Boolean), ...unique.filter((model) => model.kind === "chat").map((model) => model.id)])].join("\n")); return {}; }, false, true)}>{t("settings.native.discover")}</button>{candidates.length > 0 && <DiscoveryList models={candidates} selected={models.split("\n").map((value) => value.trim()).filter(Boolean)} onChange={(ids) => { setModels(ids.join("\n")); setTouched(true); }} overrides={p.config?.modelOverrides} edits={edits} onEdits={(value) => { setEdits(value); setTouched(true); }} />}{conflicts.length > 0 && <fieldset className="space-y-2"><legend>{t("settings.native.error.discovery_review")}</legend><ul className="max-h-56 overflow-y-auto">{conflicts.map((change) => <li key={`${change.id}-${change.field}`} className="text-ui-meta">{change.id} · {change.field}: {JSON.stringify(change.current)} → {JSON.stringify(change.discovered)}</li>)}</ul>{(["preserve", "replace"] as const).map((policy) => <label key={policy} className="flex items-center gap-2"><input type="radio" name="legacy-discovery-policy" checked={legacyPolicy === policy} onChange={() => { setLegacyPolicy(policy); setTouched(true); }} />{t(`settings.native.legacyPolicy.${policy}`)}</label>)}</fieldset>}<p className="text-muted">{t("settings.native.discoveryHelp")}</p>{([["settings.resources.name", name, setName], ["settings.resources.baseUrl", url, setUrl]] as const).map(([label, value, update]) => <label key={label} className="block">{t(label)}<input className={field} value={value} onChange={(e) => { update(e.target.value); if (label === "settings.resources.baseUrl") { setCandidates([]); setEdits({}); setLegacyPolicy(undefined); } }} /></label>)}<div className="block"><span className="mb-1 block">{t("settings.native.api")}</span><SettingsSelectMenu variant="field" value={api} ariaLabel={t("settings.native.api")} onSelect={(value) => { setApi(value); setCandidates([]); setEdits({}); setLegacyPolicy(undefined); }} options={["openai-completions", "openai-responses", "anthropic-messages"].map((value) => ({ value, label: value }))} /></div><label className="block">{t("settings.native.manualModels")}<textarea className={field} rows={4} value={models} onChange={(e) => setModels(e.target.value)} /></label></>}
       {error && <p role="alert" className="text-error-text">{error}</p>}
       {discard && <div role="alert" className="space-y-2"><p>{t("settings.connections.discardHelp")}</p><button className={button} onClick={() => setDiscard(false)}>{t("settings.connections.keepEditing")}</button><button className={`${button} ml-2`} onClick={onClose}>{t("settings.connections.discard")}</button></div>}
     </div>

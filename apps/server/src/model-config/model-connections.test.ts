@@ -19,6 +19,26 @@ const app = (resources = new ModelResourceService()) => {
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "pi-connections-")); vi.stubEnv("PI_SCIENCE_HOME", root); });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
 
+it("projects per-field capability sources consistently across catalog, provider views and Workers", async () => {
+  const service = new ModelConfigService();
+  await service.createProvider(0, "lab", { api: "openai-completions", baseUrl: "http://127.0.0.1:9876/v1", models: [{ id: "test", contextWindow: 8192, reasoning: true, discoveredFields: ["contextWindow", "reasoning"] }], modelOverrides: { test: { contextWindow: 128000 } } }, { source: "keyless" });
+  const server = app();
+  try {
+    const before = service.readSync();
+    const response = await server.inject("/api/model-config/catalog");
+    const model = response.json().providers.find((provider: { id: string }) => provider.id === "lab").models[0];
+    expect(model).toMatchObject({ contextWindow: 128000, maxTokens: 16384, capability_sources: { contextWindow: "user_override", maxTokens: "default", reasoning: "declared", thinkingLevelMap: "default" } });
+    const view = (await nativeProviderViews()).find((provider) => provider.id === "lab")!.models[0]!;
+    expect(view.capabilities.context_window).toBe(model.contextWindow);
+    expect(view.capability_sources).toEqual(model.capability_sources);
+    expect(agentModels().getModel("lab", "test")?.contextWindow).toBe(model.contextWindow);
+    expect(agentModels().getModel("lab", "test")).not.toHaveProperty("discoveredFields");
+    expect(agentModels().getModel("lab", "test")?.thinkingLevelMap).toMatchObject({ xhigh: "high", max: "high" });
+    expect(service.readSync().config.providers.lab?.models?.[0]).not.toHaveProperty("thinkingLevelMap");
+    expect(service.readSync()).toEqual(before);
+  } finally { await server.close(); }
+});
+
 it("distinguishes explicit broken credentials, keyless and untouched registry entries without exposing secrets", async () => {
   const service = new ModelConfigService();
   await service.update(0, (s) => { s.credential_refs.openai = "missing-credential"; s.config.providers.anthropic = {}; });
