@@ -71,6 +71,8 @@ Open **http://127.0.0.1:8787**. In **Settings → LLM**, configure a provider an
 
 Linux/WSL requires `ripgrep`, `socat` and `bubblewrap` (Debian/Ubuntu: `sudo apt-get install ripgrep socat bubblewrap`). Installation, startup and `pi-science doctor` check these tools and run an offline Bubblewrap namespace probe. Missing dependencies or blocked namespaces stop installation/startup with a diagnostic.
 
+MCP processes in the Linux sandbox access the network through the policy HTTP/HTTPS proxy, which resolves destinations on the host. General DNS is unavailable inside the sandbox: a hidden `/etc/resolv.conf` or a failed `socket.getaddrinfo()` alone does not indicate that MCP requests cannot reach the network. Built-in search tools use this proxy directly. Custom MCP clients must also support `HTTP_PROXY`/`HTTPS_PROXY`; DNS failures on the host itself require fixing the host resolver.
+
 The installer builds the server, Agent Workers and frontend. Default startup runs **compiled JavaScript** and serves the frontend from the control plane on one port; Vite and tsx are not used at runtime. Bash supports macOS/Linux and WSL; native Windows does not require Git Bash. Installation includes the Agent Core SDK through workspace dependencies.
 
 ### Start, diagnose and stop

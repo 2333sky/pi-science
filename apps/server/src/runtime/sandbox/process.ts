@@ -27,7 +27,7 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     const bins: string[] = [];
     for (const path of dependencies) if ((await stat(path)).isDirectory()) bins.push(join(path, "bin"));
     if (dependencies.includes(process.execPath)) bins.unshift(dirname(process.execPath));
-    const scoped = Object.fromEntries(Object.entries(scopedEnvironment).filter(([key]) => !/^(?:https?|all|no)_proxy$/i.test(key)));
+    const scoped = Object.fromEntries(Object.entries(scopedEnvironment).filter(([key]) => !/^(?:(?:https?|all|no)_proxy|PI_SCIENCE_SANDBOX_HTTP_PROXY)$/i.test(key)));
     let certificate: string | undefined;
     for (const source of process.platform === "darwin" ? ["/etc/ssl/cert.pem"] : ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt"]) {
       try { certificate = join(scratch, "system-ca.pem"); await copyFile(source, certificate); break; }

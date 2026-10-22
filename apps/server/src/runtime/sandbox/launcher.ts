@@ -38,7 +38,7 @@ writeFileSync(manifest.settings, JSON.stringify(configured), { mode: 0o600 });
 // Numeric proxy hosts avoid libc DNS/hosts lookups inside the confined kernel.
 // Expansions are fixed shell code; all workload arguments remain positional.
 const runtimeArgs = [manifest.cli, "--settings", manifest.settings, "--", "/bin/sh", "-c",
-  'proxy_ip() { case "$1" in *://localhost:*) printf "%s://127.0.0.1:%s" "${1%%://*}" "${1#*://localhost:}" ;; *) printf "%s" "$1" ;; esac; }; exec /usr/bin/env -i HTTP_PROXY="$(proxy_ip "$HTTP_PROXY")" HTTPS_PROXY="$(proxy_ip "$HTTPS_PROXY")" ALL_PROXY="$(proxy_ip "$ALL_PROXY")" http_proxy="$(proxy_ip "$http_proxy")" https_proxy="$(proxy_ip "$https_proxy")" all_proxy="$(proxy_ip "$all_proxy")" NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" "$@"',
+  'proxy_ip() { case "$1" in *://localhost:*) printf "%s://127.0.0.1:%s" "${1%%://*}" "${1#*://localhost:}" ;; *) printf "%s" "$1" ;; esac; }; exec /usr/bin/env -i PI_SCIENCE_SANDBOX_HTTP_PROXY="$(proxy_ip "$HTTP_PROXY")" HTTP_PROXY="$(proxy_ip "$HTTP_PROXY")" HTTPS_PROXY="$(proxy_ip "$HTTPS_PROXY")" ALL_PROXY="$(proxy_ip "$ALL_PROXY")" http_proxy="$(proxy_ip "$http_proxy")" https_proxy="$(proxy_ip "$https_proxy")" all_proxy="$(proxy_ip "$all_proxy")" NO_PROXY="$NO_PROXY" no_proxy="$no_proxy" "$@"',
   "sandbox-env", ...envArgs, ...manifest.argv, ...shellArgs];
 let linuxManager: typeof import("@anthropic-ai/sandbox-runtime").SandboxManager | undefined;
 let linuxLaunch: { argv: string[]; env: NodeJS.ProcessEnv } | undefined;

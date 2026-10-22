@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -115,6 +115,81 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
       await client.connect(await localMcpTransport(cwd, definition.command!, definition.args, cwd, {}));
       expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("search_pubmed");
     } finally { await client.close(); }
+  }, 30_000);
+  it("calls arXiv and OpenAlex through HTTPS without DNS in the real MCP sandbox", async () => {
+    const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const key = join(cwd, "test-key.pem"), cert = join(cwd, "test-cert.pem");
+    execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
+      "-days", "1", "-subj", "/CN=sandbox-test", "-addext", "subjectAltName=DNS:export.arxiv.org,DNS:api.openalex.org"], { stdio: "ignore" });
+    for (const [connectorId, tool, args] of [
+      ["mcp_builtin_paper_search", "search_arxiv", { query: "sandbox DNS", limit: 1 }],
+      ["mcp_builtin_literature_graph", "search_openalex_works", { query: "sandbox DNS", per_page: 1 }],
+    ] as const) {
+      const definition = builtinMcpConnectors().find((connector) => connector.connector_id === connectorId)!.definition;
+      const wrapper = join(cwd, `${tool}.mjs`);
+      const entryIndex = definition.args!.findIndex((arg) => /\.(?:ts|js)$/.test(arg));
+      const entry = definition.args![entryIndex]!;
+      // Controlled HTTPS upstream only: real TLS verification, real SDK tool
+      // handlers and transport, no external API or DNS dependency. The workload
+      // still uses the product's normal Linux OS confinement.
+      await writeFile(wrapper, `import fs from 'node:fs';
+process.on('uncaughtException', error=>{fs.writeFileSync(${JSON.stringify(join(cwd, 'fixture-error.txt'))},String(error.stack));process.exit(1)});
+import http from 'node:http';
+import tls from 'node:tls';
+import dns from 'node:dns/promises';
+if(fs.existsSync('/etc/resolv.conf')) throw Error('test requires isolated DNS');
+try { await dns.lookup('no-dns.invalid'); throw Error('DNS unexpectedly available'); }
+catch(error) { if(error.code !== 'ENOTFOUND' && error.code !== 'EAI_AGAIN') throw error; }
+tls.setDefaultCACertificates([...tls.getCACertificates(),${JSON.stringify(await readFile(cert, "utf8"))}]);
+const context=tls.createSecureContext({key:${JSON.stringify(await readFile(key, "utf8"))},cert:${JSON.stringify(await readFile(cert, "utf8"))}});
+const proxy=http.createServer();
+proxy.on('connect',(req,socket)=>{
+ socket.write('HTTP/1.1 200 Connection Established\\r\\n\\r\\n');
+ const secure=new tls.TLSSocket(socket,{isServer:true,secureContext:context});
+ secure.once('data',()=>{
+  const arxiv=req.url==='export.arxiv.org:443';
+  if(!arxiv && req.url!=='api.openalex.org:443') throw Error('Unexpected upstream');
+  const body=arxiv?'<feed xmlns="http://www.w3.org/2005/Atom" xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/"><opensearch:totalResults>0</opensearch:totalResults></feed>':JSON.stringify({meta:{count:0},results:[]});
+  secure.end('HTTP/1.1 200 OK\\r\\nContent-Type: '+(arxiv?'application/atom+xml':'application/json')+'\\r\\nContent-Length: '+Buffer.byteLength(body)+'\\r\\nConnection: close\\r\\n\\r\\n'+body);
+ });
+});
+await new Promise(done=>proxy.listen(0,'127.0.0.1',done));
+process.env.PI_SCIENCE_SANDBOX_HTTP_PROXY='http://127.0.0.1:'+proxy.address().port;
+process.env.NO_PROXY='*'; process.env.no_proxy='*';
+process.argv=[process.argv[0],...${JSON.stringify(definition.args!.slice(entryIndex))}];
+${entry.endsWith(".ts") ? `await import(${JSON.stringify(import.meta.resolve("tsx"))});` : ""}
+await import(${JSON.stringify(new URL(entry, "file:///").href)});
+`);
+      const client = new Client({ name: "dns-acceptance", version: "1" });
+      try {
+        await client.connect(await localMcpTransport(cwd, definition.command!, [wrapper], cwd, {}));
+        const result = await client.callTool({ name: tool, arguments: args });
+        expect(result.isError, JSON.stringify(result)).not.toBe(true);
+        expect(result.structuredContent).toMatchObject({ records: [], total: 0 });
+      } catch (error) { throw new Error(await readFile(join(cwd, "fixture-error.txt"), "utf8").catch(() => String(error))); }
+      finally { await client.close(); }
+    }
+  }, 40_000);
+
+  it("routes unresolved MCP hostnames to the real policy proxy and rejects connector proxy overrides", async () => {
+    const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const script = join(cwd, "proxy-check.mjs");
+    const fetchModule = new URL("../../mcp/runtime-fetch.js", import.meta.url.replace(/\.ts$/, ".js")).href.replace("/src/", "/dist/");
+    await writeFile(script, `import {createMcpFetch} from ${JSON.stringify(fetchModule)};
+if(!process.env.PI_SCIENCE_SANDBOX_HTTP_PROXY?.startsWith('http://127.0.0.1:')) throw Error('missing trusted proxy');
+try { await createMcpFetch({connectorId:'test',endpoint:'https://no-dns.invalid',allowPrivate:false})('https://no-dns.invalid'); throw Error('unexpected access'); }
+catch(error) { let message=''; for(let cause=error;cause;cause=cause.cause) message+=String(cause.message); if(!message.includes('Proxy response (403)')) throw error; console.log('policy-proxy-denied-without-DNS'); }
+`);
+    const policy = await workspacePolicy(cwd, undefined, "mcp");
+    const prepared = await prepareSandbox(policy, [process.execPath, script], [process.execPath, new URL("../../../", import.meta.url).pathname, new URL("../../../../../node_modules", import.meta.url).pathname], 10,
+      undefined, undefined, { PI_SCIENCE_SANDBOX_HTTP_PROXY: "http://attacker.invalid:1", NO_PROXY: "*" });
+    const child = spawn(process.execPath, [launcherPath, prepared.manifest], { cwd, env: prepared.env, detached: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });
+    let stdout = "", stderr = "";
+    child.stdout!.on("data", (data) => stdout += data); child.stderr!.on("data", (data) => stderr += data);
+    try {
+      const code = await new Promise<number | null>((done, reject) => { child.once("error", reject); child.once("close", done); });
+      expect({ code, stdout }, stderr).toEqual({ code: 0, stdout: "policy-proxy-denied-without-DNS\n" });
+    } finally { killSandboxGroup(child.pid); await prepared.cleanup(); }
   }, 30_000);
   it("preserves the actual Bash tool output and artifact path through its OS adapter", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
