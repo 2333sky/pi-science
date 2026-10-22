@@ -23,9 +23,33 @@ try {
   flushCompileCache();
   const moduleUrl = new URL(process.env.PI_SCIENCE_AGENT_WORKER_MODE === "bundled"
     ? "../apps/server/dist/runtime/agent/worker/main.test-bundle.mjs" : "../apps/server/dist/runtime/agent/worker/main.js", import.meta.url).href;
-  const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval",
-    `const start=performance.now(); const cpu=process.cpuUsage(); await import(${JSON.stringify(moduleUrl)}); console.log(JSON.stringify({phase:'module-load',elapsedMs:Math.round(performance.now()-start),cpu:process.cpuUsage(cpu)}));`], { timeout: 30_000, env: workerEnvironment() });
-  console.log(stdout.trim());
+  const probeCode = `const start=performance.now(); const cpu=process.cpuUsage(); await import(${JSON.stringify(moduleUrl)}); console.log(JSON.stringify({phase:'module-load',elapsedMs:Math.round(performance.now()-start),cpu:process.cpuUsage(cpu)}));`;
+  const probe = async (env, timeout = 4_000) => {
+    try {
+      const { stdout } = await promisify(execFile)(process.execPath, ["--input-type=module", "--eval", probeCode], { timeout, env, killSignal: "SIGKILL" });
+      return JSON.parse(stdout.trim().split("\n").at(-1)).elapsedMs;
+    } catch { return Infinity; }
+  };
+  const controlled = workerEnvironment();
+  const moduleMs = await probe(controlled, 30_000);
+  console.log(JSON.stringify({ phase: "controlled-module-load", elapsedMs: moduleMs }));
+  if (moduleMs >= 4_000 && await probe(process.env) < 4_000) {
+    const names = new Map(Object.entries(controlled).map(([key, value]) => [key.toLowerCase(), value]));
+    let suspects = Object.keys(process.env).filter((key) => names.get(key.toLowerCase()) !== process.env[key]);
+    let partitions = 2, probes = 0;
+    while (suspects.length > 1 && probes < 24) {
+      let reduced = false;
+      const size = Math.ceil(suspects.length / partitions);
+      for (let start = 0; start < suspects.length && probes++ < 24; start += size) {
+        const remaining = suspects.filter((_, index) => index < start || index >= start + size);
+        const env = { ...controlled, ...Object.fromEntries(remaining.map((key) => [key, process.env[key]])) };
+        if (await probe(env) < 4_000) { suspects = remaining; partitions = Math.max(2, partitions - 1); reduced = true; break; }
+      }
+      if (!reduced) { if (partitions >= suspects.length) break; partitions = Math.min(suspects.length, partitions * 2); }
+    }
+    // Names only: never print CI credentials or any environment values.
+    throw new Error(`Controlled module loading is slow; required inherited environment keys: ${suspects.join(", ")}`);
+  }
   for (let index = 0; index < 3; index++) {
     const cwd = join(root, `workspace-${index}`);
     await mkdir(join(cwd, ".pi-science"), { recursive: true });
