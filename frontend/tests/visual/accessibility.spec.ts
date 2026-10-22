@@ -64,3 +64,14 @@ test("settings dialog has no serious axe violations @accessibility", async ({ pa
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
   await expectNoSeriousViolations(page, "settings dialog");
 });
+
+test("approval load errors remain readable @accessibility", async ({ page }) => {
+  await page.route("**/api/sessions/*/approval-mode?*", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "Could not load approval mode" }),
+  }));
+  await page.goto(workspaceRoute(VISUAL_CWD, `/session/${VISUAL_SESSION}`));
+  await expect(page.getByRole("alert").filter({ hasText: "Could not load approval mode" })).toBeVisible();
+  await expectNoSeriousViolations(page, "approval mode load failure");
+});

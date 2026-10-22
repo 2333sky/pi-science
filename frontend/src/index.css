@@ -313,8 +313,8 @@
   --ok-text-rgb: var(--ok-rgb);
   --warn-text: var(--warn);
   --warn-text-rgb: var(--warn-rgb);
-  --error-text: var(--error);
-  --error-text-rgb: var(--error-rgb);
+  --error-text: #ff7070;
+  --error-text-rgb: 255 112 112;
   --ok-fill: #15803d;
   --ok-fill-rgb: 21 128 61;
   --warn-fill: #b45309;
