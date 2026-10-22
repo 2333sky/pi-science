@@ -39,6 +39,14 @@ const WORKSPACE_ENV_KEYS = new Set([
 function workerEntry(): { path: string; execArgv: string[] } {
   const compiled = fileURLToPath(new URL("./worker/main.js", import.meta.url));
   if (existsSync(compiled)) return { path: compiled, execArgv: [] };
+  // CI can exercise the production worker while testing the source facade.
+  // In particular, repeated cold TS-loader starts exceed short IPC deadlines
+  // on native Windows runners. Never accept an arbitrary executable path.
+  if (process.env.PI_SCIENCE_AGENT_WORKER_MODE === "compiled") {
+    const built = fileURLToPath(new URL("../../../dist/runtime/agent/worker/main.js", import.meta.url));
+    if (!existsSync(built)) throw new Error("Compiled agent worker is missing; build @pi-science/server first");
+    return { path: built, execArgv: [] };
+  }
   return { path: fileURLToPath(new URL("./worker/main.ts", import.meta.url)), execArgv: ["--import", import.meta.resolve("tsx")] };
 }
 

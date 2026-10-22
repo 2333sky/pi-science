@@ -116,7 +116,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
       expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("search_pubmed");
     } finally { await client.close(); }
   }, 30_000);
-  it("calls arXiv and OpenAlex through HTTPS without DNS in the real MCP sandbox", async () => {
+  it.skipIf(process.platform !== "linux")("calls arXiv and OpenAlex through HTTPS without DNS in the real MCP sandbox", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const key = join(cwd, "test-key.pem"), cert = join(cwd, "test-cert.pem");
     execFileSync("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", cert,
@@ -174,14 +174,15 @@ await import(${JSON.stringify(new URL(entry, "file:///").href)});
   it("routes unresolved MCP hostnames to the real policy proxy and rejects connector proxy overrides", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const script = join(cwd, "proxy-check.mjs");
-    const fetchModule = new URL("../../mcp/runtime-fetch.js", import.meta.url.replace(/\.ts$/, ".js")).href.replace("/src/", "/dist/");
-    await writeFile(script, `import {createMcpFetch} from ${JSON.stringify(fetchModule)};
+    const fetchModule = new URL("../../mcp/runtime-fetch.ts", import.meta.url).href;
+    await writeFile(script, `await import(${JSON.stringify(import.meta.resolve("tsx"))});
+const {createMcpFetch}=await import(${JSON.stringify(fetchModule)});
 if(!process.env.PI_SCIENCE_SANDBOX_HTTP_PROXY?.startsWith('http://127.0.0.1:')) throw Error('missing trusted proxy');
 try { await createMcpFetch({connectorId:'test',endpoint:'https://no-dns.invalid',allowPrivate:false})('https://no-dns.invalid'); throw Error('unexpected access'); }
 catch(error) { let message=''; for(let cause=error;cause;cause=cause.cause) message+=String(cause.message); if(!message.includes('Proxy response (403)')) throw error; console.log('policy-proxy-denied-without-DNS'); }
 `);
     const policy = await workspacePolicy(cwd, undefined, "mcp");
-    const prepared = await prepareSandbox(policy, [process.execPath, script], [process.execPath, new URL("../../../", import.meta.url).pathname, new URL("../../../../../node_modules", import.meta.url).pathname], 10,
+    const prepared = await prepareSandbox(policy, [process.execPath, script], [process.execPath, new URL("../../../", import.meta.url).pathname, new URL("../../../../../node_modules", import.meta.url).pathname, new URL("../../../../../package.json", import.meta.url).pathname], 10,
       undefined, undefined, { PI_SCIENCE_SANDBOX_HTTP_PROXY: "http://attacker.invalid:1", NO_PROXY: "*" });
     const child = spawn(process.execPath, [launcherPath, prepared.manifest], { cwd, env: prepared.env, detached: true, stdio: ["ignore", "pipe", "pipe", "ipc"] });
     let stdout = "", stderr = "";

@@ -32,6 +32,14 @@ jobs:
           node-version: 24.16.0
           cache: pnpm
 
+      - name: Install required Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # Dedicated ephemeral runner: Bubblewrap requires user namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
@@ -60,11 +68,19 @@ jobs:
         if: runner.os != 'Windows'
         run: pnpm test
 
+      - name: Build the production worker for native Windows IPC tests
+        if: runner.os == 'Windows'
+        run: |
+          pnpm --filter @pi-science/contracts build
+          pnpm --filter @pi-science/server build
+
       # Native process integration tests launch Node, bash and taskkill trees.
       # Serializing server files on the two-core Windows runner prevents unrelated
       # 500 ms/15 s characterization deadlines from competing for process slots.
       - name: Test contracts, serialized control plane, frontend and skills
         if: runner.os == 'Windows'
+        env:
+          PI_SCIENCE_AGENT_WORKER_MODE: compiled
         run: |
           pnpm --filter @pi-science/contracts test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -138,14 +154,6 @@ jobs:
           if-no-files-found: ignore
           include-hidden-files: true
 
-      - name: Install required Linux sandbox dependencies for control-plane smoke
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bubblewrap socat ripgrep
-          # This ephemeral runner must permit the user namespaces used by Bubblewrap.
-          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-
       - name: Run control-plane smoke test
         if: runner.os != 'Windows'
         run: bash scripts/smoke-control-plane.sh
@@ -201,6 +209,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.16.0
+      - name: Install required Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # Dedicated ephemeral runner: Bubblewrap requires user namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       # Intentionally omit pnpm setup: exercise the pinned bootstrap from npm.
       - name: Install and build (POSIX)
         if: runner.os != 'Windows'

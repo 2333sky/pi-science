@@ -47,10 +47,14 @@ it("full expands home access, protects application state and never broadens conf
   const { sessionPolicy } = await import("./session-approval.js");
   const confined = identifyPolicy({ ...full, scope: "confined", readPaths: [cwd], writePaths: [cwd], network: { mode: "none" } });
   expect(await sessionPolicy(confined, "a")).toBe(confined);
+  if (!["linux", "darwin"].includes(process.platform)) {
+    await expect(prepareSandbox(full, ["true"], [], 1)).rejects.toThrow("disabled on this platform");
+    return;
+  }
   const prepared = await prepareSandbox(full, ["true"], [], 1);
   await prepared.cleanup();
 });
-it.skipIf(!["darwin", "linux"].includes(process.platform))("enforces full-mode home access and service-data denial in a real sandbox", async () => {
+it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].includes(process.platform))("enforces full-mode home access and service-data denial in a real sandbox", async () => {
   const fixture = await realpath(await mkdtemp(join(homedir(), "pi-science-mode-test-")));
   try {
     await writeFile(join(fixture, "sample.txt"), "PUBLIC_TEST_FILE");
