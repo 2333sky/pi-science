@@ -10,6 +10,7 @@ import { egressAuditEnabled, recordEgress } from "../security/egress-audit.js";
 // still runs before every request; the gateway owns connection-time DNS checks
 // for tunneled destinations. Direct/NO_PROXY traffic retains the socket guard.
 const publicDispatcher = new EnvHttpProxyAgent({ connect: {
+  autoSelectFamily: false,
   lookup(hostname, options, callback) {
     lookup(hostname, options, (error, address, family) => {
       if (error) return callback(error, address, family);
@@ -20,7 +21,7 @@ const publicDispatcher = new EnvHttpProxyAgent({ connect: {
   },
 } });
 
-const privateDispatcher = new EnvHttpProxyAgent();
+const privateDispatcher = new EnvHttpProxyAgent({ connect: { autoSelectFamily: false } });
 
 // Set only by the trusted launcher, after removing connector-supplied values.
 // The confined process cannot use host DNS. Its policy proxy resolves and checks

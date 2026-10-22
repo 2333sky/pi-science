@@ -96,7 +96,7 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
       if (sni !== host.toLowerCase().replace(/\.$/, "")) { client.destroy(); return; }
       await refresh();
       if (client.destroyed || !domainAllowed(host, port, network)) { client.destroy(); return; }
-      upstream = connect({ host, port, lookup: guard.lookupFor(port) }); watch(upstream);
+      upstream = connect({ host, port, lookup: guard.lookupFor(port), autoSelectFamily: false }); watch(upstream);
       upstream.once("error", () => client.destroy());
       client.once("close", () => upstream?.destroy());
       upstream.once("connect", () => {
