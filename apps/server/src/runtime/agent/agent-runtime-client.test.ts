@@ -51,6 +51,12 @@ describe("AgentCoreRuntimeClient", () => {
     expect(await client.sendCommand("fork")).toMatchObject({ success: true, sessionId: expect.any(String) });
   }, 45_000);
 
+  it("keeps the operator compilation cache outside workspace overrides", () => {
+    vi.stubEnv("NODE_COMPILE_CACHE", "/operator/cache");
+    expect(workerEnvironment({ NODE_COMPILE_CACHE: "/workspace/cache" }, ["NODE_COMPILE_CACHE"]).NODE_COMPILE_CACHE).toBe("/operator/cache");
+    vi.unstubAllEnvs();
+  });
+
   it("keeps the operator MCP lookup path separate from workspace PATH overrides", () => {
     vi.stubEnv("PATH", "/operator/bin:/usr/bin");
     vi.stubEnv("PI_SCIENCE_MCP_EXECUTABLE_PATH", "/trusted/mcp/bin");

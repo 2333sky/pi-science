@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, rm, writeFile, stat, realpath, copyFile } from "node:fs
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
-import { tmpdir } from "node:os";
+import { requireSandboxPlatform } from "./platform.js";
 import { canonicalDirectory, identifyPolicy, isWithin, type SandboxPolicy } from "./policy.js";
 import { processSettings, srtCli, type RuntimeInstallation } from "./settings.js";
 import { prepareMacosSupervisor } from "./platform.js";
@@ -12,14 +12,17 @@ export const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}
 export const launcherPath = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./launcher.ts" : "./launcher.js", import.meta.url));
 export interface PreparedSandbox { manifest: string; shell: string; env: Record<string, string>; cleanup(): Promise<void> }
 export async function prepareSandbox(policy: SandboxPolicy, argv: string[], dependencies: string[], timeoutSeconds: number, kernelBridge?: string, installation?: RuntimeInstallation, scopedEnvironment: Record<string, string> = {}): Promise<PreparedSandbox> {
-  const control = await mkdtemp(join(await realpath(process.platform === "darwin" ? "/private/tmp" : process.platform === "win32" ? tmpdir() : "/tmp"), "ps-exec-"));
+  const networkGrants = policy.scope === "workspace" && (policy.profile === "analysis" || policy.profile === "mcp") ? { path: networkGrantsPath(), profile: policy.profile } : undefined;
+  if (networkGrants && policy.writePaths.some((root) => isWithin(root, dirname(networkGrants.path))) && !policy.denyPaths.some((root) => isWithin(root, dirname(networkGrants.path)))) throw new Error("Network permissions must be outside writable sandbox paths");
+  // Reject unsupported platforms before allocating a control directory. On
+  // Windows TEMP is inside HOME, which a full-access policy intentionally grants.
+  requireSandboxPlatform();
+  const control = await mkdtemp(join(await realpath(process.platform === "darwin" ? "/private/tmp" : "/tmp"), "ps-exec-"));
   try {
     for (const root of [...policy.readPaths, ...policy.writePaths, ...dependencies]) {
       if (isWithin(await realpath(root), control)) throw new Error("Sandbox grants overlap the private launcher control directory");
     }
-    const networkGrants = policy.scope === "workspace" && (policy.profile === "analysis" || policy.profile === "mcp") ? { path: networkGrantsPath(), profile: policy.profile } : undefined;
     if (networkGrants) await canonicalDirectory(dirname(networkGrants.path));
-    if (networkGrants && policy.writePaths.some((root) => isWithin(root, dirname(networkGrants.path))) && !policy.denyPaths.some((root) => isWithin(root, dirname(networkGrants.path)))) throw new Error("Network permissions must be outside writable sandbox paths");
     const scratch = join(control, "scratch"); await mkdir(scratch, { mode: 0o700 });
     const settings = await processSettings(identifyPolicy({ ...policy, readPaths: [...policy.readPaths, scratch], writePaths: [...policy.writePaths, scratch] }), dependencies, installation);
     const lifecycleTag = `pi-science.lifecycle.${randomUUID()}`;

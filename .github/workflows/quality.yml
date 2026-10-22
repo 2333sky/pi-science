@@ -74,6 +74,13 @@ jobs:
           pnpm --filter @pi-science/contracts build
           pnpm --filter @pi-science/server build
 
+      - name: Warm and validate the Windows worker compilation cache
+        if: runner.os == 'Windows'
+        env:
+          PI_SCIENCE_AGENT_WORKER_MODE: compiled
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/pi-science-worker-cache
+        run: node scripts/check-worker-startup.mjs
+
       # Native process integration tests launch Node, bash and taskkill trees.
       # Serializing server files on the two-core Windows runner prevents unrelated
       # 500 ms/15 s characterization deadlines from competing for process slots.
@@ -81,6 +88,7 @@ jobs:
         if: runner.os == 'Windows'
         env:
           PI_SCIENCE_AGENT_WORKER_MODE: compiled
+          NODE_COMPILE_CACHE: ${{ runner.temp }}/pi-science-worker-cache
         run: |
           pnpm --filter @pi-science/contracts test
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
