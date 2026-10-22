@@ -29,7 +29,7 @@ export async function profileConfiguration() {
 const defaultPort = (domain: string) => domain.includes(":") ? domain : `${domain}:443`;
 
 /** Called only by trusted execution entry points. Role names are never tool args. */
-export async function applySandboxProfile(policy: SandboxPolicy, profile: SandboxProfile): Promise<SandboxPolicy> {
+export async function applySandboxProfile(policy: SandboxPolicy, profile: SandboxProfile, options: { inheritFilesystemGrants?: boolean } = {}): Promise<SandboxPolicy> {
   if ((policy.scope === "candidate" || policy.scope === "confined")) {
     if (profile !== "candidate" || policy.network.mode !== "none") throw new Error("Candidate sandbox cannot inherit a broader execution profile");
     return identifyPolicy({ ...policy, profile });
@@ -37,7 +37,7 @@ export async function applySandboxProfile(policy: SandboxPolicy, profile: Sandbo
   if (profile === "candidate") throw new Error("Candidate profile requires a candidate binding");
   const config = await profileConfiguration();
   if (config.file && policy.writePaths.some((path) => isWithin(path, config.file!))) throw new Error("Sandbox profile config must be outside writable paths");
-  const inheritsGrants = profile === "analysis" || profile === "mcp";
+  const inheritsGrants = options.inheritFilesystemGrants !== false && (profile === "analysis" || profile === "mcp");
   const reads = inheritsGrants ? await Promise.all(config.userReadPaths.map(canonicalDirectory)) : [];
   const writes = inheritsGrants ? await Promise.all(config.userWritePaths.map(canonicalDirectory)) : [];
   const denied = [...policy.denyPaths];

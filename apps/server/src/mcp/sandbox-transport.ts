@@ -12,14 +12,22 @@ import { bashDependencies } from "../runtime/sandbox/settings.js";
 import { prepareSandbox, launcherPath, killSandboxGroup, type PreparedSandbox } from "../runtime/sandbox/process.js";
 import { readRegularFile } from "../runtime/sandbox/file-read.js";
 import { configRoot } from "../storage/persistence.js";
+import { applySandboxProfile } from "../runtime/sandbox/profiles.js";
 
 export async function localMcpTransport(workspace: string, command: string, args: string[], cwd: string, environment: Record<string, string>, builtinName?: string, sessionId?: string): Promise<Transport> {
   if (operatorExecutionMode() === "trusted-host") return new StdioClientTransport({ command, args, cwd, env: environment, stderr: "pipe" });
   workspace = await realpath(workspace); cwd = await realpath(cwd);
   if (!isWithin(workspace, cwd)) throw new Error("Local MCP cwd must remain inside the workspace");
   const { executable, prefix, dependencies: executableDependencies } = await resolveMcpExecutable(command, workspace);
-  const policy = await workspacePolicy(workspace, undefined, "mcp", sessionId);
-  const dependencies = [...new Set([...bashDependencies(), ...executableDependencies, fileURLToPath(new URL("../", import.meta.url)), fileURLToPath(new URL("../../../../node_modules", import.meta.url))])];
+  // Builtins consume explicit arguments/environment, not workspace files. Keep
+  // their network profile and live grants, without workspace, operator filesystem
+  // or full-session grants (and their recursive credential scans).
+  if (builtinName) cwd = await realpath(fileURLToPath(new URL("./", import.meta.url)));
+  const policy = builtinName
+    ? await applySandboxProfile(identifyPolicy({ mode: "required", scope: "workspace", cwd,
+      readPaths: [], writePaths: [], denyPaths: [], network: { mode: "none" } }), "mcp", { inheritFilesystemGrants: false })
+    : await workspacePolicy(workspace, undefined, "mcp", sessionId);
+  const dependencies = [...new Set([...(builtinName ? [] : bashDependencies()), ...executableDependencies, fileURLToPath(new URL("../", import.meta.url)), fileURLToPath(new URL("../../../../node_modules", import.meta.url))])];
   // Source-mode TS loaders read package/tsconfig metadata. Grant only those
   // files, rather than opening the installation's parent directories.
   for (const relative of ["../../src", "../../dist", "../../node_modules", "../../package.json", "../../tsconfig.json", "../../../../package.json", "../../../../tsconfig.base.json"]) {

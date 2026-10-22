@@ -14,6 +14,8 @@ import { JobCoordinator } from "../jobs/job-coordinator.js";
 import { sandboxBashTool } from "../agent/worker/sandbox-bash.js";
 import { BACKGROUND_CONTEXT, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { writeSandboxFile } from "./file-write.js";
+import { AgentMcpTools } from "../agent/worker/mcp-tools.js";
+import { InteractionBridge } from "../agent/worker/interaction-bridge.js";
 import { builtinMcpConnectors } from "../../mcp/builtin-connectors.js";
 
 const roots: string[] = [];
@@ -107,15 +109,57 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
       expect(result.content).toEqual([{ type: "text", text: JSON.stringify({ token: "connector-only", hostKey: false, passwd: false }) }]);
     } finally { await client.close(); }
   }, 30_000);
-  it("starts the product's built-in Paper Search server inside the MCP sandbox", async () => {
+  it.each(["paper-search", "literature-graph", "web-access"])("starts builtin %s inside the narrow MCP sandbox within discovery budget", async (name) => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
-    const definition = builtinMcpConnectors()[0]!.definition;
+    const builtin = builtinMcpConnectors().find((connector) => connector.definition.name === name)!;
+    const definition = builtin.definition;
     const client = new Client({ name: "builtin-acceptance", version: "1" });
     try {
-      await client.connect(await localMcpTransport(cwd, definition.command!, definition.args, cwd, {}));
-      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("search_pubmed");
+      const started = Date.now();
+      await client.connect(await localMcpTransport(cwd, definition.command!, definition.args, cwd, {}, name), { timeout: 10_000 });
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(builtin.tools.map((tool) => tool.name)));
+      expect(Date.now() - started).toBeLessThan(10_000);
     } finally { await client.close(); }
   }, 30_000);
+  it("discovers all three builtin connectors concurrently within the worker budget", async () => {
+    const cwd = await fixture(), home = await fixture();
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("PI_SCIENCE_HOME", home);
+    const builtins = builtinMcpConnectors().filter((connector) => ["paper-search", "literature-graph", "web-access"].includes(connector.definition.name));
+    await mkdir(join(cwd, ".pi-science"));
+    await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "sandbox-budget", mcpServers: Object.fromEntries(builtins.map(({ definition, connector_id }) => [definition.name, {
+      transport: "stdio", command: definition.command, args: definition.args, __piScienceBuiltin: true, __piScienceConnectorId: connector_id,
+    }])) }));
+    const started = Date.now();
+    const mcp = await AgentMcpTools.open(cwd, new InteractionBridge(() => {}), {});
+    try {
+      expect(mcp.diagnostics).toEqual([]);
+      expect(mcp.tools).toHaveLength(builtins.reduce((count, builtin) => count + builtin.tools.length, 0));
+      expect(Date.now() - started).toBeLessThan(10_000);
+    } finally { await mcp.close(); }
+  }, 20_000);
+  it("denies builtin workspace reads/writes while allowing private scratch writes", async () => {
+    const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    await writeFile(join(cwd, "private.txt"), "workspace-private");
+    const code = `import fs from 'node:fs';
+      import {McpServer} from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};
+      import {StdioServerTransport} from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};
+      const workspace = ${JSON.stringify(cwd)};
+      const server = new McpServer({name:'builtin-boundary',version:'1'});
+      server.registerTool('inspect',{},async()=>{
+        let read=false,write=false,codeWrite=false;
+        try { read=fs.readFileSync(workspace+'/private.txt','utf8')==='workspace-private'; } catch {}
+        try { fs.writeFileSync(workspace+'/escaped','bad'); write=true; } catch {}
+        try { fs.writeFileSync('escaped','bad'); codeWrite=true; } catch {}
+        fs.writeFileSync(process.env.HOME+'/scratch-test','ok');
+        return {content:[{type:'text',text:JSON.stringify({read,write,codeWrite,scratch:true})}]};
+      }); await server.connect(new StdioServerTransport());`;
+    const client = new Client({ name: "builtin-boundary", version: "1" });
+    try {
+      await client.connect(await localMcpTransport(cwd, process.execPath, ["--input-type=module", "-e", code], cwd, {}, "paper-search"));
+      expect((await client.callTool({ name: "inspect" })).content).toEqual([{ type: "text", text: JSON.stringify({ read: false, write: false, codeWrite: false, scratch: true }) }]);
+    } finally { await client.close(); }
+    expect(await readFile(join(cwd, "private.txt"), "utf8")).toBe("workspace-private");
+  }, 20_000);
   it.skipIf(process.platform !== "linux")("calls arXiv and OpenAlex through HTTPS without DNS in the real MCP sandbox", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const key = join(cwd, "test-key.pem"), cert = join(cwd, "test-cert.pem");

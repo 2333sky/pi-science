@@ -11,7 +11,7 @@ macOS and Bubblewrap plus seccomp on Linux. Missing isolation refuses execution.
 | Profile | Callers and filesystem scope | Host grants | Default network |
 | --- | --- | --- | --- |
 | `analysis` | Bash, Python Notebook, background Jobs; workspace data writable, runtime dependencies read only | Explicit read/write directories | None |
-| `mcp` | Local stdio MCP servers, including discovery/probes; workspace data writable, installed server/dependencies read only | Explicit read/write directories | None |
+| `mcp` | Local stdio MCP servers, including discovery/probes; user connectors have workspace access; builtins read installed code/dependencies and write private scratch only | Explicit read/write directories for user connectors only | None |
 | `install` | Environment service creating one new revision; only that prefix and package cache writable | None | Conda-forge, Anaconda, PyPI and Python file hosting over HTTPS |
 | `control` | Environment health-check helpers; installed prefix read only, private scratch writable | None | None |
 | `byoc` | Provider-helper factory; frame workspace and stage writable, SDK read only | None | Only the registered HTTPS endpoint, intersected with the operator BYOC allowlist |
@@ -20,6 +20,12 @@ macOS and Bubblewrap plus seccomp on Linux. Missing isolation refuses execution.
 Profiles are internal policy values. Tool arguments, workspace settings, request
 environment variables and HTTP surface labels cannot choose a role or grant
 runtime dependencies. Candidate policy cannot be widened to another profile.
+Builtin MCP connectors retain the MCP network profile and live network grants,
+but do not inherit workspace, session full-access, operator filesystem grants or
+analysis runtime paths. Their working directory is the read-only MCP installation.
+Credential glob scans cover only their private scratch directory, so startup does
+not traverse the research workspace or nested worktrees. Web Access receives only
+its own configuration through the launcher and stores its cache in private scratch.
 `providerHelperPolicy` binds each helper to one server-registered public HTTPS
 endpoint; missing endpoints have no network and unapproved endpoints fail.
 Provider registration UIs, remote schedulers and new remote-service adapters are
