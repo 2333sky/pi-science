@@ -78,11 +78,21 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     const prefix = process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT!;
     const manager = new NodeKernelManager(); managers.push(manager);
     const options = { cwd, language: "python" as const, environment: { ready: true, workspace: cwd, prefix, python: join(prefix, "bin/python3"), pip: join(prefix, "bin/pip"), npm: { local_prefix: cwd, global_prefix: cwd, cache: cwd } }, timeoutMs: 20_000 };
-    const blocked = "import urllib.request\ntry:\n urllib.request.urlopen('https://example.com',timeout=10)\nexcept Exception:\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
-    expect(await manager.execute({ ...options, code: "state=42\nimport os\noriginal_pid=os.getpid()\n" + blocked })).toMatchObject({ ok: true, stdout: "blocked\n" });
+    // A verified TLS handshake proves the HTTPS tunnel works without depending
+    // on the public site's HTTP status (example.com can temporarily return 503).
+    const probe = [
+      "import contextlib, http.client, urllib.request, urllib.parse",
+      "def probe_https():",
+      " proxy=urllib.parse.urlsplit(urllib.request.getproxies()['https'])",
+      " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15)) as connection:",
+      "  connection.set_tunnel('example.com',443)",
+      "  connection.connect()",
+    ].join("\n");
+    const blocked = "try:\n probe_https()\nexcept Exception:\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
+    expect(await manager.execute({ ...options, code: "state=42\nimport os\noriginal_pid=os.getpid()\n" + probe + "\n" + blocked })).toMatchObject({ ok: true, stdout: "blocked\n" });
     await changeNetworkGrant({ profile: "analysis", domain: "example.com", decision: "allow" }, "settings");
-    const granted = await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\nprint(urllib.request.urlopen('https://example.com',timeout=15).status)" });
-    expect(granted, JSON.stringify(granted)).toMatchObject({ ok: true, stdout: "200\n" });
+    const granted = await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\nprobe_https()\nprint('connected')" });
+    expect(granted, JSON.stringify(granted)).toMatchObject({ ok: true, stdout: "connected\n" });
     for (const profile of ["mcp", "control"] as const) {
       const confined = await execute(cwd, ["/bin/bash", "-c", "if curl -sS --fail --max-time 2 https://example.com >/dev/null 2>&1; then exit 77; fi; echo role-isolated"], [], 5, profile);
       expect(confined, confined.stderr).toMatchObject({ code: 0, stdout: "role-isolated\n" });

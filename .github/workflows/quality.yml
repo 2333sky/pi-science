@@ -90,7 +90,7 @@ jobs:
       - name: Build all JavaScript packages
         run: pnpm build
 
-      - name: Verify published Web Access CLI from the compiled server
+      - name: Verify native web tools from the compiled server
         run: node apps/server/scripts/smoke-web-access.mjs
 
       - name: Enforce Settings backend performance budgets
@@ -180,10 +180,10 @@ jobs:
       - name: Test macOS launcher lifecycle
         run: bash scripts/test-launcher.sh
 
-      - name: Verify Web Access development and compiled entries on macOS
+      - name: Verify native web development and compiled entries on macOS
         run: |
           pnpm --filter @pi-science/contracts build
-          pnpm --filter @pi-science/server exec vitest run src/mcp/web-access.test.ts src/mcp/web-access-config.test.ts
+          pnpm --filter @pi-science/server exec vitest run src/web/tools.test.ts src/web/deepseek.test.ts src/http/routes/settings-web-access.test.ts
           pnpm --filter @pi-science/server build
           node apps/server/scripts/smoke-web-access.mjs
 
