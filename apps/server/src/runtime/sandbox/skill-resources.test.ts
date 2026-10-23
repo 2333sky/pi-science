@@ -64,6 +64,23 @@ it("drops the additional grant when the current skill list is empty", async () =
   expect(await skillResourcePolicy(base, [])).toBe(base);
 });
 
+it("refreshes skill secrets and link counts while respecting removal from the current skill list", async () => {
+  const policy = () => workspacePolicy(cwd);
+  const before = await skillResourcePolicy(await policy(), [skill]);
+  const helper = join(skill, "helper.py"), secret = join(skill, "credentials.json"), alias = join(skill, "linked.txt");
+  expect(before.denyPaths).not.toContain(helper);
+  await link(helper, join(root, "external-helper-link.py"));
+  await writeFile(secret, "new secret");
+  await symlink(join(root, "outside.txt"), alias);
+  const refreshed = await skillResourcePolicy(await policy(), [skill]);
+  expect(refreshed.denyPaths).toEqual(expect.arrayContaining([helper, secret, alias]));
+  expect(refreshed.writeDenyPaths).toContain(skill);
+  expect(refreshed.id).not.toBe(before.id);
+  const revoked = await skillResourcePolicy(await policy(), []);
+  expect(revoked.readPaths).not.toContain(skill);
+  expect(revoked.denyPaths).toContain(join(cwd, ".pi"));
+});
+
 it.skipIf(process.platform === "win32").each(["project", "project[1]*?"])("generates Seatbelt child exceptions without weakening sibling or credential denials: %s", (name) => {
   const cwd = `/private/tmp/${name}`, pi = `${cwd}/.pi`, skill = `${pi}/skills/review`, secret = `${skill}/credentials.json`;
   const command = wrapCommandWithSandboxMacOS({ command: "true", needsNetworkRestriction: false,

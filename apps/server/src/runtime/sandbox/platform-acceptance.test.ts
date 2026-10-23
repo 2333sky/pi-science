@@ -75,6 +75,14 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     expect(JSON.stringify(result.content)).toContain("skills-readonly");
     expect(await readFile(join(cwd, "review.json"), "utf8")).toContain("Stats integrity gate");
     expect(await readFile(join(external, "helper.sh"), "utf8")).toContain("external-helper-ok");
+    // Changes after the first invocation must be protected on the next one,
+    // including a helper whose link count changed via an external directory.
+    const lateSecret = join(skill, "credentials-late.json"), lateAlias = join(skill, "late-alias.txt");
+    await writeFile(lateSecret, "SECRET");
+    await symlink(join(externalRoot, "sibling.txt"), lateAlias);
+    await link(join(skill, "helper.sh"), join(externalRoot, "late-helper-link.sh"));
+    const refreshed = await run("refreshed", [...[lateSecret, lateAlias, join(skill, "helper.sh")].map((path) => `test ! -s ${quote(path)}`), "echo skills-refreshed"].join(" && "));
+    expect(JSON.stringify(refreshed.content)).toContain("skills-refreshed");
     enabled = false;
     expect(JSON.stringify((await run("disabled", `test ! -s ${quote(helper)} && test ! -s ${quote(join(external, "helper.sh"))} && echo skills-disabled`)).content)).toContain("skills-disabled");
   }, 60_000);

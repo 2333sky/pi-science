@@ -1,6 +1,6 @@
 /** Reproducible per-Bash policy benchmark; no workload or model calls. */
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -38,13 +38,19 @@ try {
         await writeFile(join(directory, `helper-${number}.py`), "print('resource')\n");
       }));
     }
+    const helper = join(roots[0]!, "fresh-link-check.py");
+    await writeFile(helper, "print('resource')\n");
     const admission = async () => skillResourcePolicy(await workspacePolicy(cwd), roots);
     await admission();
     // Fresh sensitive files must remain visible to the scan; caching the first
     // tree would produce misleading performance and weaken authorization.
     const credential = join(roots[0]!, "credentials.json"); await writeFile(credential, "synthetic-secret");
+    await link(helper, join(scratch, `outside-link-${skillFiles}.py`));
+    const alias = join(roots[0]!, "fresh-symlink.py"); await symlink(helper, alias);
     const checked = await admission();
     assert.ok(checked.denyPaths.includes(credential));
+    assert.ok(checked.denyPaths.includes(helper));
+    assert.ok(checked.denyPaths.includes(alias));
     assert.ok(roots.every((root) => checked.readPaths.includes(root)));
     assert.ok(roots.every((root) => checked.writeDenyPaths?.includes(root)));
     for (const [operation, run] of [["workspace_policy", () => workspacePolicy(cwd)], ["bash_skill_policy", admission]] as const) {

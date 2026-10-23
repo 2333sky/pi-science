@@ -33,6 +33,11 @@ export async function canonicalDirectory(path: string): Promise<string> {
 }
 export const isSensitiveWorkspaceName = (name: string) => name === "node_modules" || !isArtifactSurfaceablePath(name) || /^(?:credentials?|secrets?|final[-_]?tests?|holdout)(?:$|[._-])/i.test(name);
 
+// Bound outstanding metadata requests rather than serializing one filesystem
+// round trip per file or queuing an entire large tree. Never cache metadata:
+// even an unchanged directory can contain a file whose link count changed.
+const PROTECTED_PATH_STAT_BATCH = 32;
+
 /** Enumerate protected paths instead of assuming a broad workspace read grant hides secrets.
  * Reject aliases/hardlinks: a second name for a protected inode must not reopen it. */
 export async function protectedPaths(cwd: string): Promise<string[]> {
@@ -40,13 +45,18 @@ export async function protectedPaths(cwd: string): Promise<string[]> {
   // those placeholders must not change a persistent kernel's policy identity.
   const denied: string[] = [".pi-science", ".pi", ".git", ".env", ".ssh", ".aws", "node_modules", ".bash_profile", ".bashrc", ".claude", ".gitconfig", ".gitmodules", ".idea", ".mcp.json", ".profile", ".ripgreprc", ".vscode", ".zprofile", ".zshrc"].map((name) => join(cwd, name)); let count = 0;
   const visit = async (directory: string): Promise<void> => {
-    for (const entry of await readdir(directory, { withFileTypes: true })) {
-      if (++count > 100_000) throw new Error("Workspace too large to establish sandbox policy");
-      const path = join(directory, entry.name);
-      if (isSensitiveWorkspaceName(entry.name)) { denied.push(path); continue; }
-      const info = await lstat(path);
-      if (info.isSymbolicLink() || !info.isDirectory() && (!info.isFile() || info.nlink !== 1)) { denied.push(path); continue; }
-      if (info.isDirectory()) await visit(path);
+    const entries = await readdir(directory, { withFileTypes: true });
+    count += entries.length;
+    if (count > 100_000) throw new Error("Workspace too large to establish sandbox policy");
+    for (let offset = 0; offset < entries.length; offset += PROTECTED_PATH_STAT_BATCH) {
+      const batch = await Promise.all(entries.slice(offset, offset + PROTECTED_PATH_STAT_BATCH).map(async (entry) => {
+        const path = join(directory, entry.name);
+        return { path, info: isSensitiveWorkspaceName(entry.name) ? undefined : await lstat(path) };
+      }));
+      for (const { path, info } of batch) {
+        if (!info || info.isSymbolicLink() || !info.isDirectory() && (!info.isFile() || info.nlink !== 1)) { denied.push(path); continue; }
+        if (info.isDirectory()) await visit(path);
+      }
     }
   };
   await visit(cwd);
