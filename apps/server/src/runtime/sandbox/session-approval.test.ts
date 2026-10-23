@@ -84,3 +84,21 @@ it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linux"].in
     expect(await readFile(join(fixture, "new.txt"), "utf8")).toBe("UPDATED_TEST_FILE");
   } finally { await rm(fixture, { recursive: true, force: true }); }
 }, 30_000);
+
+it("keeps identical writes at the same revision and still rejects stale no-ops", async () => {
+  expect(await saveSessionApproval(cwd, "a", "ask", 0)).toEqual({ mode: "ask", revision: 0 });
+  await saveSessionApproval(cwd, "a", "auto", 0);
+  expect(await saveSessionApproval(cwd, "a", "auto", 1)).toEqual({ mode: "auto", revision: 1 });
+  await expect(saveSessionApproval(cwd, "a", "auto", 0)).rejects.toThrow("changed");
+});
+
+it("revokes automatic HTTPS and home grants on the next execution policy resolution", async () => {
+  await saveSessionApproval(cwd, "a", "full", 0);
+  expect((await workspacePolicy(cwd, undefined, "analysis", "a")).readPaths).toContain(await realpath(homedir()));
+  await saveSessionApproval(cwd, "a", "auto", 1);
+  const auto = await workspacePolicy(cwd, undefined, "analysis", "a");
+  expect(auto.readPaths).not.toContain(await realpath(homedir()));
+  expect(domainAllowed("example.org", 443, auto.network)).toBe(true);
+  await saveSessionApproval(cwd, "a", "ask", 2);
+  expect(domainAllowed("example.org", 443, (await workspacePolicy(cwd, undefined, "analysis", "a")).network)).toBe(false);
+});

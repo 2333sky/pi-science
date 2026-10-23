@@ -1,3 +1,6 @@
+import { initialSessionApprovalSchema } from "@pi-science/contracts";
+import { readSessionApproval, saveSessionApproval, sessionApprovalPath } from "../../sandbox/session-approval.js";
+import { unlink } from "node:fs/promises";
 import { assertExecutionGrantTool } from "../../sandbox/execution-grants.js";
 import { childToolAllowance } from "../agent-definitions.js";
 import { networkAccessTool } from "./network-access-tool.js";
@@ -51,6 +54,7 @@ function applySkillPolicy(skills: Skill[], policy: RuntimeSkillPolicy): Skill[] 
 
 export class SessionRuntime {
   readonly sessionId: string;
+  private approvalBarrier = false;
   private readonly lane: AgentLane;
   private readonly harness: Harness;
   private readonly repo: JsonlSessionRepo;
@@ -113,6 +117,7 @@ export class SessionRuntime {
   }
 
   static async open(options: AgentRuntimeStartOptions, publish: (event: RuntimeEvent) => void, fatal: (error: unknown) => void): Promise<SessionRuntime> {
+    if (options.initialApproval) initialSessionApprovalSchema.parse(options.initialApproval);
     const runtimeEpoch = randomUUID();
     let eventSequence = 0;
     const emit = (event: RuntimeEvent) => publish({ ...event, runtime_epoch: runtimeEpoch, runtime_sequence: ++eventSequence });
@@ -126,6 +131,7 @@ export class SessionRuntime {
     const interactions = new InteractionBridge(emit);
     let mcp: AgentMcpTools | undefined;
     let openedLane: AgentLane | undefined;
+    let created: Session<JsonlSessionMetadata> | undefined;
     // Set when startup adopts the requested model because the durable one left the catalog. Every
     // step after that point is part of the same change, so the outer catch puts the lane back if
     // any of them fails and a failed open cannot leave a model nothing recorded.
@@ -139,6 +145,11 @@ export class SessionRuntime {
             return repo.open(metadata, context);
           })()
         : await retrySessionDirectory(() => repo.create({ cwd: options.cwd, ...(options.parentSessionId ? { parentSessionId: options.parentSessionId } : {}) }, context));
+      if (!options.sessionId) {
+        created = session;
+        // Persist authority before constructing tools, MCP or any execution environment.
+        if (options.initialApproval) await saveSessionApproval(options.cwd, session.metadata.id, options.initialApproval.mode, 0);
+      } else if (options.initialApproval) throw new Error("Initial approval cannot overwrite an existing session");
       const saved = (await session.getValue(appliedRuntimeSettings, context))?.value;
       const recovering = (await session.getValue(laneState("main"), context))?.value.currentOperationId;
       // A requested model can be gone from the catalog while the session still has a usable
@@ -277,6 +288,11 @@ export class SessionRuntime {
       }
       interactions.close();
       await mcp?.close().catch(() => undefined);
+      if (created) {
+        await created.close(context);
+        await repo.delete(created.metadata, context);
+        await unlink(await sessionApprovalPath(options.cwd, created.metadata.id)).catch((failure: NodeJS.ErrnoException) => { if (failure.code !== "ENOENT") throw failure; });
+      }
       await repo.close(context).catch(() => undefined);
       await executionEnv.cleanup(context).catch(() => undefined);
       throw error;
@@ -297,8 +313,26 @@ export class SessionRuntime {
 
   private async execute(type: string, params: Record<string, unknown>): Promise<RuntimeResult> {
     if (this.closed) return { success: false, code: "closed", error: "agent runtime is closed" };
+    if (this.approvalBarrier && ["prompt", "steer", "follow_up", "compact", "activate", "fork", "clone", "configure", "set_model", "set_thinking_level"].includes(type)) return { success: false, code: "session_busy", error: "Approval transition is in progress" };
     try {
       switch (type) {
+        case "begin_approval_change": {
+          const previous = this.approvalBarrier;
+          this.approvalBarrier = true;
+          let admitted = false;
+          try {
+            const snapshot = await this.watch.resnapshot(context);
+            if (snapshot.operation || snapshot.queues.length || snapshot.faulted || this.interactions.hasPending) return { success: false, code: "session_busy", error: "Worker is not quiescent" };
+            if ((await readSessionApproval(this.metadata.cwd, this.sessionId)).revision !== params.revision) return { success: false, code: "approval_revision_conflict", error: "Approval changed before transition" };
+            admitted = true;
+            return { success: true };
+          } finally { if (!admitted) this.approvalBarrier = previous; }
+        }
+        case "end_approval_change": {
+          if ((await readSessionApproval(this.metadata.cwd, this.sessionId)).revision !== params.revision) return { success: false, code: "approval_revision_conflict", error: "Approval changed before transition release" };
+          this.approvalBarrier = false;
+          return { success: true };
+        }
         case "activate": {
           if (!this.activated) {
             this.activated = true;
@@ -315,6 +349,7 @@ export class SessionRuntime {
             thinkingLevel: snapshot.configuration.thinkingLevel,
             activeTools: snapshot.configuration.activeToolNames,
             mcpDiagnostics: this.mcp?.diagnostics ?? [],
+            approvalBoundProcesses: this.mcp?.approvalBoundProcesses ?? 0,
             operation: snapshot.operation,
             queues: snapshot.queues,
             faulted: snapshot.faulted,

@@ -11,6 +11,8 @@ export const skillPolicySchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("denylist"), skills: z.array(text) }).strict(),
 ]);
 export const commandSchemas = {
+  begin_approval_change: z.object({ revision: z.number().int().nonnegative() }).strict(),
+  end_approval_change: z.object({ revision: z.number().int().nonnegative() }).strict(),
   activate: empty, get_state: empty, prompt, steer: z.object({ message: text }).strict(), follow_up: z.object({ message: text }).strict(),
   abort: empty, compact: z.object({ customInstructions: z.string().optional() }).strict(),
   configure: z.object({ provider: text, modelId: text, level: z.string().optional() }).strict(),
@@ -25,7 +27,7 @@ export type RuntimeCommandName = keyof typeof commandSchemas;
 export type CommandParams<K extends RuntimeCommandName> = z.infer<(typeof commandSchemas)[K]>;
 export type RuntimeCommand = { [K in RuntimeCommandName]: { command: K; params: CommandParams<K> } }[RuntimeCommandName];
 export interface RuntimeSnapshot {
-  sessionId: string; busy: boolean; model: LaneSnapshot["configuration"]["model"];
+  sessionId: string; busy: boolean; approvalBoundProcesses?: number; model: LaneSnapshot["configuration"]["model"];
   thinkingLevel: LaneSnapshot["configuration"]["thinkingLevel"]; activeTools: string[]; mcpDiagnostics?: string[];
   operation: LaneSnapshot["operation"]; queues: LaneSnapshot["queues"]; faulted: boolean;
   lastResult?: LaneSnapshot["lastResult"]; eventSequence: number; runtimeEpoch: string; pendingInteraction?: boolean;
@@ -33,6 +35,7 @@ export interface RuntimeSnapshot {
   compaction: CompactionSettings; compaction_threshold_percent: number;
 }
 export type CommandData = {
+  begin_approval_change: undefined; end_approval_change: undefined;
   activate: undefined; abort: unknown; prompt: undefined; steer: unknown; follow_up: unknown; compact: undefined;
   get_state: RuntimeSnapshot;
   configure: { model: RuntimeSnapshot["model"]; thinkingLevel: RuntimeSnapshot["thinkingLevel"] };
@@ -79,7 +82,7 @@ const nonnegative = z.number().finite().nonnegative();
 const operationResultSchema = z.object({ operationId: text, kind: z.string(), status: z.enum(["completed", "declined", "aborted", "failed"]),
   fromTipId: z.string().nullable(), tipId: z.string().nullable(), startedAt: nonnegative, endedAt: nonnegative }).passthrough();
 export const runtimeSnapshotSchema = z.object({
-  sessionId: text, busy: z.boolean(), model: modelSchema, thinkingLevel: z.string(), activeTools: z.array(z.string()), mcpDiagnostics: z.array(z.string().max(2048)).optional(),
+  sessionId: text, busy: z.boolean(), approvalBoundProcesses: z.number().int().nonnegative().optional(), model: modelSchema, thinkingLevel: z.string(), activeTools: z.array(z.string()), mcpDiagnostics: z.array(z.string().max(2048)).optional(),
   operation: z.object({ id: text, kind: z.string(), status: z.string(), startedAt: nonnegative,
     fromTipId: z.string().nullable(), runningTools: z.array(z.unknown()) }).passthrough().nullable(),
   queues: z.array(z.unknown()), faulted: z.boolean(), lastResult: operationResultSchema.optional(), eventSequence: nonnegative.int(), runtimeEpoch: text,

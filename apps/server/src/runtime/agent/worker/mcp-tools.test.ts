@@ -218,6 +218,20 @@ describe("agent-core managed MCP tools", () => {
       }
       expect(await pending).toMatchObject({ content: [{ text: "ok" }] });
       expect(events).toHaveLength(asks ? 1 : 0);
+      if (mode === "full") {
+        const slots = [];
+        try {
+          for (let i = 0; i < 4; i++) slots.push(await acquireMcpCall(cwd, JSON.stringify(["project_mode", "connector_mode"])));
+          const queued = mcp.tools[0]!.execute("old-full-queued", {}, () => {}, {} as never, {} as never, {} as never).then(() => null, (error: Error) => error);
+          const { workspaceFile } = await import("../../../storage/persistence.js");
+          const { createHash } = await import("node:crypto");
+          const queue = workspaceFile(cwd, `mcp-call-queues/${createHash("sha256").update(JSON.stringify(["project_mode", "connector_mode"])).digest("hex")}.json`);
+          await vi.waitFor(async () => expect(JSON.parse(await readFile(queue, "utf8")).waiting).toHaveLength(1));
+          await saveSessionApproval(cwd, "mode-session", "ask", 1);
+          await Promise.all(slots.splice(0).map((slot) => slot.release()));
+          expect((await queued)?.message).toContain("approval revision changed while queued");
+        } finally { await Promise.all(slots.map((slot) => slot.release())); }
+      }
       await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "project_mode", mcpServers: { local: { ...definition, excludeTools: ["echo"] } } }));
       await expect(mcp.tools[0]!.execute("revoked", {}, () => {}, {} as never, {} as never, {} as never)).rejects.toThrow("disabled");
     } finally { await mcp?.close(); await rm(cwd, { recursive: true, force: true }); }

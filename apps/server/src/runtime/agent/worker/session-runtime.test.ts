@@ -269,3 +269,39 @@ describe("agent-core worker mutations", () => {
     expect(JSON.parse(text.trim())).toEqual({ model: false, server: false, parent: false, path: true });
   });
 });
+
+it("persists initial approval before MCP discovery and removes it when initialization fails", async () => {
+  const cwd = resolve(await mkdtemp(join(tmpdir(), "initial-approval-"))); roots.push(cwd);
+  vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "private"));
+  const { readSessionApproval, sessionApprovalPath } = await import("../../sandbox/session-approval.js");
+  const { listWorkspaceSessions } = await import("../workspace-session-identity.js");
+  const { JsonlSessionRepo, NodeExecutionEnv } = await import("@earendil-works/pi-agent-core/node");
+  let id = "";
+  vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _environment, _legacy, _tools, _restricted, _authorize, sessionId) => {
+    id = sessionId!;
+    expect(await readSessionApproval(cwd, id)).toEqual({ mode: "auto", revision: 1 });
+    throw new Error("MCP initialization failed");
+  });
+  await expect(SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"),
+    model: { provider: "openai", modelId: "gpt-4.1-mini" }, initialApproval: { mode: "auto" },
+  }, () => {}, () => {})).rejects.toThrow("MCP initialization failed");
+  expect(id).not.toBe("");
+  await expect(readFile(await sessionApprovalPath(cwd, id))).rejects.toMatchObject({ code: "ENOENT" });
+  const repo = new JsonlSessionRepo({ fileSystem: new NodeExecutionEnv({ cwd, shellEnv: {} }), sessionsRoot: join(cwd, ".pi-science/agent-sessions") });
+  try { expect(await listWorkspaceSessions(repo, cwd)).toEqual([]); } finally { await repo.close(context); }
+});
+
+it("blocks prompts and bypass-lane follow-ups until the committed revision releases its barrier", async () => {
+  const { instance } = await runtime(async (cwd) => { vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "private")); });
+  expect(await instance.command("begin_approval_change", { revision: 0 })).toMatchObject({ success: true });
+  expect(await instance.command("follow_up", { message: "queued" })).toMatchObject({ code: "session_busy" });
+  expect(await instance.command("steer", { message: "steer" })).toMatchObject({ code: "session_busy" });
+  expect(await instance.command("prompt", { message: "new" })).toMatchObject({ code: "session_busy" });
+  const { saveSessionApproval } = await import("../../sandbox/session-approval.js");
+  const cwd = (instance as unknown as { metadata: { cwd: string } }).metadata.cwd;
+  await saveSessionApproval(cwd, instance.sessionId, "auto", 0);
+  expect(await instance.command("end_approval_change", { revision: 0 })).toMatchObject({ success: false });
+  expect(await instance.command("follow_up", { message: "blocked" })).toMatchObject({ code: "session_busy" });
+  expect(await instance.command("end_approval_change", { revision: 1 })).toMatchObject({ success: true });
+  expect((instance as unknown as { approvalBarrier: boolean }).approvalBarrier).toBe(false);
+});

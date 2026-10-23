@@ -4,6 +4,7 @@ import { defaultProgressAppearance, progressAppearanceInputSchema, progressAppea
 import type { RuntimeSkillPolicy } from "../runtime/agent/agent-runtime-types.js";
 
 export type SettingsData = {
+  approval_preferences?: { defaultMode: "ask" | "auto" };
   api_keys?: Record<string, string>;
   model?: string;
   thinking?: string;

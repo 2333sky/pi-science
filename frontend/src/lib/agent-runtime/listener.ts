@@ -284,6 +284,10 @@ export function registerEventListener(client: PiScienceClient) {
     if (event.sessionId && state.activeSessionId && event.sessionId !== state.activeSessionId) {
       return;
     }
+    if (event.type === "approval.mode.changed") {
+      window.dispatchEvent(new CustomEvent("pi-science-approval-mode-changed", { detail: { ...event, cwd: state.cwd } }));
+      return;
+    }
     // Transport lifecycle chatter (connection.connecting/closed/ready) does
     // not count as turn activity: the watchdog's reconnect emits one and
     // must not reset its own silence clock.

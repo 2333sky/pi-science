@@ -53,6 +53,8 @@ export async function closeIdleWorkspaceRuntimes(cwd: string): Promise<void> {
 /** Owns one child process per durable session and deduplicates concurrent opens. */
 export class AgentRuntimeManager {
   constructor(private readonly onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>) {}
+  private readonly retirements = new Map<string, { runtime: AgentCoreRuntimeClient; drain?: () => Promise<void> }>();
+  private readonly pendingStops = new Map<string, Promise<void>>();
   private readonly runtimes = new Map<string, AgentCoreRuntimeClient>();
   private readonly pendingStarts = new Map<string, Promise<AgentCoreRuntimeClient>>();
   private readonly owners = new Map<string, string>();
@@ -65,6 +67,7 @@ export class AgentRuntimeManager {
 
   private async startAdmitted(key: string, options: AgentRuntimeStartOptions): Promise<AgentCoreRuntimeClient> {
     const cwd = await validateWorkspaceCwd(options.cwd);
+    if (this.retirements.has(key) || [...this.retirements.values()].some(({ runtime }) => runtime.cwd === cwd && runtime.sessionId === options.sessionId)) throw new Error("Previous worker capability revocation must finish before restart");
     const requestedRoot = resolve(options.sessionsRoot);
     const acceptedRoots = [options.cwd, cwd].map((workspace) => join(metadataRoot(workspace), "agent-sessions"));
     if (!acceptedRoots.includes(requestedRoot)) {
@@ -94,11 +97,22 @@ export class AgentRuntimeManager {
   }
 
   async stop(key: string): Promise<void> {
-    const runtime = this.runtimes.get(key);
-    if (!runtime) return;
-    this.forget(key, runtime);
-    await runtime.shutdown();
-    await this.dispatchDrains.get(runtime)?.();
+    const pending = this.pendingStops.get(key);
+    if (pending) return pending;
+    const retirement = this.retirements.get(key) ?? (() => {
+      const runtime = this.runtimes.get(key);
+      return runtime ? { runtime, drain: this.dispatchDrains.get(runtime) } : undefined;
+    })();
+    if (!retirement) return;
+    this.retirements.set(key, retirement);
+    const stopped = (async () => {
+      await retirement.runtime.shutdown();
+      await retirement.drain?.();
+      this.forget(key, retirement.runtime);
+      this.retirements.delete(key);
+    })();
+    this.pendingStops.set(key, stopped);
+    try { await stopped; } finally { this.pendingStops.delete(key); }
   }
 
   async shutdownAll(): Promise<void> {
@@ -109,10 +123,13 @@ export class AgentRuntimeManager {
       await runtime.shutdown();
       await this.dispatchDrains.get(runtime)?.();
     }));
+    await Promise.allSettled([...this.retirements.keys()].map((key) => this.stop(key)));
     await Promise.allSettled([...this.dispatchDrains.values()].map((drain) => drain()));
   }
 
   get processCount(): number { return this.runtimes.size; }
+
+  hasActiveTasks(runtime: AgentCoreRuntimeClient): boolean { return workspaceRuntimes.get(runtime)?.hasActiveTasks() ?? false; }
 
   private async startOnce(key: string, options: AgentRuntimeStartOptions, ownerKey: string): Promise<AgentCoreRuntimeClient> {
     // Typed so the caller can tell a definite pre-dispatch rejection from an
@@ -135,7 +152,7 @@ export class AgentRuntimeManager {
     runtime.once("exit", release);
     const dispatchDrain = bindSubagentDispatch(this, runtime, options);
     let drained: Promise<void> | undefined;
-    const drain = () => drained ??= (async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); })();
+    const drain = () => drained ??= (async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); })().catch((error) => { drained = undefined; throw error; });
     this.dispatchDrains.set(runtime, drain);
     runtime.once("exit", () => {
       const done = () => { this.dispatchDrains.delete(runtime); workspaceRuntimes.delete(runtime); };

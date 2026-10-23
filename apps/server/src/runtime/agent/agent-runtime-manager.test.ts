@@ -79,3 +79,19 @@ describe("AgentRuntimeManager", () => {
     expect(manager.processCount).toBe(0);
   });
 });
+
+it("retains failed exit cleanup and retries it before allowing the same session to restart", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-science-revoke-retry-")); roots.push(cwd);
+  const sessionsRoot = join(cwd, ".pi-science/agent-sessions");
+  await mkdir(sessionsRoot, { recursive: true });
+  const cleanup = vi.fn().mockRejectedValueOnce(new Error("kernel revocation failed")).mockResolvedValue(undefined);
+  const manager = new AgentRuntimeManager(cleanup); managers.push(manager);
+  const options = { cwd, sessionsRoot, model: { provider: "openai", modelId: "gpt-4.1-mini" } };
+  const runtime = await manager.start("retry", options);
+  await expect(manager.stop("retry")).rejects.toThrow("kernel revocation failed");
+  await expect(manager.start("reopen", { ...options, sessionId: runtime.sessionId })).rejects.toThrow("revocation");
+  await manager.stop("retry");
+  expect(cleanup).toHaveBeenCalledTimes(2);
+  const reopened = await manager.start("reopen", { ...options, sessionId: runtime.sessionId });
+  expect(reopened.sessionId).toBe(runtime.sessionId);
+});

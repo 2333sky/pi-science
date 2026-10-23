@@ -1,3 +1,4 @@
+import { defaultSessionApproval } from "../sandbox/approval-preferences.js";
 import type { ApprovalMode } from "@pi-science/contracts";
 import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../workspace/workspace-lifecycle.js";
 import type { CreateSessionRequest, PiConfig, SessionState, SessionStats } from "@pi-science/contracts";
@@ -56,7 +57,7 @@ export class NodeSessionService {
     private readonly projectReview: Pick<ProjectReviewService, "run"> | null = null,
     private readonly statsEventStore: StatsEventStore = durableEventStore,
     private readonly modelResources: Pick<ModelResourceService, "ensureMigrated" | "isModelAvailable"> | null = null,
-    agentCoreServer: { backendUrl?: string; internalToken?: string; onWorkerExit?: (cwd: string, sessionId: string) => Promise<void> } = {},
+    agentCoreServer: { backendUrl?: string; internalToken?: string; onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>; hasApprovalResources?: (cwd: string, sessionId: string) => boolean; revokeApprovalResources?: (cwd: string, sessionId: string) => Promise<{ kernelRestartCount: number }> } = {},
   ) {
     this.agentCore = new AgentCoreSessionService(eventHub, environments, agentCoreServer);
     this.agentCore.configureProductLifecycle({
@@ -84,7 +85,7 @@ export class NodeSessionService {
     const migration = await this.ensureModelResources();
     if (migration) return migration;
     const project = await ensureProject(cwd);
-    const created = await this.agentCore.create(cwd, effectiveConfig(body.config));
+    const created = await this.agentCore.create(cwd, effectiveConfig(body.config), body.initialApproval ?? await defaultSessionApproval());
     return "error" in created ? created : { id: created.id, cwd, project_id: project.id };
   }
 
@@ -151,6 +152,8 @@ export class NodeSessionService {
     return "success" in prepared ? { error: prepared.error ?? "session unavailable", code: prepared.code ?? "runtime_error" }
       : this.agentCore.state(prepared.cwd, sessionId, effectiveConfig());
   }
+  approvalTransitionPending(cwd: string, sessionId: string): boolean { return this.agentCore.approvalTransitionPending(cwd, sessionId); }
+
   async setApprovalMode(sessionId: string, cwdValue: string, mode: ApprovalMode, revision: number) {
     return this.admitted(cwdValue, async () => {
       const prepared = await this.prepare(cwdValue, sessionId);

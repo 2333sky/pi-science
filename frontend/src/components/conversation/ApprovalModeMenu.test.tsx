@@ -4,11 +4,13 @@ import { ApprovalModeMenu } from "./ApprovalModeMenu";
 import { request } from "../../lib/client/http";
 vi.mock("../../lib/client/http", () => ({ request: vi.fn(), responseError: (data: { error?: string }, fallback: string) => data.error ?? fallback }));
 vi.mock("react-i18next", () => ({ useTranslation: () => ({ i18n: { language: "zh" } }) }));
-vi.mock("../../lib/agent-runtime", () => ({ useRuntimeStore: { getState: () => ({ createNewSession: async () => "created-session" }) } }));
+const draftStore = vi.hoisted(() => ({ draftApproval: null as unknown, createNewSession: vi.fn(), setState: vi.fn() }));
+vi.mock("../../lib/agent-runtime", () => ({ useRuntimeStore: { getState: () => draftStore, setState: draftStore.setState } }));
 const mock = vi.mocked(request);
 beforeEach(() => {
   mock.mockReset();
-  mock.mockImplementation(async (_url, options) => new Response(JSON.stringify(options?.method === "PUT"
+  draftStore.draftApproval = null; draftStore.setState.mockClear(); draftStore.createNewSession.mockClear();
+  mock.mockImplementation(async (url, options) => new Response(JSON.stringify(url === "/api/settings/approval" ? { defaultMode: "ask" } : options?.method === "PUT"
     ? { mode: JSON.parse(String(options.body)).mode, revision: 1 } : { mode: "ask", revision: 0 }), { status: 200 }));
 });
 async function open() {
@@ -70,4 +72,55 @@ it("switches ask → auto → full → ask using the latest persisted revision",
   await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("请求批准"));
   expect(approval).toEqual({ mode: "ask", revision: 3 });
   expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
+it("changes a blank conversation locally without creating a session or Worker", async () => {
+  render(<ApprovalModeMenu cwd="/workspace" sessionId={null} disabled={false} />);
+  await open(); fireEvent.click(screen.getByRole("menuitem", { name: /帮我批准/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("帮我批准"));
+  expect(draftStore.setState).toHaveBeenCalledWith({ draftApproval: { cwd: "/workspace", approval: { mode: "auto", acknowledgeFullAccess: false } } });
+  expect(mock.mock.calls.filter(([, options]) => options?.method)).toHaveLength(0); expect(draftStore.createNewSession).not.toHaveBeenCalled();
+});
+it("isolates blank drafts by workspace", async () => {
+  draftStore.draftApproval = { cwd: "/workspace", approval: { mode: "full", acknowledgeFullAccess: true } };
+  const view = render(<ApprovalModeMenu cwd="/workspace" sessionId={null} disabled={false} />);
+  expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("完全访问");
+  view.rerender(<ApprovalModeMenu cwd="/other" sessionId={null} disabled={false} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("请求批准"));
+});
+
+it("refreshes on focus without allowing a stale GET to roll back a successful change", async () => {
+  render(<ApprovalModeMenu cwd="/workspace" sessionId="session-a" disabled={false} />);
+  await open(); fireEvent.click(screen.getByRole("menuitem", { name: /帮我批准/ }));
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("帮我批准"));
+  fireEvent.focus(window);
+  await waitFor(() => expect(mock.mock.calls.filter(([, options]) => !options?.method)).toHaveLength(2));
+  expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("帮我批准");
+});
+it("reports a runtime reset when the server retired existing capabilities", async () => {
+  render(<ApprovalModeMenu cwd="/workspace" sessionId="session-a" disabled={false} />);
+  await open();
+  mock.mockResolvedValueOnce(new Response(JSON.stringify({ mode: "auto", revision: 1, runtimeRestarted: true })));
+  fireEvent.click(screen.getByRole("menuitem", { name: /帮我批准/ }));
+  expect(await screen.findByRole("status")).toHaveTextContent("内核变量已清除");
+});
+
+it("offers recovery when the target was saved but the runtime barrier could not be released", async () => {
+  render(<ApprovalModeMenu cwd="/workspace" sessionId="session-a" disabled={false} />);
+  await open();
+  mock.mockResolvedValueOnce(new Response(JSON.stringify({ error: "Transition incomplete", data: { mode: "auto", revision: 1 } }), { status: 503 }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /帮我批准/ }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("Transition incomplete");
+  mock.mockResolvedValueOnce(new Response(JSON.stringify({ mode: "auto", revision: 1 })));
+  fireEvent.click(screen.getByRole("button", { name: "重试" }));
+  await waitFor(() => expect(mock).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ body: expect.stringContaining('"revision":1') })));
+});
+
+it("loads the independent default for a blank draft and permits an explicit ask override", async () => {
+  mock.mockResolvedValueOnce(new Response(JSON.stringify({ defaultMode: "auto" })));
+  render(<ApprovalModeMenu cwd="/workspace" sessionId={null} disabled={false} />);
+  await waitFor(() => expect(screen.getByRole("button", { name: "审批模式" })).toHaveTextContent("帮我批准"));
+  await open(); fireEvent.click(screen.getByRole("menuitem", { name: /请求批准/ }));
+  await waitFor(() => expect(draftStore.setState).toHaveBeenCalledWith({ draftApproval: { cwd: "/workspace", approval: { mode: "ask", acknowledgeFullAccess: false } } }));
+  expect(mock.mock.calls.filter(([, options]) => options?.method)).toHaveLength(0);
 });

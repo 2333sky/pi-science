@@ -11,27 +11,106 @@ import { CredentialStore } from "../../model-resources/credential-store.js";
 import { AgentRuntimeExitedError, AgentRuntimeTimeoutError } from "./agent-runtime-errors.js";
 import { EventEmitter } from "node:events";
 
-it("refuses mode changes during a task and rebuilds only the idle session", async () => {
-  const root = await mkdtemp(join(tmpdir(), "approval-mode-service-"));
-  vi.stubEnv("PI_SCIENCE_HOME", join(root, "private"));
-  try {
-    const { realpath } = await import("node:fs/promises");
-    const cwd = await realpath(root);
-    const service = new AgentCoreSessionService({} as never, {} as never);
-    const internals = service as unknown as { live: Map<string, unknown>; stopForReload: (item: unknown) => Promise<void> };
-    const item = { busy: true, runtime: { cwd, sessionId: "session-a", isClosed: false } };
-    internals.live.set(`${workspaceIdentity(cwd)}\0session-a`, item);
-    const stop = vi.spyOn(internals, "stopForReload").mockResolvedValue(undefined);
-    expect(await service.setApprovalMode(cwd, "session-a", "full", 0)).toMatchObject({ success: false, code: "busy" });
+describe("approval transitions", () => {
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+  async function fixture(run: (value: { service: AgentCoreSessionService; cwd: string; item: { busy: boolean; runtime: unknown }; state: ReturnType<typeof vi.fn>; resources: ReturnType<typeof vi.fn>; server: { revokeApprovalResources?: (cwd: string, id: string) => Promise<{ kernelRestartCount: number }> }; stop: ReturnType<typeof vi.spyOn> }) => Promise<void>) {
+    const root = await mkdtemp(join(tmpdir(), "approval-mode-service-"));
+    vi.stubEnv("PI_SCIENCE_HOME", join(root, "private"));
+    vi.stubEnv("PI_SCIENCE_APPROVAL_HOT_SWITCH", "1");
+    try {
+      const { realpath } = await import("node:fs/promises"); const cwd = await realpath(root);
+      const resources = vi.fn(() => false);
+      const server: { hasApprovalResources: typeof resources; revokeApprovalResources?: (cwd: string, id: string) => Promise<{ kernelRestartCount: number }> } = { hasApprovalResources: resources };
+      const service = new AgentCoreSessionService({} as never, {} as never, server);
+      const internals = service as unknown as { live: Map<string, unknown>; stopForReload(item: unknown): Promise<void> };
+      const state = vi.fn().mockResolvedValue({ success: true, data: { busy: false, queues: [], operation: null } });
+      const item = { key: "approval-test-worker", busy: false, runtime: { cwd, sessionId: "session-a", isClosed: false, sendCommand: state } };
+      internals.live.set(`${workspaceIdentity(cwd)}\0session-a`, item);
+      const stop = vi.spyOn(internals, "stopForReload").mockImplementation(async () => { resources.mockReturnValue(false); });
+      await run({ service, cwd, item, state, resources, server, stop });
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
+  it("hot switches ask/auto without replacing the Worker and makes identical writes a no-op", () => fixture(async ({ service, cwd, stop }) => {
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ success: true, data: { mode: "auto", revision: 1, runtimeRestarted: false } });
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 1)).toMatchObject({ success: true, data: { revision: 1 } });
+    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: true, data: { mode: "ask", revision: 2 } });
     expect(stop).not.toHaveBeenCalled();
+  }));
+  it("rejects running, queued, pending and unverifiable worker state", () => fixture(async ({ service, cwd, item, state, stop }) => {
+    item.busy = true;
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ code: "session_busy" });
     item.busy = false;
-    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ success: true, data: { mode: "auto", revision: 1 } });
-    expect(stop).toHaveBeenCalledExactlyOnceWith(item);
+    for (const data of [{ busy: true }, { queues: [{}] }, { pendingInteraction: true }, { faulted: true }]) {
+      state.mockResolvedValueOnce({ success: true, data: { queues: [], ...data } });
+      expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ code: "session_busy" });
+    }
+    state.mockResolvedValueOnce({ success: false });
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ code: "session_busy" });
+    expect(stop).not.toHaveBeenCalled();
+  }));
+  it("serializes competing revisions and returns the current authority on conflict", () => fixture(async ({ service, cwd, stop }) => {
+    const results = await Promise.all([service.setApprovalMode(cwd, "session-a", "auto", 0), service.setApprovalMode(cwd, "session-a", "full", 0)]);
+    expect(results[0]).toMatchObject({ success: true, data: { mode: "auto", revision: 1 } });
+    expect(results[1]).toMatchObject({ success: false, code: "approval_revision_conflict", data: { mode: "auto", revision: 1 } });
+    expect(stop).not.toHaveBeenCalled();
+  }));
+  it("retires persistent capabilities before committing and fails closed when revocation fails", () => fixture(async ({ service, cwd, resources, stop }) => {
+    await service.setApprovalMode(cwd, "session-a", "auto", 0);
+    resources.mockReturnValue(true);
     stop.mockRejectedValueOnce(new Error("worker shutdown failed"));
-    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: false });
+    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: false, code: "permission_transition_failed" });
     const { readSessionApproval } = await import("../sandbox/session-approval.js");
     expect(await readSessionApproval(cwd, "session-a")).toEqual({ mode: "auto", revision: 1 });
-  } finally { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); }
+    expect(await service.command(cwd, "session-a", "prompt", { message: "blocked" }, { skills: [], extensions: [] })).toMatchObject({ code: "permission_transition_failed" });
+    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: true, data: { runtimeRestarted: true } });
+  }));
+  it("retires only session kernels while retaining the Worker behind a revision barrier", () => fixture(async ({ service, cwd, resources, server, state, stop }) => {
+    resources.mockReturnValue(true);
+    server.revokeApprovalResources = vi.fn(async () => {
+      const { readSessionApproval } = await import("../sandbox/session-approval.js");
+      expect(await readSessionApproval(cwd, "session-a")).toEqual({ mode: "ask", revision: 0 });
+      resources.mockReturnValue(false);
+      return { kernelRestartCount: 2 };
+    });
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ success: true, data: { revision: 1, runtimeRestarted: false, kernelRestartCount: 2 } });
+    expect(state.mock.calls.map(([name]) => name)).toEqual(["get_state", "begin_approval_change", "end_approval_change"]);
+    expect(state.mock.calls.at(-1)).toEqual(["end_approval_change", { revision: 1 }]);
+    expect(stop).not.toHaveBeenCalled();
+  }));
+  it("leaves the old mode and blocks dispatch when targeted revocation fails", () => fixture(async ({ service, cwd, resources, server }) => {
+    resources.mockReturnValue(true);
+    server.revokeApprovalResources = vi.fn().mockRejectedValue(new Error("kernel still running"));
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ success: false, code: "permission_transition_failed" });
+    const { readSessionApproval } = await import("../sandbox/session-approval.js");
+    expect(await readSessionApproval(cwd, "session-a")).toEqual({ mode: "ask", revision: 0 });
+    expect(await service.command(cwd, "session-a", "prompt", { message: "blocked" }, { skills: [], extensions: [] })).toMatchObject({ code: "permission_transition_failed" });
+    expect(await service.hasActiveOperations(cwd)).toBe(true);
+  }));
+  it("recycles locally spawned MCP processes instead of reusing their OS grants", () => fixture(async ({ service, cwd, state, stop }) => {
+    state.mockResolvedValueOnce({ success: true, data: { busy: false, queues: [], approvalBoundProcesses: 1 } });
+    expect(await service.setApprovalMode(cwd, "session-a", "auto", 0)).toMatchObject({ success: true, data: { runtimeRestarted: true } });
+    expect(stop).toHaveBeenCalledOnce();
+  }));
+  it("retains the cleanup reference when a failed shutdown has already removed the live Worker", () => fixture(async ({ service, cwd, resources, stop }) => {
+    const internals = service as unknown as { live: Map<string, unknown>; manager: { stop(key: string): Promise<void> }; repository: { findPath(cwd: string, id: string): Promise<string> } };
+    await service.setApprovalMode(cwd, "session-a", "auto", 0);
+    resources.mockReturnValue(true);
+    stop.mockImplementationOnce(async () => { internals.live.delete(`${workspaceIdentity(cwd)}\0session-a`); throw new Error("Worker exited but cleanup failed"); });
+    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: false });
+    vi.spyOn(internals.repository, "findPath").mockResolvedValue(join(cwd, "session.jsonl"));
+    const drain = vi.spyOn(internals.manager, "stop").mockImplementation(async () => { resources.mockReturnValue(false); });
+    expect(await service.setApprovalMode(cwd, "session-a", "ask", 1)).toMatchObject({ success: true, data: { mode: "ask", revision: 2 } });
+    expect(drain).toHaveBeenCalledExactlyOnceWith("approval-test-worker");
+  }));
+  it("keeps full downgrades and the server rollback switch on the shutdown path", () => fixture(async ({ service, cwd, stop }) => {
+    await service.setApprovalMode(cwd, "session-a", "full", 0);
+    expect(stop).not.toHaveBeenCalled();
+    await service.setApprovalMode(cwd, "session-a", "auto", 1);
+    expect(stop).toHaveBeenCalledTimes(1);
+    vi.stubEnv("PI_SCIENCE_APPROVAL_HOT_SWITCH", "0");
+    await service.setApprovalMode(cwd, "session-a", "ask", 2);
+    expect(stop).toHaveBeenCalledTimes(2);
+  }));
 });
 
 describe("agent-core session configuration", () => {

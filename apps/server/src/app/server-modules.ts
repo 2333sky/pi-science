@@ -67,7 +67,7 @@ export function createServerModules(config?: ServerConfig, options: ServerModule
   });
   const settings = new SettingsStore();
   const modelResources = new ModelResourceService({ settings, runtimeCatalog });
-  const coreServer = { backendUrl: config ? `http://127.0.0.1:${config.port}` : undefined, internalToken: config?.internalToken, onWorkerExit: (cwd: string, owner: string) => kernels.shutdownOwner(cwd, owner) };
+  const coreServer = { backendUrl: config ? `http://127.0.0.1:${config.port}` : undefined, internalToken: config?.internalToken, onWorkerExit: (cwd: string, owner: string) => kernels.shutdownOwner(cwd, owner), hasApprovalResources: (cwd: string, owner: string) => kernels.hasOwner(cwd, owner), revokeApprovalResources: (cwd: string, owner: string) => kernels.revokeOwner(cwd, owner) };
   const projectReview = new ProjectReviewService(new CoreReviewSubagentRunner(environments, coreServer), sessionRepository);
   const sessions = new NodeSessionService(events, sessionRepository, environments, projectReview, undefined, modelResources, {
     backendUrl: config ? `http://127.0.0.1:${config.port}` : undefined,

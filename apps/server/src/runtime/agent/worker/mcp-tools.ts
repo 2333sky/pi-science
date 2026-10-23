@@ -1,5 +1,5 @@
 import { redactMcpError } from "../../../mcp/diagnostics.js";
-import { sessionMode } from "../../sandbox/session-approval.js";
+import { readSessionApproval, sessionMode } from "../../sandbox/session-approval.js";
 import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -70,6 +70,7 @@ function visible(server: ServerDefinition, toolName: string): boolean {
 /** Official MCP SDK clients owned by one session worker. Managed snapshot policy stays authoritative. */
 export class AgentMcpTools {
   private readonly clients: Client[] = [];
+  approvalBoundProcesses = 0;
   readonly tools: AgentHarnessTool<{ env: NodeExecutionEnv }>[] = [];
   readonly diagnostics: string[] = [];
 
@@ -103,6 +104,7 @@ export class AgentMcpTools {
     if (server.transport === "socket" && server.socket) {
       transport = new UnixSocketClientTransport(server.socket);
     } else if ((server.transport === "stdio" || !server.transport) && server.command) {
+      if (!server.__piScienceBuiltin) this.approvalBoundProcesses++;
       transport = await localMcpTransport(cwd, server.command, server.args ?? [], server.cwd ?? cwd,
         { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, server.__piScienceBuiltin ? name : undefined, sessionId);
     } else if ((server.transport === "sse" || server.transport === "streamable_http" || !server.transport) && server.url) {
@@ -145,6 +147,7 @@ export class AgentMcpTools {
           parameters: tool.inputSchema as TSchema,
           async execute(_toolCallId, params, _onUpdate, _toolContext, _invocation, context) {
             let policy = currentPolicy(tool.name);
+            const approvalRevision = sessionId && !preauthorizedOnly ? (await readSessionApproval(cwd, sessionId)).revision : undefined;
             const mode = sessionId && !preauthorizedOnly ? await sessionMode(cwd, sessionId) : "ask";
             const safe = tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint !== true && (tool.annotations?.idempotentHint === true || server.__piScienceBuiltin === true);
             let approvedByUser = mode === "full" || mode === "auto" && safe;
@@ -172,6 +175,7 @@ export class AgentMcpTools {
             context.abortSignal?.throwIfAborted();
             policy = currentPolicy(tool.name);
             if (permissionRequired(policy, tool.name) && !approvedByUser) throw new Error("MCP authorization revoked before dispatch");
+            if (approvalRevision !== undefined && sessionId && (await readSessionApproval(cwd, sessionId)).revision !== approvalRevision) throw new Error("MCP approval revision changed while queued; request fresh authorization");
             const response = await client.callTool({ name: tool.name, arguments: params as Record<string, unknown> }, undefined,
               { signal: context.abortSignal, timeout: server.requestTimeoutMs ?? 60_000 });
             const parts = Array.isArray(response.content) ? response.content as Array<Record<string, unknown>> : [];

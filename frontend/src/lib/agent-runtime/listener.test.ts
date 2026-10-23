@@ -806,3 +806,21 @@ describe("runtime event subscription", () => {
     expect(useRuntimeStore.getState().sessionStats).toEqual(next);
   });
 });
+
+it("forwards approval events from the server stream without changing task activity", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes("/messages")) return jsonResponse({ messages: [] });
+    if (url.includes("/state")) return jsonResponse(state("approval-session"));
+    return jsonResponse([]);
+  }));
+  await useRuntimeStore.getState().connect("/workspace", "approval-session");
+  const received = vi.fn(); window.addEventListener("pi-science-approval-mode-changed", received);
+  try {
+    const source = FakeEventSource.instances[0]; source.open();
+    source.emit("approval.mode.changed", { type: "approval.mode.changed", sessionId: "approval-session", mode: "auto", revision: 2 });
+    expect(received).toHaveBeenCalledTimes(1);
+    expect(received.mock.calls[0][0].detail).toMatchObject({ cwd: "/workspace", mode: "auto", revision: 2 });
+    expect(useRuntimeStore.getState().working).toBe(false);
+  } finally { window.removeEventListener("pi-science-approval-mode-changed", received); }
+});

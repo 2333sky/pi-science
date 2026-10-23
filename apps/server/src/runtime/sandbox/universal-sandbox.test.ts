@@ -207,7 +207,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
     const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
     const grantBudget = await new ExecutionBudgetLedger(cwd, "op", true).createChild("candidate-worker");
     const identity = { cwd, sessionId: "candidate-worker", budgetNodeId: "candidate-worker", budgetOperationId: "op", candidateId: "one", delegatedAgent: "optimizer", executionScope: "candidate" as const, executionGrantId: await createExecutionGrant({ workspace: cwd, workerKey: "candidate-worker", budgetOwner: "op", deadline: (await grantBudget.status()).deadline, tools: ["read", "bash", "notebook_read", "notebook_run"], selection: { cwd: join(directory, "work"), read_paths: [join(directory, "input")], write_paths: [join(directory, "work")] }, parentPolicy: await workspacePolicy(cwd) }) };
-    const grant = candidateKernelGrant(identity, "op", "test-secret");
+    const grant = await candidateKernelGrant(identity, "op", "test-secret");
     const manager = new NodeKernelManager(); managers.push(manager);
     const app = Fastify();
     registerKernelExecutionRoutes(app, { internalToken: "test-secret", upstreamTimeoutMs: 1000 } as ServerConfig, { ensure: async () => environment(cwd) } as unknown as WorkspaceEnvironmentService, manager);

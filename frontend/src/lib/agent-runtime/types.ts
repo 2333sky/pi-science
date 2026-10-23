@@ -1,7 +1,7 @@
 /** Public state shape of the agent runtime store. */
 
 import type { PiScienceClient, SessionInfo, SessionStats } from "../client/pi-science-client";
-import type { ModelSelection } from "@pi-science/contracts";
+import type { ModelSelection, CreateSessionRequest } from "@pi-science/contracts";
 import type { TransportStatus } from "./transport-status";
 import type { Thread } from "./event-fold";
 
@@ -80,6 +80,7 @@ export interface RuntimeState {
   sessionsHasMore: boolean;
   sessionsLoading: boolean;
   activeSessionId: string | null;
+  draftApproval?: { cwd: string; approval: NonNullable<CreateSessionRequest["initialApproval"]> } | null;
   draftModelSelection?: { cwd: string; selection: ModelSelection } | null;
   cwd: string;
 

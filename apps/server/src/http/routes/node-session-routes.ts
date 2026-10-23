@@ -32,7 +32,10 @@ export function sessionRuntimeStatus(code: unknown): number {
     case "runtime_busy":
     case "pi_session_mismatch":
     case "busy":
+    case "approval_revision_conflict":
+    case "session_busy":
     case "cancelled": return 409;
+    case "permission_transition_failed": return 503;
     case "runtime_evicted": return 410;
     case "invalid_model":
     case "legacy_session_invalid":
@@ -222,7 +225,8 @@ export function registerNodeSessionRoutes(
   app.get<{ Params: { session_id: string } }>("/api/sessions/:session_id/approval-mode", async (request, reply) => {
     const workspace = await validateWorkspaceCwd(cwd(request));
     if (!await nodeSessionService.exists(request.params.session_id, workspace)) return reply.code(404).send({ error: "Session not found" });
-    return readSessionApproval(workspace, request.params.session_id);
+    const approval = await readSessionApproval(workspace, request.params.session_id);
+    return { ...approval, ...(nodeSessionService.approvalTransitionPending?.(workspace, request.params.session_id) ? { transitionPending: true } : {}) };
   });
   app.put<{ Params: { session_id: string } }>("/api/sessions/:session_id/approval-mode", async (request, reply) => {
     const parsed = updateSessionApprovalSchema.safeParse(request.body);

@@ -53,6 +53,8 @@ export interface KernelExecuteOptions {
   onEvent?: (event: KernelStreamEvent) => void;
   /** Trusted internal binding, never accepted from the HTTP request body. */
   sandboxPolicy?: SandboxPolicy;
+  /** Re-resolve signed authority after queueing and immediately before dispatch. */
+  authorize?: () => Promise<SandboxPolicy>;
   abortSignal?: AbortSignal;
 }
 
@@ -170,6 +172,7 @@ export class NodeKernelManager {
 
   private async executeAuthorized(options: KernelExecuteOptions): Promise<KernelResult> {
     options.abortSignal?.throwIfAborted();
+    if (options.authorize) options = { ...options, sandboxPolicy: await options.authorize() };
     options = { ...options, environmentRevisionId: options.environmentRevisionId ?? options.environment.revision_id,
       sandboxPolicy: options.sandboxPolicy ?? await workspacePolicy(options.cwd, options.environmentRevisionId ?? options.environment.revision_id) };
     options.sandboxPolicy = await bindRuntimeReadPolicy(options.sandboxPolicy!);
@@ -188,6 +191,7 @@ export class NodeKernelManager {
     options.abortSignal?.addEventListener("abort", abort, { once: true });
     try {
       options.abortSignal?.throwIfAborted();
+      if (options.authorize && (await options.authorize()).id !== options.sandboxPolicy!.id) throw new Error("Kernel approval changed before dispatch");
       return await session.execute(options);
     } catch (error) {
       if (this.sessions.get(key) === session) this.sessions.delete(key);
@@ -273,14 +277,32 @@ export class NodeKernelManager {
     return interrupted;
   }
 
+  /** Includes in-flight starts/requests, not just ready kernels. */
+  hasOwner(cwd: string, owner: string): boolean {
+    return [...this.requests].some(({ options }) => options.cwd === cwd && options.sandboxPolicy?.owner === owner)
+      || [...this.starting.values()].some(({ state }) => state.options.cwd === cwd && state.options.sandboxPolicy?.owner === owner)
+      || [...this.sessions.values()].some((session) => session.cwd === cwd && session.owner === owner);
+  }
+
+  async revokeOwner(cwd: string, owner: string): Promise<{ kernelRestartCount: number }> {
+    const count = [...this.sessions.values()].filter((session) => session.cwd === cwd && session.owner === owner).length
+      + [...this.starting.values()].filter(({ state }) => state.options.cwd === cwd && state.options.sandboxPolicy?.owner === owner).length;
+    await this.shutdownOwner(cwd, owner);
+    if (this.hasOwner(cwd, owner)) throw new Error("Kernel capability revocation is incomplete");
+    return { kernelRestartCount: count };
+  }
+
   /** Called by the owning server when a Worker exits, including unexpected death. */
   async shutdownOwner(cwd: string, owner: string): Promise<void> {
     for (const request of this.requests) if (request.options.cwd === cwd && request.options.sandboxPolicy?.owner === owner) request.controller.abort();
     const starts = [...this.starting.values()].filter(({ state }) => state.options.cwd === cwd && state.options.sandboxPolicy?.owner === owner);
     for (const { state } of starts) state.controller.abort();
-    const sessions: NodeKernelSession[] = [];
-    for (const [key, session] of this.sessions) if (session.cwd === cwd && session.owner === owner) { this.sessions.delete(key); sessions.push(session); }
-    await Promise.all([...sessions.map((session) => session.stop()), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
+    const sessions = [...this.sessions].filter(([, session]) => session.cwd === cwd && session.owner === owner);
+    // Keep failed retirements visible to capability checks and subsequent retries.
+    await Promise.all([...sessions.map(async ([key, session]) => {
+      await session.stop();
+      if (this.sessions.get(key) === session) this.sessions.delete(key);
+    }), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
   }
 
   shutdownAll(): Promise<void> {

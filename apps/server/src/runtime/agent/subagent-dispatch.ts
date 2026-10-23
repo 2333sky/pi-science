@@ -120,7 +120,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         }
         keys.add(key);
         try {
-          const child = await openHiddenTask(manager, key, { ...options, sessionId: undefined, systemPrompt: prompt,
+          const child = await openHiddenTask(manager, key, { ...options, initialApproval: undefined, sessionId: undefined, systemPrompt: prompt,
             depth: (options.depth ?? 0) + 1, allowedTools, executionScope: scope, executionGrantId, delegatedAgent: item.agent, sandboxCandidateId: options.sandboxCandidateId ?? item.candidate_id,
             budgetOperationId: record.budget_owner, budgetNodeId: key, skillPolicy: policy ?? { mode: "inherit" } }, parent.sessionId);
           if (cancelled.has(id) || parent.isClosed) throw new Error("Subagent cancelled");

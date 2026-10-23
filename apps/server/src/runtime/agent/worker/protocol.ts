@@ -1,11 +1,13 @@
 import { productInputSchema } from "../../events/product-input.js";
 import { z } from "zod";
+import { initialSessionApprovalSchema, type CreateSessionRequest } from "@pi-science/contracts";
 import { resultSchema, skillPolicySchema, type RuntimeCommand, type RuntimeNotification } from "./command-contract.js";
 import type { ExecutionScope, RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
 import type { RuntimeSettings } from "../agent-runtime-settings.js";
 
 export interface AgentRuntimeStartOptions {
   cwd: string;
+  initialApproval?: CreateSessionRequest["initialApproval"];
   sessionId?: string;
   parentSessionId?: string;
   depth?: number;
@@ -60,7 +62,7 @@ const startOptionsSchema = z.object({
     model_context_window_override: z.object({ model: z.string(), context_window: z.number().int().positive() }).optional(),
   }).passthrough().optional(), systemPrompt: z.string().optional(), skillPaths: z.array(z.string()).optional(),
   skillPolicy: skillPolicySchema.optional(), env: z.record(z.string(), z.string()).optional(), credentialEnvNames: z.array(z.string()).optional(),
-  deferActivation: z.boolean().optional(),
+  deferActivation: z.boolean().optional(), initialApproval: initialSessionApprovalSchema.optional(),
 }).strict();
 export const workerRequestSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("initialize"), requestId: z.string().min(1), options: startOptionsSchema }).strict(),

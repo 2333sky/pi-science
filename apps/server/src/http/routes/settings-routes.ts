@@ -1,3 +1,6 @@
+import { approvalPreferencesSchema } from "@pi-science/contracts";
+import { approvalPreferences } from "../../runtime/sandbox/approval-preferences.js";
+import { approvalMetrics } from "../../runtime/sandbox/approval-metrics.js";
 import { webSettingsPatchSchema, updateWebSettings, publicWebSettings, webSettingsFromConfig } from "../../web/settings.js";
 import { registerNetworkGrantRoutes } from "./network-grant-routes.js";
 import { discoverAgentDefinitions } from "../../runtime/agent/agent-definitions.js";
@@ -490,6 +493,14 @@ async function discoverProvider(baseUrl: string, apiKey: string, api: string, al
 
 export function registerSettingsRoutes(app: FastifyInstance, nodeSessionService: NodeSessionService, settingsStore: SettingsStore, modelResources?: ModelResourceService, runtimeCatalog?: Pick<RuntimeCatalogService, "getCatalog">, mcp?: McpConnectorService): void {
   registerNetworkGrantRoutes(app);
+  app.get("/api/settings/approval", async () => approvalPreferences(await settingsStore.read()));
+  app.put("/api/settings/approval", async (request, reply) => {
+    const parsed = approvalPreferencesSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ code: "invalid_approval_preferences", error: "New session default must be ask or auto" });
+    await settingsStore.update((config) => { config.approval_preferences = parsed.data; });
+    return parsed.data;
+  });
+  app.get("/api/settings/approval-metrics", async () => approvalMetrics.snapshot());
   const load = () => settingsStore.read();
   const mutate = <T>(operation: (config: Settings) => T | Promise<T>) => settingsStore.update(operation, { skipUnchanged: true });
   // Direct API clients may save without calling the discovery endpoint first.

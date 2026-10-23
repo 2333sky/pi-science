@@ -77,6 +77,7 @@ export function state(sessionId: string, overrides: Record<string, unknown> = {}
  *  a fake EventSource and localStorage, a fresh client, and a store reset. */
 export function installRuntimeTestEnvironment(): void {
   beforeEach(() => {
+    useRuntimeStore.setState({ draftApproval: null });
     FakeEventSource.instances = [];
     vi.stubGlobal("EventSource", FakeEventSource);
     const storage = new Map<string, string>();

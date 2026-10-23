@@ -1,5 +1,7 @@
-import { readSessionApproval, saveSessionApproval } from "../sandbox/session-approval.js";
-import type { ApprovalMode } from "@pi-science/contracts";
+import { beginApprovalTransition, finishApprovalTransition } from "../sandbox/approval-transition.js";
+import { channel } from "node:diagnostics_channel";
+import { readSessionApproval, saveSessionApproval, sessionApprovalPath } from "../sandbox/session-approval.js";
+import type { ApprovalMode, CreateSessionRequest } from "@pi-science/contracts";
 import { pathIsInside } from "../../support/platform-utils.js";
 import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../workspace/workspace-lifecycle.js";
 import type { PiConfig, SessionState, SessionStats } from "@pi-science/contracts";
@@ -30,6 +32,7 @@ import { createInterface } from "node:readline";
 
 type Live = { key: string; runtime: AgentCoreRuntimeClient; busy: boolean; restartPending: boolean; model: string; thinking: string | null;
   config: PiConfig; eventSequence: number; expectedOperationId?: string; watchdog?: NodeJS.Timeout; suppressRecovery?: boolean;
+  approvalTransitionFailed?: boolean;
   lastProgressAt: number; interactionWaitStartedAt?: number;
 };
 type ProductHooks = {
@@ -97,6 +100,7 @@ export class AgentCoreSessionService {
   private readonly manager: AgentRuntimeManager;
   private readonly repository = new AgentSessionRepository();
   private readonly registry = new AgentSessionRegistry();
+  private readonly approvalRetirements = new Map<string, Live | null>();
   private readonly live = new Map<string, Live>();
   private readonly opening = new Map<string, Promise<Live | RuntimeResult>>();
   private readonly mutations = new Map<string, Promise<unknown>>();
@@ -111,7 +115,7 @@ export class AgentCoreSessionService {
   constructor(
     private readonly events: ConversationEventHub,
     private readonly environments: Pick<WorkspaceEnvironmentService, "environment">,
-    private readonly server: { backendUrl?: string; internalToken?: string; onWorkerExit?: (cwd: string, sessionId: string) => Promise<void> } = {},
+    private readonly server: { backendUrl?: string; internalToken?: string; onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>; hasApprovalResources?: (cwd: string, sessionId: string) => boolean; revokeApprovalResources?: (cwd: string, sessionId: string) => Promise<{ kernelRestartCount: number }> } = {},
   ) { this.manager = new AgentRuntimeManager(server.onWorkerExit); this.turns = new DurableTurnLifecycle(events); }
 
   configureProductLifecycle(hooks: ProductHooks): void { this.hooks = hooks; }
@@ -238,7 +242,7 @@ export class AgentCoreSessionService {
   /** Include admission/recovery windows and queued or interaction-blocked operations. */
   async hasActiveOperations(cwd: string): Promise<boolean> {
     const workspace = workspaceIdentity(cwd);
-    const pending = () => [this.opening, this.mutations, this.recovering, this.recoveryTimers].some((entries) => [...entries.keys()].some((key) => pathIsInside(workspace, key.split("\0")[0]!, true)));
+    const pending = () => [this.opening, this.mutations, this.recovering, this.recoveryTimers, this.approvalRetirements].some((entries) => [...entries.keys()].some((key) => pathIsInside(workspace, key.split("\0")[0]!, true)));
     if (pending()) return true;
     for (const item of this.live.values()) {
       if (!pathIsInside(workspace, workspaceIdentity(item.runtime.cwd), true) || item.runtime.isClosed) continue;
@@ -261,12 +265,12 @@ export class AgentCoreSessionService {
       && (!expectedModel || item.model === expectedModel))?.runtime ?? null;
   }
 
-  async create(cwd: string, config: PiConfig): Promise<{ id: string } | { error: string; code: string }> {
-    try { return await withWorkspaceAdmission(cwd, () => this.createAdmitted(cwd, config)); }
+  async create(cwd: string, config: PiConfig, initialApproval?: CreateSessionRequest["initialApproval"]): Promise<{ id: string } | { error: string; code: string }> {
+    try { return await withWorkspaceAdmission(cwd, () => this.createAdmitted(cwd, config, initialApproval)); }
     catch (error) { if (error instanceof WorkspaceLifecycleBusyError) return { error: error.message, code: "busy" }; throw error; }
   }
 
-  private async createAdmitted(cwd: string, config: PiConfig): Promise<{ id: string } | { error: string; code: string }> {
+  private async createAdmitted(cwd: string, config: PiConfig, initialApproval?: CreateSessionRequest["initialApproval"]): Promise<{ id: string } | { error: string; code: string }> {
     const model = splitModel(config.model);
     if (!model) return { error: "An agent-core session requires a provider/model setting", code: "invalid_model" };
     try {
@@ -276,6 +280,7 @@ export class AgentCoreSessionService {
       const runtime = await this.manager.start(key, {
         cwd,
         sessionsRoot: join(metadataRoot(cwd), "agent-sessions"),
+        initialApproval,
         model,
         thinking: thinking(config.thinking),
         settings: config,
@@ -291,10 +296,17 @@ export class AgentCoreSessionService {
         const path = await this.repository.findPath(cwd, runtime.sessionId);
         if (!path) throw new Error("created agent session has no durable transcript");
         await this.registry.register(cwd, runtime.sessionId, path);
+        await this.attach(key, runtime, config.model!, config.thinking ?? null, config);
+        return { id: runtime.sessionId };
+      } catch (error) {
+        await this.manager.stop(key);
+        this.live.delete(identity(cwd, runtime.sessionId));
+        const path = await this.repository.findPath(cwd, runtime.sessionId);
+        if (path) { await this.registry.markDeleted(cwd, runtime.sessionId, path); await unlink(path); }
+        await unlink(configPath(cwd, runtime.sessionId)).catch((failure: NodeJS.ErrnoException) => { if (failure.code !== "ENOENT") throw failure; });
+        await unlink(await sessionApprovalPath(cwd, runtime.sessionId)).catch((failure: NodeJS.ErrnoException) => { if (failure.code !== "ENOENT") throw failure; });
+        throw error;
       }
-      catch (error) { await this.manager.stop(key); throw error; }
-      await this.attach(key, runtime, config.model!, config.thinking ?? null, config);
-      return { id: runtime.sessionId };
     } catch (error) { return { error: String(error), code: "spawn_failed" }; }
   }
 
@@ -380,6 +392,7 @@ export class AgentCoreSessionService {
   private async open(cwd: string, sessionId: string, config: PiConfig): Promise<Live | RuntimeResult> {
     if ((await this.registry.get(cwd, sessionId))?.state === "deleted") return { success: false, code: "not_found", error: "session was deleted" };
     const key = identity(cwd, sessionId);
+    if (this.approvalRetirements.has(key)) return { success: false, code: "permission_transition_failed", error: "Retry the approval change to finish revoking old capabilities" };
     // attach() exposes the live record while binding. Even abort must wait for
     // activation before it can change a recovered operation's lifecycle.
     const pending = this.opening.get(key);
@@ -444,6 +457,7 @@ export class AgentCoreSessionService {
     }
     const opened = await this.open(cwd, sessionId, config);
     if ("success" in opened) return opened;
+    if (opened.approvalTransitionFailed) return { success: false, code: "permission_transition_failed", error: "Retry the approval change to finish revoking old capabilities" };
     if (type === "prompt") {
       const clientMessageId = typeof params.client_message_id === "string" ? params.client_message_id : randomUUID();
       params = { ...params, client_message_id: clientMessageId };
@@ -503,21 +517,99 @@ export class AgentCoreSessionService {
     }
   }
 
-  /** Rebuilds idle workers with current MCP and environment settings; active turns finish first. */
+  approvalTransitionPending(cwd: string, sessionId: string): boolean { return this.approvalRetirements.has(identity(cwd, sessionId)); }
+
+  /** Serialize authority changes with prompt admission; revoke resources before committing. */
   async setApprovalMode(cwd: string, sessionId: string, mode: ApprovalMode, revision: number): Promise<RuntimeResult> {
-    return this.withMutation(cwd, sessionId, async () => {
-      const live = this.live.get(identity(cwd, sessionId));
-      if (live?.busy || live?.expectedOperationId) return { success: false, code: "busy", error: "Stop the current task before changing approval mode" };
+    const startedAt = performance.now();
+    let revokeMs = 0; let persistenceMs = 0; let workerRestartCount = 0; let kernelRestartCount = 0; let mcpReconnectCount = 0;
+    let fromMode: ApprovalMode | undefined;
+    const result = await this.withMutation(cwd, sessionId, async () => {
+      const key = identity(cwd, sessionId);
+      const live = this.live.get(key);
+      if (this.opening.has(key) || this.recovering.has(key) || this.recoveryTimers.has(key)
+        || live?.busy || live?.expectedOperationId || live && this.manager.hasActiveTasks(live.runtime)) {
+        return { success: false, code: "session_busy", error: "Stop the current task before changing approval mode" };
+      }
       if (!live && !await this.repository.findPath(cwd, sessionId)) return { success: false, code: "not_found", error: "Session not found" };
       try {
-        if ((await readSessionApproval(cwd, sessionId)).revision !== revision) return { success: false, code: "busy", error: "Approval mode changed; reload and retry" };
-        // Retire the old worker and its kernels before committing the new mode.
-        // A failed shutdown must not report a successful permission downgrade.
-        if (live) await this.stopForReload(live);
+        const current = await readSessionApproval(cwd, sessionId);
+        fromMode = current.mode;
+        if (current.revision !== revision) return { success: false, code: "approval_revision_conflict", error: "Approval mode changed; reload and retry", data: current };
+        if (current.mode === mode && !this.approvalRetirements.has(key)) return { success: true, data: { ...current, runtimeRestarted: false } };
+        let boundProcesses = 0;
+        if (live) {
+          const snapshot = await live.runtime.sendCommand("get_state");
+          const state = snapshot.data;
+          boundProcesses = state?.approvalBoundProcesses ?? 0;
+          if (!snapshot.success || !state || state.busy || state.operation || state.pendingInteraction || state.faulted || state.queues.length > 0
+            || this.manager.hasActiveTasks(live.runtime)) {
+            return { success: false, code: "session_busy", error: "Session is active or its state cannot be verified" };
+          }
+        }
+        const resources = this.server.hasApprovalResources?.(cwd, sessionId) ?? true;
+        // Kernels can be retired independently. Locally spawned MCP processes
+        // and full downgrades retain the verified Worker shutdown fallback.
+        const previouslyBlocked = this.approvalRetirements.has(key);
+        const restart = previouslyBlocked || process.env.PI_SCIENCE_APPROVAL_HOT_SWITCH === "0"
+          || current.mode === "full" || boundProcesses > 0 || resources && !this.server.revokeApprovalResources;
+        this.approvalRetirements.set(key, this.approvalRetirements.get(key) ?? live ?? null);
+        beginApprovalTransition(cwd, sessionId);
+        if (live) {
+          live.approvalTransitionFailed = true;
+          const barrier = await live.runtime.sendCommand("begin_approval_change", { revision });
+          if (!barrier.success) {
+            if (!previouslyBlocked) { this.approvalRetirements.delete(key); finishApprovalTransition(cwd, sessionId); live.approvalTransitionFailed = false; }
+            return barrier;
+          }
+          if (this.manager.hasActiveTasks(live.runtime)) throw new Error("A background task entered during approval transition");
+        }
+        if (resources && this.server.revokeApprovalResources) {
+          const revokeStartedAt = performance.now();
+          try { kernelRestartCount = (await this.server.revokeApprovalResources(cwd, sessionId)).kernelRestartCount; }
+          finally { revokeMs += performance.now() - revokeStartedAt; }
+        }
+        if (restart) {
+          const revokeStartedAt = performance.now();
+          try {
+            const retiring = this.approvalRetirements.get(key) ?? live;
+            if (retiring) {
+              this.approvalRetirements.set(key, retiring);
+              retiring.approvalTransitionFailed = true;
+              if (this.live.get(key) === retiring) await this.stopForReload(retiring);
+              else await this.manager.stop(retiring.key);
+              workerRestartCount++;
+              mcpReconnectCount = boundProcesses;
+            } else if (resources && this.server.onWorkerExit) await this.server.onWorkerExit(cwd, sessionId);
+            if (this.server.hasApprovalResources?.(cwd, sessionId)) throw new Error("Session capabilities were not fully revoked");
+          } finally { revokeMs += performance.now() - revokeStartedAt; }
+        }
+        if (this.server.hasApprovalResources?.(cwd, sessionId)) throw new Error("Session capabilities were not fully revoked");
+        const persistenceStartedAt = performance.now();
         const approval = await saveSessionApproval(cwd, sessionId, mode, revision);
-        return { success: true, data: approval };
-      } catch (error) { return { success: false, code: "busy", error: String(error) }; }
+        persistenceMs = performance.now() - persistenceStartedAt;
+        if (live && !restart) {
+          const released = await live.runtime.sendCommand("end_approval_change", { revision: approval.revision });
+          if (!released.success) throw new Error("Worker could not apply the committed approval revision");
+          live.approvalTransitionFailed = false;
+        }
+        this.approvalRetirements.delete(key);
+        finishApprovalTransition(cwd, sessionId);
+        const changed = { ...approval, runtimeRestarted: Boolean(live && restart), kernelRestartCount };
+        await this.events.publish?.(cwd, sessionId, { type: "approval.mode.changed", sessionId, ...changed }).catch(() => undefined);
+        return { success: true, data: changed };
+      } catch (error) {
+        const data = await readSessionApproval(cwd, sessionId).catch(() => undefined);
+        const conflict = error instanceof Error && error.message.includes("Approval mode changed;");
+        return { success: false, code: conflict ? "approval_revision_conflict" : "permission_transition_failed", error: String(error), data };
+      }
     });
+    channel("pi-science.approval-change").publish({
+      sessionId, from: fromMode, to: mode, result: result.success ? "success" : result.code,
+      total_ms: performance.now() - startedAt, validation_ms: Math.max(0, performance.now() - startedAt - persistenceMs - revokeMs), persistence_ms: persistenceMs,
+      resource_revoke_ms: revokeMs, worker_restart_count: workerRestartCount, kernel_restart_count: kernelRestartCount, mcp_reconnect_count: mcpReconnectCount,
+    });
+    return result;
   }
 
   async reloadConfiguration(): Promise<void> {
@@ -584,6 +676,7 @@ export class AgentCoreSessionService {
     }
     const opened = await this.open(cwd, sessionId, config);
     if ("success" in opened) return opened;
+    if (opened.approvalTransitionFailed) return { success: false, code: "permission_transition_failed", error: "Retry the approval change to finish revoking old capabilities" };
     if (opened.busy) return { success: false, code: "busy", error: "agent is busy; wait for the current task to finish or stop it" };
     const result = await opened.runtime.sendCommand("configure", { ...ref, ...(level ? { level } : {}) }).catch(failed);
     if (!result.success) return result;
@@ -627,6 +720,7 @@ export class AgentCoreSessionService {
 
   private async deleteOnce(cwd: string, sessionId: string): Promise<RuntimeResult> {
     const key = identity(cwd, sessionId);
+    if (this.approvalRetirements.has(key)) return { success: false, code: "permission_transition_failed", error: "Finish capability revocation before deleting the session" };
     const live = this.live.get(key);
     if (live?.busy) return { success: false, code: "busy", error: "cannot delete a conversation while it is running" };
     if (live && !live.runtime.isClosed) {

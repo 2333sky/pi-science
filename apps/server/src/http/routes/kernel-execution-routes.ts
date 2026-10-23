@@ -137,6 +137,7 @@ export function registerKernelExecutionRoutes(app: FastifyInstance, config: Serv
     try {
       const result = await kernels.execute({
         sandboxPolicy: policy,
+        authorize: () => authorizeKernelPolicy(cwd, environment.revision_id, request.headers[SANDBOX_GRANT_HEADER], config.internalToken, "notebook_run"),
         abortSignal: controller.signal,
         language: body.language,
         code: body.code,
@@ -242,6 +243,7 @@ export function registerKernelExecutionRoutes(app: FastifyInstance, config: Serv
       reply.raw.write(JSON.stringify({ type: "started", execution_id: execution.execution_id }) + "\n");
       const result = await kernels.execute({
         sandboxPolicy: policy,
+        authorize: () => authorizeKernelPolicy(cwd, environment.revision_id, request.headers[SANDBOX_GRANT_HEADER], config.internalToken, "notebook_run"),
         abortSignal: controller.signal,
         language: body.language,
         code: body.code,

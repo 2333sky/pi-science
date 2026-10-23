@@ -580,3 +580,52 @@ describe("NodeKernelManager platform interrupt semantics", () => {
   });
 
 });
+
+it("does not forget an owner's kernel until permission revocation succeeds", async () => {
+  const manager = new NodeKernelManager();
+  const stop = vi.fn().mockRejectedValueOnce(new Error("process still alive")).mockResolvedValue(undefined);
+  const session = { cwd: "/workspace", owner: "session-a", stop };
+  const internals = manager as unknown as { sessions: Map<string, typeof session> };
+  internals.sessions.set("kernel-a", session);
+  expect(manager.hasOwner("/workspace", "session-a")).toBe(true);
+  expect(manager.hasOwner("/workspace", "session-b")).toBe(false);
+  await expect(manager.shutdownOwner("/workspace", "session-a")).rejects.toThrow("process still alive");
+  expect(manager.hasOwner("/workspace", "session-a")).toBe(true);
+  await manager.shutdownOwner("/workspace", "session-a");
+  expect(manager.hasOwner("/workspace", "session-a")).toBe(false);
+  expect(stop).toHaveBeenCalledTimes(2);
+});
+
+it.skipIf(python === null)("reauthorizes queued kernel work before any code is dispatched", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "kernel-queued-epoch-")); cleanup.push(workspace);
+  const prefix = join(workspace, "env"); await createTestEnvironment(prefix);
+  const manager = new NodeKernelManager();
+  const base = { language: "python" as const, cwd: workspace, environment: status(workspace, prefix), timeoutMs: 10_000, notebookId: "queue" };
+  try {
+    const first = manager.execute({ ...base, code: "import time; time.sleep(0.1); print('first')" });
+    const authorize = vi.fn(async () => { throw new Error("approval revision revoked"); });
+    const second = manager.execute({ ...base, code: "open('must-not-run', 'w').write('bad')", authorize });
+    const denied = expect(second).rejects.toThrow("revision revoked");
+    expect(await first).toMatchObject({ ok: true, stdout: "first\n" });
+    await denied;
+    const { access } = await import("node:fs/promises");
+    await expect(access(join(workspace, "must-not-run"))).rejects.toMatchObject({ code: "ENOENT" });
+    expect(authorize).toHaveBeenCalledOnce();
+  } finally { await manager.shutdownAll(); }
+});
+it.skipIf(python === null)("reclaims only the owner's old kernel namespace and reports its reset", async () => {
+  const workspace = await mkdtemp(join(tmpdir(), "kernel-targeted-epoch-")); cleanup.push(workspace);
+  const prefix = join(workspace, "env"); await createTestEnvironment(prefix);
+  const manager = new NodeKernelManager();
+  const policy = sandboxPolicies.identifyPolicy({ ...await sandboxPolicies.workspacePolicy(workspace), owner: "owner" });
+  const base = { language: "python" as const, cwd: workspace, environment: status(workspace, prefix), timeoutMs: 10_000, notebookId: "targeted", sandboxPolicy: policy };
+  try {
+    await manager.execute({ ...base, code: "value=41" });
+    expect(await manager.execute({ ...base, code: "value+1" })).toMatchObject({ ok: true, result: "42" });
+    expect(await manager.revokeOwner(workspace, "other")).toEqual({ kernelRestartCount: 0 });
+    expect(await manager.execute({ ...base, code: "value+1" })).toMatchObject({ ok: true, result: "42" });
+    expect(await manager.revokeOwner(workspace, "owner")).toEqual({ kernelRestartCount: 1 });
+    expect(manager.hasOwner(workspace, "owner")).toBe(false);
+    expect(await manager.execute({ ...base, code: "print('value' in globals())" })).toMatchObject({ ok: true, stdout: "False\n" });
+  } finally { await manager.shutdownAll(); }
+});

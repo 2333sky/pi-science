@@ -131,3 +131,30 @@ it.skipIf(process.platform === "win32")("applies newly configured operator-prote
   vi.stubEnv("PI_SCIENCE_SANDBOX_READ_POLICY", file);
   await expect(executionGrantPolicy(identity)).rejects.toThrow("protected paths");
 });
+
+it("binds durable child authority to its parent's approval revision, including implicit ask", async () => {
+  const { cwd, input } = await fixture();
+  const { saveSessionApproval } = await import("./session-approval.js");
+  input.parentPolicy = await workspacePolicy(cwd, undefined, "analysis", "parent");
+  input.workerKey = "epoch-child";
+  const ledger = new ExecutionBudgetLedger(cwd, "op"); await ledger.createChild(input.workerKey);
+  const id = await createExecutionGrant(input);
+  const identity = { cwd, sessionId: input.workerKey, budgetOperationId: "op", executionGrantId: id };
+  expect((await executionGrantPolicy(identity)).executionGrant?.sources.length).toBeGreaterThan(1);
+  const { beginApprovalTransition, finishApprovalTransition } = await import("./approval-transition.js");
+  beginApprovalTransition(cwd, "parent");
+  try { await expect(executionGrantPolicy(identity)).rejects.toThrow("blocks capability dispatch"); }
+  finally { finishApprovalTransition(cwd, "parent"); }
+  await saveSessionApproval(cwd, "parent", "auto", 0);
+  await expect(executionGrantPolicy(identity)).rejects.toThrow("authority changed");
+});
+
+it("requires renewed binding for persisted legacy grants instead of reviving authority without an epoch", async () => {
+  const { id, identity } = await fixture();
+  const { executionGrantsDirectory } = await import("./execution-grants.js");
+  const path = join(await executionGrantsDirectory(), `${id}.json`);
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  saved.version = 1; delete saved.approval;
+  await writeFile(path, JSON.stringify(saved), { mode: 0o600 });
+  await expect(executionGrantPolicy(identity)).rejects.toThrow("renewed approval binding");
+});

@@ -33,9 +33,9 @@ export function notebookHarnessTools(cwd: string, sessionId: string, identity?: 
         const path = resolve(cwd, String((params as { path?: unknown })?.path ?? ""));
         if (tool.name === "notebook_edit" || !(tool.name === "notebook_read" ? policy.readPaths : policy.writePaths).some((root) => isWithin(root, path)) || await realpath(path) !== path || !(await lstat(path)).isFile()) throw new Error("Notebook path is outside the assigned candidate work/input");
         if (!(tool.name === "notebook_read" ? policy.readPaths : policy.writePaths).includes(dirname(path))) throw new Error("Candidate notebooks must be top-level input/work files");
-        sandboxGrant = confinedKernelGrant(identity, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
+        sandboxGrant = await confinedKernelGrant(identity, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
       } else if (tool.name === "notebook_run" && process.env.PI_SCIENCE_INTERNAL_TOKEN) {
-        sandboxGrant = workerKernelGrant(identity ?? { cwd, sessionId }, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
+        sandboxGrant = await workerKernelGrant(identity ?? { cwd, sessionId }, invocation.operationId, process.env.PI_SCIENCE_INTERNAL_TOKEN);
       }
       const result = await tool.execute(toolCallId, params, context.abortSignal, onUpdate, { cwd, sessionId, sandboxGrant });
       return { ...result, details: result.details };

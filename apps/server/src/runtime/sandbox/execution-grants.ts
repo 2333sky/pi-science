@@ -1,3 +1,6 @@
+import { assertApprovalDispatchAvailable } from "./approval-transition.js";
+import { readSessionApproval } from "./session-approval.js";
+import { materializeSessionApproval } from "./session-approval.js";
 import { ExecutionBudgetLedger } from "../executions/execution-budget.js";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
@@ -13,7 +16,7 @@ import { pathsOverlap, runtimeReadPolicy } from "./read-grants.js";
 export const executionSelectionSchema = z.object({ cwd: z.string().min(1), read_paths: z.array(z.string().min(1)).max(8), write_paths: z.array(z.string().min(1)).min(1).max(8) }).strict();
 export type ExecutionSelection = z.infer<typeof executionSelectionSchema>;
 const rootSchema = z.object({ path: z.string(), dev: z.string(), ino: z.string() }).strict();
-const grantSchema = z.object({ version: z.literal(1), id: z.string().regex(/^[a-f0-9]{64}$/), workspace: z.string(), workerKey: z.string(), budgetOwner: z.string(), parentId: z.string().regex(/^[a-f0-9]{64}$/).optional(), deadline: z.number().finite(), tools: z.array(z.string()), denyPaths: z.array(z.string()), configSources: z.array(z.object({ path: z.string(), sha256: z.string() }).strict()), cwd: z.string(), reads: z.array(rootSchema), writes: z.array(rootSchema), revoked: z.boolean() }).strict();
+const grantSchema = z.object({ approval: z.object({ sessionId: z.string(), revision: z.number().int().nonnegative() }).optional(), version: z.union([z.literal(1), z.literal(2)]), id: z.string().regex(/^[a-f0-9]{64}$/), workspace: z.string(), workerKey: z.string(), budgetOwner: z.string(), parentId: z.string().regex(/^[a-f0-9]{64}$/).optional(), deadline: z.number().finite(), tools: z.array(z.string()), denyPaths: z.array(z.string()), configSources: z.array(z.object({ path: z.string(), sha256: z.string() }).strict()), cwd: z.string(), reads: z.array(rootSchema), writes: z.array(rootSchema), revoked: z.boolean() }).strict();
 export type ExecutionGrant = z.infer<typeof grantSchema>;
 export interface ExecutionGrantIdentity { cwd: string; sessionId: string; budgetOperationId?: string; budgetNodeId?: string; executionGrantId?: string }
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");
@@ -48,6 +51,11 @@ async function readGrant(id: string) {
   const path = await grantPath(id), info = await lstat(path);
   if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 64 * 1024 || process.platform !== "win32" && (info.uid !== process.getuid!() || info.mode & 0o077)) throw new Error("Invalid private execution grant file");
   const bytes = await readFile(path), grant = grantSchema.parse(JSON.parse(bytes.toString()));
+  if (grant.version !== 2) throw new Error("Legacy execution grant requires renewed approval binding; redispatch the task");
+  if (grant.approval) {
+    assertApprovalDispatchAvailable(grant.workspace, grant.approval.sessionId);
+    if ((await readSessionApproval(grant.workspace, grant.approval.sessionId)).revision !== grant.approval.revision) throw new Error("Execution grant approval authority changed");
+  }
   for (const source of grant.configSources) if (hash(await readFile(source.path, "utf8")) !== source.sha256) throw new Error("Execution grant operator authority changed");
   if (grant.id !== id || grant.revoked || grant.deadline <= Date.now()) throw new Error("Execution grant revoked or expired");
   return { grant, source: { path, sha256: hash(bytes.toString()) } };
@@ -121,11 +129,12 @@ export async function createExecutionGrant(input: { workspace: string; workerKey
   const budget = await new ExecutionBudgetLedger(input.workspace, input.budgetOwner, true, input.workerKey).status();
   if (budget.cancelled || input.deadline > budget.deadline) throw new Error("Execution grant exceeds active task budget");
   const configFiles = [(await profileConfiguration()).file, (await runtimeReadPolicy()).file].filter((path): path is string => !!path);
+  if (input.parentPolicy.approval) configFiles.push(await materializeSessionApproval(input.workspace, input.parentPolicy.approval.sessionId, input.parentPolicy.approval.revision));
   const configSources = await Promise.all([...new Set(configFiles)].map(async (path) => ({ path, sha256: hash(await readFile(path, "utf8")) })));
   if (configSources.some(({ path }) => writes.some((root) => pathsOverlap(root, path)))) throw new Error("Execution grant overlaps operator configuration");
   const denyPaths = input.parentPolicy.denyPaths.filter((path) => [...reads, ...writes].some((root) => pathsOverlap(root, path)));
   const id = hash(JSON.stringify([input.workspace, input.workerKey]));
-  const grant = grantSchema.parse({ version: 1, id, workspace: input.workspace, workerKey: input.workerKey, budgetOwner: input.budgetOwner, ...(input.parentId ? { parentId: input.parentId } : {}), deadline: input.deadline, tools: [...new Set(input.tools)].sort(), denyPaths, configSources, cwd, reads: await Promise.all([...new Set(reads)].sort().map(rootIdentity)), writes: await Promise.all([...new Set(writes)].sort().map(rootIdentity)), revoked: false });
+  const grant = grantSchema.parse({ approval: input.parentPolicy.approval, version: 2, id, workspace: input.workspace, workerKey: input.workerKey, budgetOwner: input.budgetOwner, ...(input.parentId ? { parentId: input.parentId } : {}), deadline: input.deadline, tools: [...new Set(input.tools)].sort(), denyPaths, configSources, cwd, reads: await Promise.all([...new Set(reads)].sort().map(rootIdentity)), writes: await Promise.all([...new Set(writes)].sort().map(rootIdentity)), revoked: false });
   const path = await grantPath(id);
   if ([...reads, ...writes].some((root) => pathsOverlap(root, dirname(path)))) throw new Error("Execution grant overlaps its private ledger");
   await withFileWriteLock(path, async () => {

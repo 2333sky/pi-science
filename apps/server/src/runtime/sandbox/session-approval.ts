@@ -24,6 +24,7 @@ export async function saveSessionApproval(cwd: string, sessionId: string, mode: 
   return withFileWriteLock(path, async () => {
     const previous = await readSessionApproval(cwd, sessionId);
     if (previous.revision !== revision) throw new Error("Approval mode changed; reload and retry");
+    if (previous.mode === mode) return previous;
     const next = sessionApprovalSchema.parse({ mode, revision: revision + 1 });
     await writeJsonAtomic(path, next, { mode: 0o600 });
     return next;
@@ -32,7 +33,8 @@ export async function saveSessionApproval(cwd: string, sessionId: string, mode: 
 /** Called only by trusted entry points with their authenticated session identity. */
 export async function sessionPolicy(policy: SandboxPolicy, sessionId?: string): Promise<SandboxPolicy> {
   if (!sessionId || policy.scope !== "workspace") return policy;
-  const { mode } = await readSessionApproval(policy.cwd, sessionId);
+  const { mode, revision } = await readSessionApproval(policy.cwd, sessionId);
+  policy = { ...policy, approval: { sessionId, revision } };
   if (mode === "ask") return policy;
   const home = await realpath(homedir());
   const denied = [...policy.denyPaths, await realpath(configRoot()),
@@ -52,4 +54,15 @@ export async function sessionPolicy(policy: SandboxPolicy, sessionId?: string): 
 }
 export async function sessionMode(cwd: string, sessionId?: string): Promise<ApprovalMode> {
   return sessionId ? (await readSessionApproval(cwd, sessionId)).mode : "ask";
+}
+
+/** A grant source must also represent an implicit historical ask/0 policy. */
+export async function materializeSessionApproval(cwd: string, sessionId: string, revision: number) {
+  const path = await sessionApprovalPath(cwd, sessionId);
+  await withFileWriteLock(path, async () => {
+    const current = await readSessionApproval(cwd, sessionId);
+    if (current.revision !== revision) throw new Error("Approval revision changed before capability binding");
+    await writeJsonAtomic(path, current, { mode: 0o600 });
+  });
+  return path;
 }

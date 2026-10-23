@@ -21,6 +21,7 @@ export interface SandboxPolicy {
   environmentRevision?: string;
   operatorReadPolicyId?: string;
   owner?: string;
+  approval?: { sessionId: string; revision: number };
   executionGrant?: { id: string; sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } };
 }
 export const isWithin = (root: string, path: string) => { const part = relative(root, path); return part === "" || part !== ".." && !part.startsWith(`..${sep}`) && !isAbsolute(part); };

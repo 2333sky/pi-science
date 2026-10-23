@@ -16,14 +16,20 @@ export const piConfigSchema = z.object({
   extensions: z.array(z.string()).default([]),
 });
 
+export const approvalPreferencesSchema = z.object({ defaultMode: z.enum(["ask", "auto"]).default("ask") }).strict();
+
 export const approvalModeSchema = z.enum(["ask", "auto", "full"]);
 export type ApprovalMode = z.infer<typeof approvalModeSchema>;
 export const sessionApprovalSchema = z.object({ mode: approvalModeSchema, revision: z.number().int().nonnegative() });
 export const updateSessionApprovalSchema = z.object({ mode: approvalModeSchema, revision: z.number().int().nonnegative(), acknowledgeFullAccess: z.boolean().optional() }).strict();
 
+export const initialSessionApprovalSchema = z.object({ mode: approvalModeSchema, acknowledgeFullAccess: z.boolean().optional() }).strict()
+  .refine((value) => value.mode !== "full" || value.acknowledgeFullAccess === true, { message: "Full access requires explicit acknowledgement" });
+
 export const createSessionRequestSchema = z.object({
   cwd: z.string().min(1),
   config: piConfigSchema.default({ skills: [], extensions: [] }),
+  initialApproval: initialSessionApprovalSchema.optional(),
 });
 
 export const createSessionResponseSchema = z.object({
@@ -326,6 +332,11 @@ export const sessionStatsSchema = z.object({
   decodeMs: z.number().nonnegative().optional(),
 }).passthrough();
 
+export const approvalModeChangedEventSchema = sessionApprovalSchema.extend({
+  type: z.literal("approval.mode.changed"), sessionId: z.string(),
+  runtimeRestarted: z.boolean().optional(), kernelRestartCount: z.number().int().nonnegative().optional(),
+});
+
 const sessionStatsEventSchema = z.object({
   type: z.literal("session.stats"),
   sessionId: z.string(),
@@ -339,7 +350,7 @@ export const sessionEventSchema = z.discriminatedUnion("type", [
   operationStartedEventSchema, runtimePausedEventSchema, messageStartedEventSchema, messageCompletedEventSchema,
   reasoningDeltaEventSchema, toolStartedEventSchema, toolCompletedEventSchema, interactionRequestedEventSchema,
   sessionErrorEventSchema,
-  sessionStatsEventSchema,
+  sessionStatsEventSchema, approvalModeChangedEventSchema,
 ]).and(z.looseObject({}));
 
 /** Version 3 uses Core-aligned operation/message/tool lifecycle names.

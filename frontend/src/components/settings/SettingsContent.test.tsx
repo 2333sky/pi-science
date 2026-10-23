@@ -17,6 +17,7 @@ const putCalls: { url: string; body: unknown }[] = [];
 
 function defaultFetch(url: string, init: RequestInit): Promise<Response> {
   const method = (init.method || "GET").toUpperCase();
+  if (url === "/api/settings/approval") return Promise.resolve(jsonResponse({ defaultMode: "ask" }));
   if (url.startsWith("/api/provider-views")) return Promise.resolve(jsonResponse({ providers: [] }));
   if (url.startsWith("/api/model-selection/catalog")) return Promise.resolve(jsonResponse({ available_models: [{ id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", thinking_levels: ["off", "high", "max"], context_window: 1000000 }] }));
   if (url === "/api/model-selection/default") {

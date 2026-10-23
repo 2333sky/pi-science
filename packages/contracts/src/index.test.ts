@@ -173,3 +173,9 @@ describe("conversation presentation protocol v2", () => {
     expect(() => conversationSnapshotSchema.parse({ ...snapshot, page: { nextCursor: "cursor", hasMore: "yes" } })).toThrow();
   });
 });
+
+it("requires acknowledgement when a new session requests full access", () => {
+  expect(createSessionRequestSchema.safeParse({ cwd: "/workspace", initialApproval: { mode: "full" } }).success).toBe(false);
+  expect(createSessionRequestSchema.parse({ cwd: "/workspace", initialApproval: { mode: "full", acknowledgeFullAccess: true } }).initialApproval?.mode).toBe("full");
+  expect(createSessionRequestSchema.parse({ cwd: "/workspace", initialApproval: { mode: "auto" } }).initialApproval?.mode).toBe("auto");
+});
