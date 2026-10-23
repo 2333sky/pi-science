@@ -3,6 +3,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT, type AgentLane, type AgentHarness, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
+import { createAssistantMessageEventStream, getSystemMessageText, normalizeContext, type AssistantMessage } from "@earendil-works/pi-ai";
+import type { AgentRuntimeStartOptions } from "./protocol.js";
+import type { agentModels } from "./agent-models.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { AgentMcpTools } from "./mcp-tools.js";
 import { networkGrantsPath, readNetworkGrants } from "../../sandbox/network-grants.js";
@@ -12,7 +15,7 @@ const roots: string[] = [];
 const runtimes: SessionRuntime[] = [];
 const context = BACKGROUND_CONTEXT;
 
-async function runtime(prepare?: (cwd: string) => Promise<void>) {
+async function runtime(prepare?: (cwd: string) => Promise<void>, options: Partial<AgentRuntimeStartOptions> = {}) {
   const cwd = resolve(await mkdtemp(join(tmpdir(), "pi-science-worker-mutations-")));
   roots.push(cwd);
   if (prepare) await prepare(cwd);
@@ -20,10 +23,11 @@ async function runtime(prepare?: (cwd: string) => Promise<void>) {
   const instance = await SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science", "agent-sessions"),
     model: { provider: "openai", modelId: "gpt-4.1-mini" }, thinking: "low",
     env: { PATH: process.env.PATH ?? "", OPENAI_API_KEY: "model-test-secret", PI_SCIENCE_INTERNAL_TOKEN: "server-test-secret" },
+    ...options,
   }, (event) => events.push(event), (error) => { throw error; });
   runtimes.push(instance);
   await instance.command("activate", {});
-  return { instance, events, parts: instance as unknown as { lane: AgentLane; harness: AgentHarness; executionEnv: NodeExecutionEnv } };
+  return { instance, events, parts: instance as unknown as { lane: AgentLane; harness: AgentHarness; executionEnv: NodeExecutionEnv; models: ReturnType<typeof agentModels> } };
 }
 
 afterEach(async () => {
@@ -255,6 +259,84 @@ describe("agent-core worker mutations", () => {
     expect(await instance.command("prompt", { message: "/skill:review check the statistics" }))
       .toMatchObject({ success: false, code: "unknown_skill" });
   });
+
+  it.each([undefined, "Custom scientific instructions."])("sends current skill metadata to the model with base prompt %j", async (systemPrompt) => {
+    let skillRoot = "";
+    async function writeSkill(name: string, description: string, extra = "") {
+      await mkdir(join(skillRoot, name), { recursive: true });
+      await writeFile(join(skillRoot, name, "SKILL.md"), `---\nname: ${name}\ndescription: ${description}\n${extra}---\nPrivate skill body.`);
+    }
+    const { instance, parts } = await runtime(async (cwd) => {
+      skillRoot = join(cwd, ".pi", "skills");
+      await writeSkill("review", "Review evidence");
+      await writeSkill("manual", "Explicit invocation only", "disable-model-invocation: true\n");
+    }, { systemPrompt });
+    // Keep the real Harness generation path; replace only the provider transport.
+    const requests: string[] = [];
+    vi.spyOn(parts.models, "streamSimple").mockImplementation((model, request) => {
+      const system = normalizeContext(request).messages.find((message) => message.role === "system");
+      requests.push(system?.role === "system" ? getSystemMessageText(system) : "");
+      const stream = createAssistantMessageEventStream();
+      const message: AssistantMessage = { role: "assistant", content: [{ type: "text", text: "OK" }],
+        api: model.api, provider: model.provider, model: model.id, stopReason: "stop", timestamp: Date.now(),
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+      stream.push({ type: "start", partial: { ...message, content: [] } });
+      stream.push({ type: "done", reason: "stop", message });
+      return stream;
+    });
+    async function nextPrompt(names: string[]) {
+      const count = requests.length;
+      expect(await instance.command("prompt", { message: "Inspect the evidence." })).toMatchObject({ success: true });
+      await vi.waitFor(async () => {
+        expect(requests).toHaveLength(count + 1);
+        expect(await instance.command("get_state", {})).toMatchObject({ success: true, data: { busy: false } });
+      });
+      const prompt = requests.at(-1)!;
+      const base = systemPrompt ?? "You are a helpful scientific research assistant.";
+      expect(prompt.startsWith(base)).toBe(true);
+      expect(prompt).not.toContain("Explicit invocation only");
+      expect(prompt).not.toContain("Private skill body.");
+      if (names.length) {
+        expect(prompt.match(/<available_skills>/g)).toHaveLength(1);
+        for (const name of names) {
+          expect(prompt).toContain(`<name>${name}</name>`);
+          expect(prompt).toContain(join(skillRoot, name, "SKILL.md"));
+        }
+      } else expect(prompt).toBe(base);
+      return prompt;
+    }
+    expect(await nextPrompt(["review"])).toContain("Review evidence");
+    for (const policy of [{ mode: "none" }, { mode: "allowlist", skills: ["manual"] },
+      { mode: "denylist", skills: ["review"] }]) {
+      expect(await instance.command("set_skill_policy", { policy })).toMatchObject({ success: true });
+      await nextPrompt([]);
+    }
+    expect(await instance.command("set_skill_policy", { policy: { mode: "allowlist", skills: ["review", "added"] } })).toMatchObject({ success: true });
+    await nextPrompt(["review"]);
+    await writeSkill("review", "Updated evidence protocol");
+    await writeSkill("added", "Newly discovered skill");
+    expect(await instance.command("refresh_skills", {})).toMatchObject({ success: true });
+    const refreshed = await nextPrompt(["review", "added"]);
+    expect(refreshed).toContain("Updated evidence protocol");
+    expect(refreshed).not.toContain("Review evidence");
+    await rm(join(skillRoot, "review"), { recursive: true });
+    expect(await instance.command("refresh_skills", {})).toMatchObject({ success: true });
+    expect(await nextPrompt(["added"])).not.toContain("<name>review</name>");
+    vi.spyOn(parts.harness, "setResources").mockRejectedValueOnce(new Error("resource update failed"));
+    expect(await instance.command("set_skill_policy", { policy: { mode: "none" } })).toMatchObject({ success: false });
+    expect(await instance.command("get_skills", {})).toMatchObject({ data: { policy: { mode: "allowlist", skills: ["review", "added"] } } });
+    await nextPrompt(["added"]);
+    await writeSkill("added", "Uncommitted description");
+    vi.spyOn(parts.harness, "setResources").mockRejectedValueOnce(new Error("refresh failed"));
+    expect(await instance.command("refresh_skills", {})).toMatchObject({ success: false });
+    expect(await instance.command("get_skills", {})).toMatchObject({ data: { skills: expect.arrayContaining([
+      expect.objectContaining({ name: "added", description: "Newly discovered skill" }),
+    ]) } });
+    expect(await nextPrompt(["added"])).toContain("Newly discovered skill");
+    expect(await instance.command("set_skill_policy", { policy: { mode: "inherit" } })).toMatchObject({ success: true });
+    await nextPrompt(["added"]);
+  }, 20_000);
 
   it("does not give ordinary bash processes model, server, or inherited credentials", async () => {
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");

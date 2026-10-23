@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { decodeCommand, decodeNotification } from "./command-contract.js";
 import { isAbsolute, join, resolve } from "node:path";
 import { listWorkspaceSessions, retrySessionDirectory } from "../workspace-session-identity.js";
-import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill } from "@earendil-works/pi-agent-core/node";
+import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, formatSkillsForSystemPrompt, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill } from "@earendil-works/pi-agent-core/node";
 import { agentModelCatalog, agentModels } from "./agent-models.js";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { appliedRuntimeSettings, contextUsage, resolveCompaction, type AppliedRuntimeSettings, type RuntimeSettings } from "../agent-runtime-settings.js";
@@ -182,6 +182,7 @@ export class SessionRuntime {
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
       const nativeWebTools = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name === "web_search" || name === "web_fetch")) ? await webTools() : [];
       const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
+      const basePrompt = options.systemPrompt ?? "You are a helpful scientific research assistant.";
       const { harness, open } = await AgentHarness.create({
         session,
         models,
@@ -199,7 +200,12 @@ export class SessionRuntime {
           } }),
         toolContext: { env: executionEnv },
         resources: { skills: applySkillPolicy(discovered.skills, skillPolicy), promptTemplates: templates.promptTemplates },
-        systemPrompt: options.systemPrompt ?? "You are a helpful scientific research assistant.",
+        // Read the same committed resources used by explicit skill invocation. This keeps
+        // every generation current after policy changes and refreshes without a second cache.
+        systemPrompt: async (_toolContext, requestContext): Promise<string> => {
+          const { skills = [] } = await harness.getResources(requestContext);
+          return [basePrompt, formatSkillsForSystemPrompt(skills)].filter(Boolean).join("\n\n");
+        },
         steeringMode: "one-at-a-time",
         followUpMode: "one-at-a-time",
       }, context);
@@ -450,14 +456,16 @@ export class SessionRuntime {
             || ((policy.mode === "allowlist" || policy.mode === "denylist") && !Array.isArray(policy.skills))) {
             return { success: false, code: "invalid_skill_policy", error: "invalid skill policy" };
           }
+          await this.harness.setResources({ skills: applySkillPolicy(this.allSkills, policy), promptTemplates: this.promptTemplates }, context);
           this.skillPolicy = policy;
-          await this.harness.setResources({ skills: this.enabledSkills(), promptTemplates: this.promptTemplates }, context);
           return { success: true, data: { skills: this.skillStatus(), policy } };
         }
         case "refresh_skills": {
-          this.allSkills = (await loadSkills(this.executionEnv, this.skillPaths, context)).skills;
-          this.promptTemplates = (await loadPromptTemplates(this.executionEnv, join(this.executionEnv.cwd, ".pi", "prompts"), context)).promptTemplates;
-          await this.harness.setResources({ skills: this.enabledSkills(), promptTemplates: this.promptTemplates }, context);
+          const allSkills = (await loadSkills(this.executionEnv, this.skillPaths, context)).skills;
+          const { promptTemplates } = await loadPromptTemplates(this.executionEnv, join(this.executionEnv.cwd, ".pi", "prompts"), context);
+          await this.harness.setResources({ skills: applySkillPolicy(allSkills, this.skillPolicy), promptTemplates }, context);
+          this.allSkills = allSkills;
+          this.promptTemplates = promptTemplates;
           return { success: true, data: { skills: this.skillStatus(), policy: this.skillPolicy } };
         }
         case "get_entries": return { success: true, data: { entries: await this.lane.findEntries(undefined, context) } };
