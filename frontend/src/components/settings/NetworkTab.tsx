@@ -39,7 +39,7 @@ export function NetworkTab() {
           <label className="text-xs text-muted">{t("settings.network.profile")}<select aria-label={t("settings.network.profile")} value={profile} onChange={(event) => setProfile(event.target.value as Profile)} disabled={busy} className="mt-1 block rounded-input border border-border bg-surface p-2 text-sm text-text">
             <option value="analysis">{t("settings.network.analysis")}</option><option value="mcp">{t("settings.network.mcp")}</option>
           </select></label>
-          <label className="min-w-48 flex-1 text-xs text-muted">{t("settings.network.domain")}<input value={domain} onChange={(event) => setDomain(event.target.value)} disabled={busy} maxLength={253} required placeholder="api.example.org" className="mt-1 block w-full rounded-input border border-border bg-surface p-2 text-sm text-text" /></label>
+          <label className="min-w-48 flex-1 text-xs text-muted">{t("settings.network.domain")}<input value={domain} onChange={(event) => setDomain(event.target.value)} disabled={busy} maxLength={253} required placeholder="api.example.org / 192.168.1.10:8080" className="mt-1 block w-full rounded-input border border-border bg-surface p-2 text-sm text-text" /></label>
           <label className="text-xs text-muted">{t("settings.network.decision")}<select aria-label={t("settings.network.decision")} value={decision} onChange={(event) => setDecision(event.target.value as "allow" | "deny")} disabled={busy} className="mt-1 block rounded-input border border-border bg-surface p-2 text-sm text-text">
             <option value="allow">{t("settings.network.allow")}</option><option value="deny">{t("settings.network.deny")}</option>
           </select></label>

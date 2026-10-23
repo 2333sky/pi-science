@@ -32,3 +32,13 @@ it.each([
   try { expect((await app.inject({ method: "POST", url: "/api/settings/network", payload })).statusCode).toBe(400); }
   finally { await app.close(); }
 });
+
+it("saves and revokes private IP and port settings", async () => {
+  const app = Fastify(); registerNetworkGrantRoutes(app);
+  const payload = { profile: "analysis", domain: "192.168.1.10:8080" };
+  try {
+    expect((await app.inject({ method: "POST", url: "/api/settings/network", payload: { ...payload, decision: "allow" } })).json())
+      .toMatchObject({ rules: [expect.objectContaining({ ...payload, decision: "allow" })] });
+    expect((await app.inject({ method: "DELETE", url: "/api/settings/network", payload })).json()).toMatchObject({ rules: [] });
+  } finally { await app.close(); }
+});

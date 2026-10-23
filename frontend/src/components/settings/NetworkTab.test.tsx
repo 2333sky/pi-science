@@ -18,24 +18,24 @@ beforeEach(async () => {
   }));
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-it("adds a permission to the chosen role, shows it and lets the user revoke it", async () => {
+it.each(["api.example.org", "192.168.1.10:8080"])("adds and revokes a permission for %s", async (domain) => {
   render(<NetworkTab />);
   await screen.findByText("No domain permissions have been added.");
-  fireEvent.change(screen.getByLabelText("Hostname"), { target: { value: "api.example.org" } });
+  fireEvent.change(screen.getByLabelText("Hostname or private IPv4 address"), { target: { value: domain } });
   fireEvent.change(screen.getByLabelText("Applies to"), { target: { value: "mcp" } });
   fireEvent.click(screen.getByRole("button", { name: "Save permission" }));
-  await screen.findByText("api.example.org");
-  expect(requests[0]).toEqual({ method: "POST", body: { profile: "mcp", domain: "api.example.org", decision: "allow" } });
-  await waitFor(() => expect(screen.getByRole("button", { name: "Remove api.example.org" })).not.toBeDisabled());
-  fireEvent.click(screen.getByRole("button", { name: "Remove api.example.org" }));
+  await screen.findByText(domain);
+  expect(requests[0]).toEqual({ method: "POST", body: { profile: "mcp", domain, decision: "allow" } });
+  await waitFor(() => expect(screen.getByRole("button", { name: `Remove ${domain}` })).not.toBeDisabled());
+  fireEvent.click(screen.getByRole("button", { name: `Remove ${domain}` }));
   await screen.findByText("No domain permissions have been added.");
-  expect(requests[1]).toEqual({ method: "DELETE", body: { profile: "mcp", domain: "api.example.org" } });
+  expect(requests[1]).toEqual({ method: "DELETE", body: { profile: "mcp", domain } });
 });
 it("shows server validation errors without losing the user's input", async () => {
   render(<NetworkTab />); await screen.findByText("No domain permissions have been added.");
   vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: "Domain is blocked by the operator network policy" }), { status: 400, headers: { "Content-Type": "application/json" } })));
-  fireEvent.change(screen.getByLabelText("Hostname"), { target: { value: "pastebin.com" } });
+  fireEvent.change(screen.getByLabelText("Hostname or private IPv4 address"), { target: { value: "pastebin.com" } });
   fireEvent.click(screen.getByRole("button", { name: "Save permission" }));
   expect(await screen.findByRole("alert")).toHaveTextContent("Domain is blocked");
-  expect(screen.getByLabelText("Hostname")).toHaveValue("pastebin.com");
+  expect(screen.getByLabelText("Hostname or private IPv4 address")).toHaveValue("pastebin.com");
 });

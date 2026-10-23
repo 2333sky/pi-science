@@ -5,27 +5,28 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 import { workerEventSchema } from "./protocol.js";
 import { InteractionBridge } from "./interaction-bridge.js";
+import { saveSessionApproval } from "../../sandbox/session-approval.js";
 import { networkAccessTool } from "./network-access-tool.js";
 import { changeNetworkGrant, readNetworkGrants, revokeNetworkGrant } from "../../sandbox/network-grants.js";
 let root: string;
 beforeEach(async () => { root = await realpath(await mkdtemp(join(tmpdir(), "network-approval-"))); vi.stubEnv("PI_SCIENCE_HOME", root); vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", ""); });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
-function request(domain = "api.example.org", profile: "analysis" | "mcp" = "analysis") {
+function request(domain = "api.example.org", profile: "analysis" | "mcp" = "analysis", sessionId?: string) {
   const events: Array<Record<string, unknown>> = [];
   const bridge = new InteractionBridge((event) => events.push(event));
-  const tool = networkAccessTool(bridge);
+  const tool = networkAccessTool(bridge, sessionId ? root : undefined, sessionId);
   const run = (signal?: AbortSignal) => tool.execute("request", { domain, profile, reason: "Download study data" }, () => {}, {} as never, {} as never, { ...BACKGROUND_CONTEXT, abortSignal: signal });
   return { events, bridge, run };
 }
-it("only saves a persistent grant after explicit approval and avoids reprompting after recreation", async () => {
-  const { events, bridge, run } = request(); const result = run();
+it.each(["api.example.org", "192.168.1.10:8080"])("persists %s only after approval and avoids reprompting", async (domain) => {
+  const { events, bridge, run } = request(domain); const result = run();
   await vi.waitFor(() => expect(events).toHaveLength(1));
   expect(workerEventSchema.safeParse({ type: "runtime_event", event: { ...events[0], runtime_epoch: "network-test", runtime_sequence: 1 } }).success).toBe(true);
   expect(events[0]).toMatchObject({ type: "interaction.requested", method: "select", kind: "permission", message: expect.stringContaining("across all projects") });
   expect((await readNetworkGrants()).rules).toHaveLength(0);
   bridge.notify("extension_ui_response", { id: events[0]!.id, value: "allow" });
   expect(await result).toMatchObject({ details: { status: "granted" } });
-  const restored = request(); expect(await restored.run()).toMatchObject({ details: { status: "already_allowed" } }); expect(restored.events).toHaveLength(0);
+  const restored = request(domain); expect(await restored.run()).toMatchObject({ details: { status: "already_allowed" } }); expect(restored.events).toHaveLength(0);
 });
 it.each(["deny_once", "deny"])("handles %s without granting network access", async (answer) => {
   const { events, bridge, run } = request(); const result = run();
@@ -69,4 +70,21 @@ it("rejects an old approval even if the same target was allowed then revoked", a
   bridge.notify("extension_ui_response", { id: events[0]!.id, value: "allow" });
   await failure;
   expect((await readNetworkGrants()).rules).toHaveLength(0);
+});
+
+it("respects a standing IP denial for port-specific requests", async () => {
+  await changeNetworkGrant({ profile: "analysis", domain: "192.168.1.10", decision: "deny" }, "settings");
+  const item = request("192.168.1.10:8080");
+  expect(await item.run()).toMatchObject({ details: { status: "denied" } });
+  expect(item.events).toHaveLength(0);
+});
+
+it("still asks for an unapproved private IP in auto mode", async () => {
+  await saveSessionApproval(root, "private-session", "auto", 0);
+  const item = request("192.168.1.10:8080", "analysis", "private-session");
+  const result = item.run();
+  await vi.waitFor(() => expect(item.events).toHaveLength(1));
+  expect(item.events[0]).toMatchObject({ message: expect.stringContaining("HTTP/HTTPS on port 8080") });
+  item.bridge.notify("extension_ui_response", { id: item.events[0]!.id, value: "deny_once" });
+  expect(await result).toMatchObject({ details: { status: "denied" } });
 });

@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { configRoot, withFileWriteLock, writeJsonAtomic } from "../../storage/persistence.js";
 import { profileConfiguration } from "./profiles.js";
-import { BUILTIN_DENIED_DOMAINS, networkGrantTargetKey, networkDomain, networkGrantsSchema, networkRuleInput, readNetworkGrantFile, type NetworkGrantProfile } from "./network-grant-state.js";
+import { BUILTIN_DENIED_DOMAINS, networkGrantTargetKey, networkDomain, networkGrantsSchema, networkRuleInput, readNetworkGrantFile, privateNetworkTarget, type NetworkGrantProfile } from "./network-grant-state.js";
 export * from "./network-grant-state.js";
 
 export function networkGrantsPath() {
@@ -15,6 +15,8 @@ export function networkGrantsPath() {
 }
 export const readNetworkGrants = (path = networkGrantsPath()) => readNetworkGrantFile(path);
 export function domainMatches(domain: string, pattern: string, port = 443): boolean {
+  const target = privateNetworkTarget(domain);
+  if (target) { domain = target.host; port = target.port; }
   const [name, rawPort] = pattern.split(":");
   if (rawPort && Number(rawPort) !== port) return false;
   const host = name!.toLowerCase();

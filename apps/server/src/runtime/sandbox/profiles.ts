@@ -1,4 +1,4 @@
-import { BUILTIN_DENIED_DOMAINS } from "./network-grant-state.js";
+import { BUILTIN_DENIED_DOMAINS, privateNetworkTarget } from "./network-grant-state.js";
 export { BUILTIN_DENIED_DOMAINS } from "./network-grant-state.js";
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
@@ -11,8 +11,9 @@ export const SANDBOX_PROFILES = ["analysis", "mcp", "install", "control", "byoc"
 export type SandboxProfile = typeof SANDBOX_PROFILES[number];
 const host = z.string().max(253).regex(/^(?:\*\.)?[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?(?::[0-9]{1,5})?$/).refine((value) => {
   const [name, port] = value.replace(/^\*\./, "").split(":");
+  if (privateNetworkTarget(value)) return true;
   return !!name && name.includes(".") && !isIP(name) && !name.endsWith(".localhost") && !name.endsWith(".local") && (!port || Number(port) > 0 && Number(port) <= 65535);
-}, "Sandbox domains must be public DNS names with an optional port");
+}, "Sandbox targets must be public DNS names or RFC1918 IPv4 addresses with an optional port");
 const role = z.object({ allowedDomains: z.array(host).max(256).default([]), deniedDomains: z.array(host).max(256).default([]) }).strict();
 const schema = z.object({
   schemaVersion: z.literal(1),

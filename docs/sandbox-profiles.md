@@ -72,8 +72,9 @@ Example (replace directory examples with existing canonical directories):
 ```
 
 A missing port means HTTPS port 443. An explicit port permits that destination
-port; `*.example.org` matches subdomains only. Bare `*`, IP literals, localhost,
-local names, unknown fields and unsupported role keys are rejected. Specifying
+port; `*.example.org` matches subdomains only. Exact RFC1918 IPv4 addresses
+with optional ports are accepted. Bare `*`, other IP literals, localhost, local
+names, unknown fields and unsupported role keys are rejected. Specifying
 `install.allowedDomains: []` disables package network access. Deny rules take
 precedence, including the built-in blocks on common exfiltration destinations.
 Sensitive files and persistence paths remain denied within host grants.
@@ -89,8 +90,10 @@ service-owned data.
 
 Settings → Network manages persistent domain decisions for `analysis` and local
 `mcp` independently. Decisions apply to every workspace served by this user’s
-server. An allow grants only the exact hostname over HTTPS/443; a block denies
-that hostname on every port and overrides configured allows. Removing a decision
+server. Public hostname allows grant HTTPS/443. Exact RFC1918 IPv4 endpoints
+allow HTTP/HTTPS on their specified port (default 443). A block without a port
+denies the destination on every port; a port-specific block denies that port.
+Blocks override configured allows. Removing a decision
 restores the operator baseline. Operator and built-in deny rules always win.
 Candidate, install, control and BYOC processes do not inherit these decisions.
 
@@ -98,7 +101,7 @@ The main agent exposes `request_network_access({ domain, profile?, reason? })`.
 Its browser permission card offers **Always allow**, **Deny this request**, and
 **Never allow**. The profile defaults to `analysis`. Candidate and delegated
 workers cannot request their own network approvals. Invalid targets, URLs,
-ports, wildcards, IP literals and internal hostnames are rejected. DNS resolution
+wildcards, non-RFC1918 IP literals, invalid ports and internal hostnames are rejected. DNS resolution
 is still checked by the existing resolved-address guard at connection time.
 
 Decisions are atomically persisted to the service-owned `network-permissions/grants.json`
@@ -130,10 +133,10 @@ arbitrary Unix sockets remain blocked. Proxies pin connections to DNS answers
 checked by SRT's resolved-address guard; host proxy environment is not inherited.
 
 HTTP requests use validated absolute authorities. CONNECT and SOCKS tunnels
-require a bounded TLS ClientHello whose SNI equals the approved destination.
-Malformed, missing or encrypted ClientHello names are refused. SOCKS supports
-domain-name CONNECT with no authentication, not UDP, raw plaintext tunnels or
-IP-literal destinations. HTTPS is tunneled without decrypting application data.
+require a bounded TLS ClientHello. Hostname destinations require matching SNI;
+explicitly approved IPv4 destinations can omit SNI. Malformed and encrypted
+ClientHello names are refused. SOCKS supports domain-name and IPv4 CONNECT with
+no authentication; UDP and raw plaintext tunnels remain blocked. HTTPS is tunneled without decrypting application data.
 Clients must use the provided proxy variables; applications that bypass them
 receive OS denials. Node's environment proxy support is enabled, and the system
 CA bundle is copied into private scratch for curl, Python and Node.
@@ -255,3 +258,20 @@ requiring a Node startup flag, while preserving normal TLS certificate validatio
 Linux launcher status and doctor distinguish exited zombie processes from live
 processes, retain process identity checks, and tolerate a process disappearing
 while `/proc` is read.
+
+### Private IPv4 services
+
+Settings → Network and `request_network_access` accept exact RFC1918 IPv4
+addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) with an optional
+port, for example `192.168.1.10:8080`. These entries allow HTTP and HTTPS only
+on that destination port; omitting the port means 443. Operator profile
+`allowedDomains` and `deniedDomains` accept the same endpoint syntax. Public
+hostname approvals remain HTTPS/443 only. IP ranges, loopback, link-local,
+metadata addresses and noncanonical IP spellings are not accepted as user grants.
+
+An IP allowance is scoped to analysis or MCP, persists across projects, and
+can be revoked while kernels remain running. Denials take precedence. Broad
+public HTTPS access does not grant private IP access. A permitted hostname can
+resolve to a private address only when that exact IP and port are also allowed.
+HTTPS to an IP literal may omit SNI; TLS for hostnames still requires matching
+SNI. This does not add arbitrary TCP or UDP forwarding.

@@ -2,28 +2,31 @@ import { sessionMode } from "../../sandbox/session-approval.js";
 import { Type } from "@earendil-works/pi-ai";
 import { z } from "zod";
 import type { AgentHarnessTool, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import { assertGrantable, changeNetworkGrant, domainMatches, networkDomain, networkGrantProfile, networkGrantTargetKey, readNetworkGrants } from "../../sandbox/network-grants.js";
+import { assertGrantable, changeNetworkGrant, domainMatches, networkDomain, networkGrantProfile, networkGrantTargetKey, privateNetworkTarget, readNetworkGrants } from "../../sandbox/network-grants.js";
 import { profileConfiguration } from "../../sandbox/profiles.js";
 import type { InteractionBridge } from "./interaction-bridge.js";
 
 export function networkAccessTool(bridge: InteractionBridge, cwd?: string, sessionId?: string): AgentHarnessTool<{ env: NodeExecutionEnv }> {
   return {
     name: "request_network_access", label: "Request network access",
-    description: "Ask the user to permanently allow a public hostname over HTTPS/443 for analysis (Bash, Python and Jobs) or local MCP. Grants apply across projects until revoked in Network settings. Denied/private destinations cannot be bypassed. Approval updates running proxies without restarting kernels; retry the blocked request afterwards. Use profile=mcp for MCP tools; analysis grants do not authorize MCP connections. Candidate, install, control and BYOC policies are separate.",
+    description: "Ask the user to permanently allow a public hostname over HTTPS/443 or an exact RFC1918 IPv4 address with an optional port over HTTP/HTTPS (default port 443) for analysis (Bash, Python and Jobs) or local MCP. Grants apply across projects until revoked in Network settings. Denied destinations cannot be bypassed. Approval updates running proxies without restarting kernels; retry the blocked request afterwards. Use profile=mcp for MCP tools; analysis grants do not authorize MCP connections. Candidate, install, control and BYOC policies are separate.",
     parameters: Type.Object({ domain: Type.String(), profile: Type.Optional(Type.Union([Type.Literal("analysis"), Type.Literal("mcp")])), reason: Type.Optional(Type.String({ maxLength: 2000 })) }),
     async execute(_id, params, _update, _ctx, _invocation, context) {
       const { domain, profile, reason } = z.object({ domain: networkDomain, profile: networkGrantProfile.default("analysis"), reason: z.string().max(2000).optional() }).strict().parse(params);
+      const target = privateNetworkTarget(domain);
+      const access = target ? `HTTP/HTTPS on port ${target.port}` : "HTTPS/443";
       const result = (status: string, message: string) => ({ content: [{ type: "text" as const, text: JSON.stringify({ status, message }) }], details: { status, domain, profile } });
       await assertGrantable(profile, domain);
       const before = await readNetworkGrants();
-      const decision = before.rules.find((rule) => rule.profile === profile && rule.domain === domain)?.decision;
+      const decision = before.rules.some((rule) => rule.profile === profile && rule.decision === "deny" && domainMatches(domain, rule.domain))
+        ? "deny" : before.rules.find((rule) => rule.profile === profile && rule.domain === domain)?.decision;
       if (decision === "deny") return result("denied", "A standing denial blocks this domain. The user can change it in Network settings.");
-      if (cwd && await sessionMode(cwd, sessionId) !== "ask") return result("session_allowed", "Public HTTPS access is permitted by this session mode; existing denials still apply.");
+      if (!target && cwd && await sessionMode(cwd, sessionId) !== "ask") return result("session_allowed", "Public HTTPS access is permitted by this session mode; existing denials still apply.");
       const config = await profileConfiguration();
-      if (decision === "allow" || config.profiles[profile]?.allowedDomains.some((pattern) => (!pattern.includes(":") || pattern.endsWith(":443")) && domainMatches(domain, pattern))) return result("already_allowed", "This hostname is already allowed over HTTPS/443.");
+      if (decision === "allow" || config.profiles[profile]?.allowedDomains.some((pattern) => (!target || pattern.includes(":") || target.port === 443) && domainMatches(domain, pattern))) return result("already_allowed", `This destination is already allowed over ${access}.`);
       _update({ content: [], details: { approval: "waiting" } });
       const answer = await bridge.request(`Network access: ${domain}`, "", context.abortSignal, {
-        toolCallId: _id, method: "select", kind: "permission", message: `${reason ? `${reason}\n\n` : ""}Allow ${domain} over HTTPS (port 443) for ${profile} across all projects? This persists until revoked in Settings → Network.`,
+        toolCallId: _id, method: "select", kind: "permission", message: `${reason ? `${reason}\n\n` : ""}Allow ${domain} over ${access} for ${profile} across all projects? This persists until revoked in Settings → Network.`,
         options: [{ label: "Always allow", value: "allow" }, { label: "Deny this request", value: "deny_once" }, { label: "Never allow", value: "deny" }],
       });
       _update({ content: [], details: { approval: "resolved" } });

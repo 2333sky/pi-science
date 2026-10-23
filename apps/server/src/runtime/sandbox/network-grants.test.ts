@@ -80,3 +80,28 @@ it("keeps an operator deny effective against a saved user grant even when its st
   const policy = await workspacePolicy(workspace);
   expect(domainAllowed("api.example.org", 443, grantedNetwork(policy.network, await readNetworkGrants(), "analysis"))).toBe(false);
 });
+
+it.each(["10.0.0.1", "172.16.0.1:8080", "172.31.255.254:65535", "192.168.1.10:8080"])("grants exact private IPv4 endpoints with port and role isolation: %s", async (domain) => {
+  await changeNetworkGrant({ profile: "analysis", domain, decision: "allow" }, "settings");
+  const [host, rawPort] = domain.split(":"), port = Number(rawPort ?? 443);
+  const state = await readNetworkGrants();
+  const network = grantedNetwork({ mode: "none" }, state, "analysis");
+  for (const transport of ["http", "https"] as const) {
+    expect(domainAllowed(host!, port, network, transport)).toBe(true);
+    expect(domainAllowed(host!, port === 443 ? 80 : 443, network, transport)).toBe(false);
+    expect(domainAllowed(host!, port, grantedNetwork({ mode: "none" }, state, "mcp"), transport)).toBe(false);
+    expect(domainAllowed(host!, port, grantedNetwork({ mode: "allowlist", allowedDomains: [], deniedDomains: [host!] }, state, "analysis"), transport)).toBe(false);
+  }
+  await revokeNetworkGrant("analysis", domain);
+  expect(domainAllowed(host!, port, grantedNetwork({ mode: "none" }, await readNetworkGrants(), "analysis"))).toBe(false);
+});
+it.each(["8.8.8.8", "169.254.169.254", "0.0.0.0", "172.15.1.1", "172.32.0.1", "192.169.0.1", "10.0.0.1:0", "10.0.0.1:65536", "10.0.0.1:080", "010.0.0.1", "10.1", "0x0a000001", "10.0.0.0/8", "10.*", "[fd00::1]:443"])("rejects unsupported IP targets: %s", (domain) => {
+  expect(networkDomain.safeParse(domain).success).toBe(false);
+});
+it("checks operator denials against the private endpoint port", async () => {
+  const config = join(root, "profiles.json");
+  vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", config);
+  await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { analysis: { deniedDomains: ["192.168.1.10:8080"] } } }), { mode: 0o600 });
+  await expect(changeNetworkGrant({ profile: "analysis", domain: "192.168.1.10:8080", decision: "allow" }, "settings")).rejects.toThrow("operator");
+  await expect(changeNetworkGrant({ profile: "analysis", domain: "192.168.1.10:8443", decision: "allow" }, "settings")).resolves.toMatchObject({ revision: 1 });
+});

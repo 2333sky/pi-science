@@ -49,7 +49,7 @@ it("rejects writable configurations, aliases and unknown widening switches", asy
   await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { candidate: { allowedDomains: ["example.com"] } } }));
   await expect(profileConfiguration()).rejects.toThrow();
 });
-it("rejects wildcard-all, private IP and invalid-port domain grants", async () => {
+it("rejects wildcard-all, loopback IP and invalid-port domain grants", async () => {
   for (const domain of ["*", "127.0.0.1:443", "localhost", "x.local", "example.com:70000", "https://example.com"]) {
     await save({ analysis: { allowedDomains: [domain] } }); await expect(profileConfiguration()).rejects.toThrow();
   }
@@ -74,4 +74,11 @@ it("binds each provider helper to its own approved endpoint, SDK and stage witho
   expect((await providerHelperPolicy({ ...input, endpoint: "https://second.example.com" })).id).not.toBe(first.id);
   await expect(providerHelperPolicy({ ...input, endpoint: "https://unapproved.example.com" })).rejects.toThrow("not approved");
   await expect(providerHelperPolicy({ ...input, endpoint: "http://first.example.com" })).rejects.toThrow("HTTPS");
+});
+
+it("accepts exact private IPv4 endpoints in operator profiles", async () => {
+  await save({ analysis: { allowedDomains: ["192.168.1.10:8080", "10.0.0.1"], deniedDomains: ["172.16.1.1:8443"] } });
+  expect((await workspacePolicy(workspace)).network).toMatchObject({
+    allowedDomains: ["192.168.1.10:8080", "10.0.0.1:443"], deniedDomains: expect.arrayContaining(["172.16.1.1:8443"]),
+  });
 });

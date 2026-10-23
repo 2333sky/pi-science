@@ -1,11 +1,15 @@
-import { connect } from "node:net";
+import { connect, createServer as tcpServer } from "node:net";
+import { createServer as httpServer } from "node:http";
+import { networkInterfaces } from "node:os";
+import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
 import { clientHelloServerName, domainAllowed, startSandboxNetwork } from "./network.js";
-import { grantedNetwork, type NetworkGrants } from "./network-grant-state.js";
+import { grantedNetwork, privateNetworkTarget, type NetworkGrants } from "./network-grant-state.js";
 
-function hello(host: string) {
-  const name = Buffer.from(host); const sni = Buffer.alloc(9 + name.length);
+function hello(host?: string) {
+  const name = Buffer.from(host ?? ""); let sni = Buffer.alloc(9 + name.length);
   sni.writeUInt16BE(0, 0); sni.writeUInt16BE(name.length + 5, 2); sni.writeUInt16BE(name.length + 3, 4); sni[6] = 0; sni.writeUInt16BE(name.length, 7); name.copy(sni, 9);
+  if (host === undefined) sni = Buffer.alloc(0);
   const body = Buffer.concat([Buffer.from([3, 3]), Buffer.alloc(32), Buffer.from([0, 0, 2, 0x13, 1, 1, 0]), Buffer.from([sni.length >> 8, sni.length & 255]), sni]);
   const handshake = Buffer.concat([Buffer.from([1, 0, body.length >> 8, body.length & 255]), body]);
   return Buffer.concat([Buffer.from([22, 3, 1, handshake.length >> 8, handshake.length & 255]), handshake]);
@@ -82,4 +86,60 @@ it("rechecks dynamic decisions for new connections and closes an existing tunnel
 it("closes connections and refuses new requests when the dynamic permission source becomes unreadable", async () => {
   proxy = await startSandboxNetwork({ mode: "allowlist", allowedDomains: ["example.com:443"], deniedDomains: [] }, async () => { throw new Error("corrupt ledger"); });
   expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
+});
+
+it("requires an explicit IP and port even with broad public HTTPS access", () => {
+  const network = { mode: "allowlist" as const, allowedDomains: [], httpsOnlyDomains: ["*:443"], deniedDomains: [] };
+  expect(domainAllowed("api.example.org", 443, network)).toBe(true);
+  expect(domainAllowed("192.168.1.10", 443, network)).toBe(false);
+  expect(domainAllowed("192.168.1.10", 443, { ...network, allowedDomains: ["192.168.1.10:443"] })).toBe(true);
+});
+const privateHost = Object.values(networkInterfaces()).flat().find((address) => address?.family === "IPv4" && privateNetworkTarget(address.address))?.address;
+it.skipIf(!privateHost)("forwards HTTP to an approved private endpoint and applies revocation to subsequent requests", async () => {
+  const target = httpServer((_request, response) => response.end("private-service-ok"));
+  target.listen(0, privateHost!); await once(target, "listening");
+  const port = (target.address() as { port: number }).port;
+  let allowed = true;
+  try {
+    proxy = await startSandboxNetwork({ mode: "none" }, async () => ({ mode: "allowlist", allowedDomains: allowed ? [`${privateHost}:${port}`] : [], deniedDomains: [] }));
+    const request = `GET http://${privateHost}:${port}/ HTTP/1.1\r\nHost: ${privateHost}:${port}\r\nConnection: close\r\n\r\n`;
+    expect((await exchange(proxy.httpPort, request)).toString()).toContain("private-service-ok");
+    allowed = false;
+    expect((await exchange(proxy.httpPort, request)).toString()).toContain("403");
+  } finally { await proxy?.close(); proxy = undefined; await new Promise<void>((resolve) => target.close(() => resolve())); }
+});
+it.skipIf(!privateHost).each(["CONNECT", "SOCKS"])("forwards private IP TLS without SNI through %s and closes the tunnel on revocation", async (transport) => {
+  const received: Buffer[] = [];
+  let allowed = true;
+  const target = tcpServer((socket) => socket.once("data", (data) => {
+    received.push(data); socket.write("private-tls-ok"); allowed = false;
+  }));
+  target.listen(0, privateHost!); await once(target, "listening");
+  const port = (target.address() as { port: number }).port;
+  try {
+    proxy = await startSandboxNetwork({ mode: "none" }, async () => ({ mode: "allowlist", allowedDomains: allowed ? [`${privateHost}:${port}`] : [], deniedDomains: [] }));
+    const data = hello();
+    expect(clientHelloServerName(data)).toBe("");
+    const response = await new Promise<Buffer>((resolve, reject) => {
+      const client = connect(transport === "CONNECT" ? proxy!.httpPort : proxy!.socksPort, "127.0.0.1");
+      let buffer = Buffer.alloc(0), ready = false;
+      client.setTimeout(2000, () => client.destroy(new Error("private TLS timeout")));
+      client.on("error", reject); client.on("close", () => resolve(buffer));
+      client.on("data", (chunk) => {
+        buffer = Buffer.concat([buffer, chunk]);
+        if (!ready && (transport === "CONNECT" ? buffer.includes("200 Connection Established") : buffer.length >= 12)) {
+          ready = true; client.write(data);
+        }
+      });
+      client.once("connect", () => {
+        if (transport === "CONNECT") client.write(`CONNECT ${privateHost}:${port} HTTP/1.1\r\nHost: ${privateHost}:${port}\r\n\r\n`);
+        else {
+          const bytes = Buffer.from([5, 1, 0, 5, 1, 0, 1, ...privateHost!.split(".").map(Number), port >> 8, port & 255]);
+          client.write(bytes);
+        }
+      });
+    });
+    expect(response.toString()).toContain("private-tls-ok");
+    expect(received).toEqual([data]);
+  } finally { await proxy?.close(); proxy = undefined; await new Promise<void>((resolve) => target.close(() => resolve())); }
 });
