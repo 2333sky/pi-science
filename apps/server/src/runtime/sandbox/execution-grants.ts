@@ -1,6 +1,5 @@
 import { assertApprovalDispatchAvailable } from "./approval-transition.js";
-import { readSessionApproval } from "./session-approval.js";
-import { materializeSessionApproval } from "./session-approval.js";
+import { readSessionApproval, materializeSessionApproval } from "./session-approval.js";
 import { ExecutionBudgetLedger } from "../executions/execution-budget.js";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, realpath } from "node:fs/promises";
@@ -86,10 +85,16 @@ export async function executionGrantPolicy(identity: ExecutionGrantIdentity, rev
   if (budget.cancelled || budget.deadline <= Date.now()) throw new Error("Execution grant budget cancelled or expired");
   const budgetPath = await ledger.path();
   if (grant.writes.some((root) => isWithin(root.path, budgetPath))) throw new Error("Execution grant overlaps its service-owned budget");
+  let approval = grant.approval;
   const sources = [source, ...grant.configSources]; let parentId = grant.parentId; const seen = new Set([grant.id]);
   while (parentId) {
     if (seen.has(parentId) || seen.size > 8) throw new Error("Invalid execution grant ancestry"); seen.add(parentId);
-    const parent = await readGrant(parentId); sources.push(parent.source, ...parent.grant.configSources); parentId = parent.grant.parentId;
+    const parent = await readGrant(parentId);
+    if (parent.grant.approval) {
+      if (approval && (approval.sessionId !== parent.grant.approval.sessionId || approval.revision !== parent.grant.approval.revision)) throw new Error("Execution grant approval ancestry mismatch");
+      approval = parent.grant.approval;
+    }
+    sources.push(parent.source, ...parent.grant.configSources); parentId = parent.grant.parentId;
   }
   for (const root of [...grant.reads, ...grant.writes]) {
     if (JSON.stringify(await rootIdentity(root.path)) !== JSON.stringify(root)) throw new Error("Execution grant root identity changed");
@@ -98,7 +103,7 @@ export async function executionGrantPolicy(identity: ExecutionGrantIdentity, rev
   const workspaceDenies = [...grant.denyPaths, ...await grantProtectedPaths(identity.cwd, [...new Set([...grant.reads, ...grant.writes].map((root) => root.path))])];
   const protectedRoots = [...(await runtimeReadPolicy()).protectedRoots, await realpath(configRoot())];
   for (const root of [...grant.reads, ...grant.writes]) if (workspaceDenies.some((denied) => isWithin(denied, root.path)) || protectedRoots.some((denied) => pathsOverlap(root.path, denied))) throw new Error("Execution grant overlaps protected paths");
-  return identifyPolicy({ mode: "required", scope: "confined", cwd: grant.cwd, readPaths: [...new Set([...grant.reads, ...grant.writes].map((root) => root.path))], writePaths: grant.writes.map((root) => root.path), denyPaths: [...workspaceDenies, ...protectedRoots], network: { mode: "none" }, owner: identity.sessionId,
+  return identifyPolicy({ mode: "required", scope: "confined", cwd: grant.cwd, readPaths: [...new Set([...grant.reads, ...grant.writes].map((root) => root.path))], writePaths: grant.writes.map((root) => root.path), denyPaths: [...workspaceDenies, ...protectedRoots], network: { mode: "none" }, owner: identity.sessionId, ...(approval ? { approval } : {}),
     executionGrant: { id: grant.id, sources, deadline: Math.min(grant.deadline, budget.deadline), budget: { path: budgetPath, nodeId: grant.workerKey, ownerHash: hash(grant.budgetOwner) } }, ...(revision ? { environmentRevision: revision } : {}) });
 }
 /** Called by authenticated parent dispatch only. Selection must narrow the parent's existing authority. */
@@ -117,8 +122,13 @@ export async function createExecutionGrant(input: { workspace: string; workerKey
     if (denied.some((path) => isWithin(path, root)) || privileged.some((path) => pathsOverlap(root, path))) throw new Error("Execution grant overlaps protected paths");
     await validateGrantTree(root);
   }
+  let approval = input.parentPolicy.approval;
   if (input.parentId) {
     const parent = (await readGrant(input.parentId)).grant;
+    if (parent.approval) {
+      if (approval && (approval.sessionId !== parent.approval.sessionId || approval.revision !== parent.approval.revision)) throw new Error("Execution grant approval ancestry mismatch");
+      approval = parent.approval;
+    }
     if (parent.workspace !== input.workspace || parent.budgetOwner !== input.budgetOwner || input.deadline > parent.deadline || input.tools.some((tool) => !parent.tools.includes(tool))) throw new Error("Execution grant exceeds parent tool/deadline ceiling");
     for (const path of [...reads, ...writes]) if (![...parent.reads, ...parent.writes].some((root) => isWithin(root.path, path)) || writes.includes(path) && !parent.writes.some((root) => isWithin(root.path, path))) throw new Error("Execution grant exceeds persisted parent filesystem authority");
     const ledger = new ExecutionBudgetLedger(input.workspace, input.budgetOwner, true, input.workerKey);
@@ -129,12 +139,12 @@ export async function createExecutionGrant(input: { workspace: string; workerKey
   const budget = await new ExecutionBudgetLedger(input.workspace, input.budgetOwner, true, input.workerKey).status();
   if (budget.cancelled || input.deadline > budget.deadline) throw new Error("Execution grant exceeds active task budget");
   const configFiles = [(await profileConfiguration()).file, (await runtimeReadPolicy()).file].filter((path): path is string => !!path);
-  if (input.parentPolicy.approval) configFiles.push(await materializeSessionApproval(input.workspace, input.parentPolicy.approval.sessionId, input.parentPolicy.approval.revision));
+  if (approval) configFiles.push(await materializeSessionApproval(input.workspace, approval.sessionId, approval.revision));
   const configSources = await Promise.all([...new Set(configFiles)].map(async (path) => ({ path, sha256: hash(await readFile(path, "utf8")) })));
   if (configSources.some(({ path }) => writes.some((root) => pathsOverlap(root, path)))) throw new Error("Execution grant overlaps operator configuration");
   const denyPaths = input.parentPolicy.denyPaths.filter((path) => [...reads, ...writes].some((root) => pathsOverlap(root, path)));
   const id = hash(JSON.stringify([input.workspace, input.workerKey]));
-  const grant = grantSchema.parse({ approval: input.parentPolicy.approval, version: 2, id, workspace: input.workspace, workerKey: input.workerKey, budgetOwner: input.budgetOwner, ...(input.parentId ? { parentId: input.parentId } : {}), deadline: input.deadline, tools: [...new Set(input.tools)].sort(), denyPaths, configSources, cwd, reads: await Promise.all([...new Set(reads)].sort().map(rootIdentity)), writes: await Promise.all([...new Set(writes)].sort().map(rootIdentity)), revoked: false });
+  const grant = grantSchema.parse({ approval, version: 2, id, workspace: input.workspace, workerKey: input.workerKey, budgetOwner: input.budgetOwner, ...(input.parentId ? { parentId: input.parentId } : {}), deadline: input.deadline, tools: [...new Set(input.tools)].sort(), denyPaths, configSources, cwd, reads: await Promise.all([...new Set(reads)].sort().map(rootIdentity)), writes: await Promise.all([...new Set(writes)].sort().map(rootIdentity)), revoked: false });
   const path = await grantPath(id);
   if ([...reads, ...writes].some((root) => pathsOverlap(root, dirname(path)))) throw new Error("Execution grant overlaps its private ledger");
   await withFileWriteLock(path, async () => {

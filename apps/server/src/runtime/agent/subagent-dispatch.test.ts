@@ -291,3 +291,62 @@ it.each(["read", "missing", "revoked"])("does not reconstruct or widen historica
     expect(JSON.stringify(result)).toContain(snapshot === "missing" ? "no persisted tool permissions" : "revoked");
   }
 });
+
+it("binds real confined dispatch and descendants to the root approval revision", async () => {
+  hidden.open.mockClear(); hidden.run.mockClear();
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "dispatch-approval-epoch-")));
+  cleanup.push(() => rm(cwd, { recursive: true, force: true }));
+  const home = await mkdtemp(join(tmpdir(), "dispatch-approval-private-"));
+  cleanup.push(() => rm(home, { recursive: true, force: true }));
+  vi.stubEnv("PI_SCIENCE_HOME", home); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");
+  await mkdir(join(cwd, ".pi/agents"), { recursive: true });
+  await writeFile(join(cwd, ".pi/agents/runner.md"), "---\nexecution_scope: confined\ntools: [bash, notebook_run, subagent]\n---\nConfined runner");
+  await mkdir(join(cwd, "input")); await mkdir(join(cwd, "work"));
+  const { saveSessionApproval } = await import("../sandbox/session-approval.js");
+  const { executionGrantPolicy, createExecutionGrant } = await import("../sandbox/execution-grants.js");
+  const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+  const { confinedKernelGrant, authorizeKernelPolicy } = await import("../sandbox/kernel-authorization.js");
+  const { sandboxBashTool } = await import("./worker/sandbox-bash.js");
+  const { notebookHarnessTools } = await import("./worker/notebook-tools.js");
+  const { BACKGROUND_CONTEXT } = await import("@earendil-works/pi-agent-core/node");
+  await saveSessionApproval(cwd, "parent", "full", 0);
+  let release!: () => void;
+  const running = new Promise<void>((resolve) => { release = resolve; });
+  hidden.run.mockImplementation(async () => { await running; return "done"; });
+  const child = Object.assign(new EventEmitter(), { sessionId: "child", sendCommand: vi.fn(async () => ({ success: true, data: {} })) });
+  hidden.open.mockResolvedValue(child);
+  const parent = Object.assign(new EventEmitter(), { sessionId: "parent", isClosed: false,
+    sendCommand: vi.fn(async (name: string) => ({ success: true, data: name === "get_state" ? { activeTools: ["bash", "notebook_run", "subagent"] } : { skills: [], policy: { mode: "none" } } })),
+    sendNotification: vi.fn(async (_name: string, params: Record<string, unknown>) => bridge.respond(params)),
+  });
+  const bridge = new SubagentBridge((event) => parent.emit("event", event));
+  const drain = bindSubagentDispatch({ stop: vi.fn(async () => {}) } as unknown as AgentRuntimeManager, parent as unknown as AgentCoreRuntimeClient,
+    { cwd, sessionsRoot: join(cwd, ".pi-science/sessions"), model: { provider: "test", modelId: "test" } });
+  try {
+    const dispatched = bridge.request({ operationId: "op", invocationId: "approval", params: { agent: "runner", task: "Work", sandbox: { cwd: "work", read_paths: ["input"], write_paths: ["work"] } } });
+    await vi.waitFor(() => expect(hidden.open).toHaveBeenCalledOnce());
+    const options = hidden.open.mock.calls[0]![2] as import("./worker/protocol.js").AgentRuntimeStartOptions;
+    const identity = { cwd, sessionId: "child", budgetNodeId: options.budgetNodeId!, budgetOperationId: options.budgetOperationId!, executionGrantId: options.executionGrantId!, executionScope: "confined" as const };
+    const parentPolicy = await executionGrantPolicy(identity, undefined, "bash");
+    expect(parentPolicy.approval).toEqual({ sessionId: "parent", revision: 1 });
+    const ledger = new ExecutionBudgetLedger(cwd, identity.budgetOperationId, true, identity.budgetNodeId);
+    const nestedBudget = await ledger.createChild("grandchild");
+    const nestedId = await createExecutionGrant({ workspace: cwd, workerKey: "grandchild", budgetOwner: identity.budgetOperationId,
+      deadline: Math.min(parentPolicy.executionGrant!.deadline, (await nestedBudget.status()).deadline), tools: ["bash", "notebook_run"], parentPolicy, parentId: identity.executionGrantId,
+      selection: { cwd: "work", read_paths: ["input"], write_paths: ["work"] } });
+    const nested = { ...identity, sessionId: "grandchild-session", budgetNodeId: "grandchild", executionGrantId: nestedId };
+    expect((await executionGrantPolicy(nested)).approval).toEqual({ sessionId: "parent", revision: 1 });
+    const kernelGrant = await confinedKernelGrant(nested, "op", "secret");
+    expect((await authorizeKernelPolicy(cwd, undefined, kernelGrant, "secret", "notebook_run")).approval).toEqual({ sessionId: "parent", revision: 1 });
+    await saveSessionApproval(cwd, "parent", "ask", 1);
+    for (const binding of [identity, nested]) {
+      await expect(executionGrantPolicy(binding)).rejects.toThrow("approval authority changed");
+      const bash = sandboxBashTool(binding);
+      await expect(bash.execute("call", { command: "must-not-run" }, () => {}, {} as never, { operationId: "op" } as never, BACKGROUND_CONTEXT)).rejects.toThrow("approval authority changed");
+      const notebook = notebookHarnessTools(cwd, binding.sessionId, binding).find((tool) => tool.name === "notebook_run")!;
+      await expect(notebook.execute("call", { path: "work/test.ipynb" }, () => {}, {} as never, { operationId: "op" } as never, BACKGROUND_CONTEXT)).rejects.toThrow("approval authority changed");
+    }
+    await expect(authorizeKernelPolicy(cwd, undefined, kernelGrant, "secret", "notebook_run")).rejects.toThrow("approval authority changed");
+    release(); await dispatched;
+  } finally { release(); await drain(); }
+}, 10000);

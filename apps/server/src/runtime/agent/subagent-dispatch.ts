@@ -108,7 +108,7 @@ export function bindSubagentDispatch(manager: AgentRuntimeManager, parent: Agent
         if (scope !== "workspace" && (item.sandbox || options.executionGrantId || item.candidate_id || options.sandboxCandidateId)) {
           const parentPolicy = options.executionGrantId
             ? await executionGrantPolicy({ cwd: options.cwd, sessionId: parent.sessionId, budgetOperationId: options.budgetOperationId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId })
-            : await workspacePolicy(options.cwd);
+            : await workspacePolicy(options.cwd, undefined, "analysis", parent.sessionId);
           let selection = item.sandbox;
           if (!selection && options.executionGrantId) selection = { cwd: parentPolicy.cwd, read_paths: parentPolicy.readPaths.filter((path) => !parentPolicy.writePaths.includes(path)), write_paths: parentPolicy.writePaths };
           if (!selection) {
