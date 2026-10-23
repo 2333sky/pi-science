@@ -141,6 +141,7 @@ export class NodeKernelManager {
   private readonly admissionTails = new Map<string, Promise<void>>();
   private readonly requests = new Set<KernelStartState>();
   private readonly sessions = new Map<string, NodeKernelSession>();
+  private readonly retirements = new Map<NodeKernelSession, string>();
   private readonly starting = new Map<string, { state: KernelStartState; promise: Promise<NodeKernelSession> }>();
   private readonly notebookShutdowns = new Set<KernelShutdownScope>();
   private stoppingAll: Promise<void> | null = null;
@@ -180,31 +181,48 @@ export class NodeKernelManager {
     const key = sessionKey(options);
     // A changed authorization/environment must retire the old namespace and process.
     for (const [oldKey, old] of this.sessions) if (oldKey !== key && old.cwd === options.cwd && old.language === options.language && (old.kernelInstanceId ?? old.sessionId ?? old.notebookId ?? "default") === kernelIdentity(options)) {
-      this.sessions.delete(oldKey); await old.stop();
+      await this.retireSession(oldKey, old);
     }
     for (const [oldKey, pending] of this.starting) if (oldKey !== key && pending.state.options.cwd === options.cwd && pending.state.options.language === options.language && kernelIdentity(pending.state.options) === kernelIdentity(options)) {
       pending.state.controller.abort(); await pending.promise.catch(() => undefined);
     }
     options.abortSignal?.throwIfAborted();
     const session = await this.ensureSession(key, options);
-    const abort = () => { void session.stop(); };
+    const abort = () => { void this.retireSession(key, session).catch(() => undefined); };
     options.abortSignal?.addEventListener("abort", abort, { once: true });
     try {
       options.abortSignal?.throwIfAborted();
       if (options.authorize && (await options.authorize()).id !== options.sandboxPolicy!.id) throw new Error("Kernel approval changed before dispatch");
       return await session.execute(options);
     } catch (error) {
-      if (this.sessions.get(key) === session) this.sessions.delete(key);
-      await session.stop().catch(() => undefined);
+      try { await this.retireSession(key, session); }
+      catch (retirementError) { throw new AggregateError([error, retirementError], "Kernel execution failed and retirement is incomplete"); }
       throw error;
     } finally {
       options.abortSignal?.removeEventListener("abort", abort);
     }
   }
 
+  /** A reference is authority evidence until stop verifies exit and cleanup. */
+  private managedSessions(): Array<readonly [string, NodeKernelSession]> {
+    const all = new Map<NodeKernelSession, string>(this.retirements);
+    for (const [key, session] of this.sessions) all.set(session, key);
+    return [...all].map(([session, key]) => [key, session] as const);
+  }
+
+  private async retireSession(key: string, session: NodeKernelSession): Promise<void> {
+    this.retirements.set(session, key);
+    await session.stop();
+    if (this.sessions.get(key) === session) this.sessions.delete(key);
+    this.retirements.delete(session);
+  }
+
   /** Cold starts are deduplicated per session key so concurrent cells share one kernel spawn. */
   private ensureSession(key: string, options: KernelExecuteOptions): Promise<NodeKernelSession> {
     if (this.stoppingAll || [...this.notebookShutdowns].some((scope) => matchesShutdown(options, scope))) return Promise.reject(new Error("Kernel shutdown is in progress"));
+    const failed = [...this.retirements].filter(([session]) => session.cwd === options.cwd && session.language === options.language
+      && (session.kernelInstanceId ?? session.sessionId ?? session.notebookId ?? "default") === kernelIdentity(options));
+    if (failed.length) return Promise.all(failed.map(([session, oldKey]) => this.retireSession(oldKey, session))).then(() => this.ensureSession(key, options));
     const existing = this.sessions.get(key);
     if (existing && !existing.exited) return Promise.resolve(existing);
     const pending = this.starting.get(key);
@@ -220,21 +238,21 @@ export class NodeKernelManager {
   private async startSession(key: string, options: KernelExecuteOptions, state: KernelStartState): Promise<NodeKernelSession> {
     const stale = this.sessions.get(key);
     if (stale) {
-      await stale.stop().catch(() => undefined);
-      if (this.sessions.get(key) === stale) this.sessions.delete(key);
+      await this.retireSession(key, stale);
     }
     if (state.controller.signal.aborted) throw kernelStartCancelledError();
-    const session = await NodeKernelSession.start(options, this.deps, options.abortSignal ? AbortSignal.any([state.controller.signal, options.abortSignal]) : state.controller.signal);
+    const session = await NodeKernelSession.start(options, this.deps, options.abortSignal ? AbortSignal.any([state.controller.signal, options.abortSignal]) : state.controller.signal, (created) => { this.retirements.set(created, key); return () => { this.retirements.delete(created); }; });
     if (state.controller.signal.aborted || this.starting.get(key)?.state !== state) {
-      await session.stop().catch(() => undefined);
+      await this.retireSession(key, session);
       throw kernelStartCancelledError();
     }
     this.sessions.set(key, session);
+    this.retirements.delete(session);
     return session;
   }
 
   status(): KernelManagerStatus {
-    const sessions = [...this.sessions.values()];
+    const sessions = this.managedSessions().map(([, session]) => session);
     const python = this.deps.interpreterAvailable(this.deps.platform === "win32" ? "python" : "python3");
     const r = this.deps.interpreterAvailable("Rscript");
     return {
@@ -252,14 +270,13 @@ export class NodeKernelManager {
     try {
       const starts = [...this.starting.values()].filter(({ state }) => matchesShutdown(state.options, scope));
       for (const { state } of starts) state.controller.abort();
-      const sessions: NodeKernelSession[] = [];
-      for (const [key, session] of this.sessions) {
+      const sessions: Array<readonly [string, NodeKernelSession]> = [];
+      for (const [key, session] of this.managedSessions()) {
         const identity = session.kernelInstanceId ?? session.sessionId ?? session.notebookId;
         if ((session.notebookId !== notebookId && identity !== notebookId) || (scope.cwd !== undefined && session.cwd !== scope.cwd) || (language !== undefined && session.language !== language)) continue;
-        this.sessions.delete(key);
-        sessions.push(session);
+        sessions.push([key, session]);
       }
-      await Promise.all([...sessions.map((session) => session.stop().catch(() => undefined)), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
+      await Promise.all([...sessions.map(([key, session]) => this.retireSession(key, session)), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
     } finally {
       this.notebookShutdowns.delete(scope);
     }
@@ -281,12 +298,11 @@ export class NodeKernelManager {
   hasOwner(cwd: string, owner: string): boolean {
     return [...this.requests].some(({ options }) => options.cwd === cwd && options.sandboxPolicy?.owner === owner)
       || [...this.starting.values()].some(({ state }) => state.options.cwd === cwd && state.options.sandboxPolicy?.owner === owner)
-      || [...this.sessions.values()].some((session) => session.cwd === cwd && session.owner === owner);
+      || this.managedSessions().some(([, session]) => session.cwd === cwd && session.owner === owner);
   }
 
   async revokeOwner(cwd: string, owner: string): Promise<{ kernelRestartCount: number }> {
-    const count = [...this.sessions.values()].filter((session) => session.cwd === cwd && session.owner === owner).length
-      + [...this.starting.values()].filter(({ state }) => state.options.cwd === cwd && state.options.sandboxPolicy?.owner === owner).length;
+    const count = this.managedSessions().filter(([, session]) => session.cwd === cwd && session.owner === owner).length;
     await this.shutdownOwner(cwd, owner);
     if (this.hasOwner(cwd, owner)) throw new Error("Kernel capability revocation is incomplete");
     return { kernelRestartCount: count };
@@ -297,12 +313,9 @@ export class NodeKernelManager {
     for (const request of this.requests) if (request.options.cwd === cwd && request.options.sandboxPolicy?.owner === owner) request.controller.abort();
     const starts = [...this.starting.values()].filter(({ state }) => state.options.cwd === cwd && state.options.sandboxPolicy?.owner === owner);
     for (const { state } of starts) state.controller.abort();
-    const sessions = [...this.sessions].filter(([, session]) => session.cwd === cwd && session.owner === owner);
+    const sessions = this.managedSessions().filter(([, session]) => session.cwd === cwd && session.owner === owner);
     // Keep failed retirements visible to capability checks and subsequent retries.
-    await Promise.all([...sessions.map(async ([key, session]) => {
-      await session.stop();
-      if (this.sessions.get(key) === session) this.sessions.delete(key);
-    }), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
+    await Promise.all([...sessions.map(([key, session]) => this.retireSession(key, session)), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
   }
 
   shutdownAll(): Promise<void> {
@@ -318,15 +331,15 @@ export class NodeKernelManager {
     for (const request of this.requests) request.controller.abort();
     const starts = [...this.starting.values()];
     for (const { state } of starts) state.controller.abort();
-    const sessions = [...this.sessions.values()];
-    this.sessions.clear();
-    await Promise.all([...sessions.map((session) => session.stop().catch(() => undefined)), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
+    const sessions = this.managedSessions();
+    await Promise.all([...sessions.map(([key, session]) => this.retireSession(key, session)), ...starts.map(({ promise }) => promise.then(() => undefined, () => undefined))]);
   }
 }
 
 class NodeKernelSession {
   exited = false;
   private child?: ChildProcess;
+  private readonly closedChildren = new WeakSet<ChildProcess>();
   private reader?: Interface;
   private readonly pending = new Map<string, PendingCell>();
   private readonly rCodeFile?: string;
@@ -346,8 +359,9 @@ class NodeKernelSession {
     }
   }
 
-  static async start(options: KernelExecuteOptions, deps: Required<NodeKernelManagerDependencies>, signal?: AbortSignal): Promise<NodeKernelSession> {
+  static async start(options: KernelExecuteOptions, deps: Required<NodeKernelManagerDependencies>, signal?: AbortSignal, onCreated?: (session: NodeKernelSession) => (() => void)): Promise<NodeKernelSession> {
     const session = new NodeKernelSession(options, deps);
+    const retired = onCreated?.(session);
     const stopOnAbort = () => { void session.stop().catch(() => undefined); };
     signal?.addEventListener("abort", stopOnAbort, { once: true });
     try {
@@ -356,10 +370,13 @@ class NodeKernelSession {
       if (signal?.aborted) throw kernelStartCancelledError();
       return session;
     } catch (error) {
-      await session.stop().catch(() => undefined);
-      // Shutdown can win while asynchronous setup is still preparing files.
-      await session.sandbox?.cleanup().catch(() => undefined);
-      if (session.rCodeFile) await rm(session.rCodeFile, { force: true }).catch(() => undefined);
+      // An abort may have stopped before asynchronous setup finished allocating
+      // files. Retry cleanup now that startup has settled, retaining failures.
+      await session.stopPromise?.catch(() => undefined);
+      session.stopPromise = undefined;
+      try { await session.stop(); }
+      catch (retirementError) { throw new AggregateError([error, retirementError], "Kernel startup failed and retirement is incomplete"); }
+      retired?.();
       throw signal?.aborted ? kernelStartCancelledError() : error;
     } finally {
       signal?.removeEventListener("abort", stopOnAbort);
@@ -416,7 +433,10 @@ class NodeKernelSession {
 
 
   stop(): Promise<void> {
-    this.stopPromise ??= this.stopUnlocked();
+    this.stopPromise ??= this.stopUnlocked().catch((error) => {
+      this.stopPromise = undefined;
+      throw error;
+    });
     return this.stopPromise;
   }
 
@@ -425,45 +445,37 @@ class NodeKernelSession {
     for (const pending of this.pending.values()) pending.reject(new Error("Kernel process stopped"));
     this.pending.clear();
     const child = this.child;
-    this.child = undefined;
-    if (child && child.exitCode === null && child.signalCode == null) {
-      if (this.deps.platform === "win32" && child.pid !== undefined) {
-        // Detached Windows kernels form their own process group; killing only
-        // the direct child (TerminateProcess) would orphan grandchildren, so
-        // tear down the whole tree and wait for the pipes to close.
-        this.deps.killProcessTree?.(child.pid);
-        await new Promise<void>((resolve) => {
-          let settled = false;
-          const finish = () => { if (!settled) { settled = true; resolve(); } };
-          child.once("exit", finish);
-          child.once("close", finish);
-          const failsafe = setTimeout(finish, 2_000);
-          failsafe.unref?.();
-        });
-      } else if (this.sandbox) {
-        killSandboxGroup(child.pid);
-        await new Promise<void>((done) => { child.once("close", done); });
-      } else {
-        child.kill("SIGTERM");
-        await new Promise<void>((resolve) => {
-          let settled = false;
-          const force = setTimeout(() => child.kill("SIGKILL"), 2_000);
-          const finish = () => {
-            if (settled) return;
-            settled = true;
-            clearTimeout(force);
-            resolve();
-          };
-          force.unref?.();
-          child.once("exit", finish);
-          child.once("close", finish);
-        });
-      }
+    if (child && !this.closedChildren.has(child) && child.exitCode === null && child.signalCode == null) {
+      await new Promise<void>((resolve, reject) => {
+        let settled = false;
+        let force: NodeJS.Timeout | undefined;
+        let deadline: NodeJS.Timeout | undefined;
+        const cleanup = () => {
+          if (force) clearTimeout(force);
+          if (deadline) clearTimeout(deadline);
+          child.off("exit", finish); child.off("close", finish);
+        };
+        const finish = () => { if (settled) return; settled = true; this.closedChildren.add(child); cleanup(); resolve(); };
+        const fail = (error: unknown) => { if (settled) return; settled = true; cleanup(); reject(error); };
+        child.once("exit", finish); child.once("close", finish);
+        // A timeout is not proof of exit. Retain the process and retry later.
+        deadline = setTimeout(() => fail(new Error("Kernel process exit was not confirmed")), 5_000);
+        try {
+          if (this.deps.platform === "win32" && child.pid !== undefined) this.deps.killProcessTree(child.pid);
+          else if (this.sandbox) killSandboxGroup(child.pid);
+          else {
+            child.kill("SIGTERM");
+            if (!settled) force = setTimeout(() => { try { child.kill("SIGKILL"); } catch (error) { fail(error); } }, 2_000);
+          }
+        } catch (error) { fail(error); }
+      });
     }
+    if (this.child === child) this.child = undefined;
     this.reader?.close();
     this.reader = undefined;
-    if (this.rCodeFile) await rm(this.rCodeFile, { force: true }).catch(() => undefined);
+    if (this.rCodeFile) await rm(this.rCodeFile, { force: true });
     await this.sandbox?.cleanup();
+    this.sandbox = undefined;
   }
 
   private async start(signal?: AbortSignal): Promise<void> {
@@ -479,7 +491,11 @@ class NodeKernelSession {
     if (this.options.sandboxPolicy!.mode === "required") {
       if (this.options.language !== "python") throw new Error("Sandboxed R kernels have not passed platform acceptance");
       const prepared = await prepareSandbox(this.options.sandboxPolicy!, [executable, "-I", "-B", PYTHON_BRIDGE], [this.options.environment.prefix, PYTHON_BRIDGE], 86_400, PYTHON_BRIDGE);
-      if (signal?.aborted || this.stopPromise) { await prepared.cleanup(); throw kernelStartCancelledError(); }
+      if (signal?.aborted || this.stopPromise) {
+        await this.stopPromise?.catch(() => undefined);
+        this.sandbox = prepared;
+        throw kernelStartCancelledError();
+      }
       this.sandbox = prepared;
     }
     // Native compatibility still needs safe OS loader settings (SystemRoot/PATH
@@ -494,12 +510,13 @@ class NodeKernelSession {
       ...(this.sandbox || this.deps.platform === "win32" ? { detached: true } : {}),
     });
     this.child = child;
+    child.once("close", () => { this.closedChildren.add(child); });
     this.exited = false;
     const accountOutput = (chunk: Buffer) => {
       this.outputBytes += chunk.length;
       if (this.outputBytes <= MAX_KERNEL_OUTPUT_BYTES) return;
       for (const pending of this.pending.values()) pending.reject(new Error("Kernel output exceeds 16 MiB cell limit"));
-      this.pending.clear(); void this.stop();
+      this.pending.clear(); void this.stop().catch(() => undefined);
     };
     child.stdout!.on("data", accountOutput);
     child.stderr?.on("data", accountOutput);
@@ -523,7 +540,7 @@ class NodeKernelSession {
       this.pending.clear();
       this.reader?.close();
       this.reader = undefined;
-      if (this.sandbox) { killSandboxGroup(child.pid); void this.sandbox.cleanup().catch(() => undefined); }
+      if (this.sandbox && !this.stopPromise) void this.stop().catch(() => undefined);
     });
     if (signal?.aborted) throw kernelStartCancelledError();
 

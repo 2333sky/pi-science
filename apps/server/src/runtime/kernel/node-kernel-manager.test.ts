@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { NodeKernelManager, type KernelResult } from "./node-kernel-manager.js";
+import { NodeKernelManager, type KernelResult, type KernelExecuteOptions } from "./node-kernel-manager.js";
 import type { WorkspaceEnvironmentStatus } from "../workspace/workspace-environment.js";
 import * as sandboxPolicies from "../sandbox/policy.js";
 
@@ -336,6 +336,7 @@ describe("NodeKernelManager platform interrupt semantics", () => {
     const spawned: { command: string; args: string[]; options?: SpawnOptions }[] = [];
     const treeKills: number[] = [];
     const sessions: FakeSession[] = [];
+    const killTree = vi.fn((pid: number) => { treeKills.push(pid); });
     const manager = new NodeKernelManager({
       platform,
       workspaceEnvironmentVariables: () => ({}),
@@ -346,9 +347,9 @@ describe("NodeKernelManager platform interrupt semantics", () => {
         sessions.push(session);
         return session.child;
       }) as unknown as typeof import("node:child_process").spawn,
-      killProcessTree: (pid: number) => { treeKills.push(pid); },
+      killProcessTree: killTree,
     });
-    return { manager, spawned, treeKills, sessions };
+    return { manager, spawned, treeKills, sessions, killTree };
   }
 
   /** Answers every bridge request that has not been responded to yet. */
@@ -366,8 +367,8 @@ describe("NodeKernelManager platform interrupt semantics", () => {
   }
 
   /** Runs a cell to completion: answers the health probe, then the cell itself. */
-  async function driveExecute(manager: NodeKernelManager, sessions: FakeSession[], cwd: string, env: WorkspaceEnvironmentStatus, code: string): Promise<KernelResult> {
-    const result = manager.execute({ language: "python", code, cwd, environment: env, kernelInstanceId: "k-interrupt", timeoutMs: 30_000 });
+  async function driveExecute(manager: NodeKernelManager, sessions: FakeSession[], cwd: string, env: WorkspaceEnvironmentStatus, code: string, extra: Partial<KernelExecuteOptions> = {}): Promise<KernelResult> {
+    const result = manager.execute({ language: "python", code, cwd, environment: env, kernelInstanceId: "k-interrupt", timeoutMs: 30_000, ...extra });
     await waitForRequest(sessions, 1);
     respondPending(sessions[0]!);
     await waitForRequest(sessions, 2);
@@ -511,6 +512,83 @@ describe("NodeKernelManager platform interrupt semantics", () => {
       await stopping;
     }
     expect(treeKills).toEqual([]);
+  });
+
+  it("retries the real kernel stop after process exit succeeded but sandbox cleanup failed", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "kernel-cleanup-retry-")); cleanup.push(cwd);
+    const { manager, sessions, killTree } = managerWithFake("win32");
+    const policy = sandboxPolicies.identifyPolicy({ ...await sandboxPolicies.workspacePolicy(cwd), owner: "owner" });
+    const cleanupSandbox = vi.fn().mockRejectedValueOnce(new Error("sandbox cleanup failed")).mockResolvedValue(undefined);
+    try {
+      await driveExecute(manager, sessions, cwd, status(cwd, join(cwd, "env")), "1+1", { sandboxPolicy: policy });
+      const internals = manager as unknown as { sessions: Map<string, { sandbox?: { cleanup(): Promise<void> }; child?: ChildProcess }> };
+      const session = [...internals.sessions.values()][0]!;
+      // The actual NodeKernelSession.stop implementation runs against an
+      // isolated fake Windows child; no host process is signalled.
+      session.sandbox = { cleanup: cleanupSandbox };
+      const failed = manager.revokeOwner(cwd, "owner").catch((error: Error) => error);
+      await vi.waitFor(() => expect(killTree).toHaveBeenCalledOnce());
+      sessions[0]!.child.emit("close", 0);
+      expect(await failed).toMatchObject({ message: "sandbox cleanup failed" });
+      expect(session.child).toBeUndefined(); // Exit was verified before cleanup.
+      expect(manager.hasOwner(cwd, "owner")).toBe(true);
+      expect(await manager.revokeOwner(cwd, "owner")).toEqual({ kernelRestartCount: 1 });
+      expect(cleanupSandbox).toHaveBeenCalledTimes(2);
+      expect(killTree).toHaveBeenCalledOnce(); // Cleanup retry does not kill again.
+      expect(manager.hasOwner(cwd, "owner")).toBe(false);
+    } finally {
+      cleanupSandbox.mockResolvedValue(undefined);
+      for (const session of sessions) session.child.emit("close", 0);
+      await manager.shutdownAll();
+    }
+  });
+
+  it("keeps full → ask blocked after reauthorization and process-stop failures until verified recovery", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "kernel-reauthorization-retirement-")); cleanup.push(cwd);
+    const home = await mkdtemp(join(tmpdir(), "kernel-reauthorization-private-")); cleanup.push(home); vi.stubEnv("PI_SCIENCE_HOME", home);
+    const { saveSessionApproval, readSessionApproval } = await import("../sandbox/session-approval.js");
+    const { AgentCoreSessionService } = await import("../agent/agent-core-session-service.js");
+    const { workspaceIdentity } = await import("../agent/workspace-session-identity.js");
+    await saveSessionApproval(cwd, "owner", "full", 0);
+    const full = await sandboxPolicies.workspacePolicy(cwd, undefined, "analysis", "owner");
+    const { manager, sessions, spawned, killTree } = managerWithFake("win32");
+    try {
+      const environment = status(cwd, join(cwd, "env"));
+      await driveExecute(manager, sessions, cwd, environment, "1+1", { sandboxPolicy: full });
+      killTree.mockImplementation(() => { throw new Error("process exit unconfirmed"); });
+      const authorize = vi.fn().mockResolvedValueOnce(full).mockRejectedValueOnce(new Error("authorization revoked"));
+      await expect(manager.execute({ language: "python", cwd, environment, kernelInstanceId: "k-interrupt", timeoutMs: 30_000,
+        sandboxPolicy: full, authorize, code: "must-not-run" })).rejects.toThrow("retirement is incomplete");
+      expect(sessions[0]!.writes).toHaveLength(2); // Health check + first cell only.
+      expect(manager.hasOwner(cwd, "owner")).toBe(true);
+      const owned = manager as unknown as { sessions: Map<string, { child?: ChildProcess }> };
+      expect([...owned.sessions.values()][0]!.child).toBe(sessions[0]!.child);
+      const events = { expectExit: vi.fn(), publish: vi.fn(async () => undefined) };
+      const service = new AgentCoreSessionService(events as never, {} as never, {
+        hasApprovalResources: (workspace, owner) => manager.hasOwner(workspace, owner),
+        revokeApprovalResources: (workspace, owner) => manager.revokeOwner(workspace, owner),
+      });
+      const runtime = { cwd, sessionId: "owner", isClosed: false, sendCommand: vi.fn(async () => ({ success: true, data: { busy: false, queues: [], operation: null } })) };
+      (service as unknown as { live: Map<string, unknown> }).live.set(`${workspaceIdentity(cwd)}\0owner`, { key: "owner-worker", runtime, busy: false });
+      expect(await service.setApprovalMode(cwd, "owner", "ask", 1)).toMatchObject({ success: false, code: "permission_transition_failed" });
+      expect(await readSessionApproval(cwd, "owner")).toEqual({ mode: "full", revision: 1 });
+      expect(service.approvalTransitionPending(cwd, "owner")).toBe(true);
+      await expect(manager.execute({ language: "python", cwd, environment, kernelInstanceId: "k-interrupt", timeoutMs: 30_000,
+        sandboxPolicy: full, code: "must-not-reuse" })).rejects.toThrow("process exit unconfirmed");
+      expect(spawned).toHaveLength(1);
+      killTree.mockImplementation(() => undefined);
+      const previousKills = killTree.mock.calls.length;
+      const retry = service.setApprovalMode(cwd, "owner", "ask", 1);
+      await vi.waitFor(() => expect(killTree.mock.calls.length).toBeGreaterThan(previousKills));
+      sessions[0]!.child.emit("close", 0);
+      expect(await retry).toMatchObject({ success: true, data: { mode: "ask", revision: 2 } });
+      expect(manager.hasOwner(cwd, "owner")).toBe(false);
+      expect(service.approvalTransitionPending(cwd, "owner")).toBe(false);
+    } finally {
+      killTree.mockImplementation(() => undefined);
+      for (const session of sessions) session.child.emit("close", 0);
+      await manager.shutdownAll();
+    }
   });
 
   it("spares an idle kernel from manual interrupts", async () => {
