@@ -3,6 +3,9 @@ import { mkdtemp, mkdir, rm, writeFile, stat, realpath, copyFile } from "node:fs
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { setTimeout as delay } from "node:timers/promises";
 import { requireSandboxPlatform } from "./platform.js";
 import { canonicalDirectory, identifyPolicy, isWithin, type SandboxPolicy } from "./policy.js";
 import { processSettings, srtCli, type RuntimeInstallation } from "./settings.js";
@@ -52,4 +55,30 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
 export function killSandboxGroup(pid: number | undefined, signal: NodeJS.Signals = "SIGKILL"): void {
   if (pid === undefined) return;
   try { process.kill(-pid, signal); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error; }
+}
+
+const runFile = promisify(execFile);
+export async function retireSandboxGroup(pid: number | undefined): Promise<void> {
+  if (pid === undefined) return; // A failed spawn never created a process group.
+  killSandboxGroup(pid);
+  const deadline = Date.now() + 5_000;
+  for (;;) {
+    try { process.kill(-pid, 0); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") return;
+      throw error;
+    }
+    // A reparented zombie may outlive its leader until init reaps it. It cannot
+    // execute code; all other group members must be confirmed stopped. ps works
+    // on both supported POSIX platforms without exposing command arguments.
+    const { stdout } = await runFile("/bin/ps", ["-A", "-o", "pgid=,stat="], { timeout: 1_000, maxBuffer: 4 * 1024 * 1024 });
+    const live = stdout.trim().split("\n").some((line) => {
+      const match = /^\s*(\d+)\s+(\S+)\s*$/.exec(line);
+      if (!match) throw new Error("Unable to verify sandbox process group state");
+      return Number(match[1]) === pid && !match[2]!.startsWith("Z");
+    });
+    if (!live) return;
+    if (Date.now() >= deadline) throw new Error("Sandbox process group retirement was not confirmed");
+    await delay(25);
+  }
 }

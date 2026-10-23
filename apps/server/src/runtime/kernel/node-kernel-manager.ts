@@ -9,7 +9,7 @@ import { metadataRoot } from "../../storage/persistence.js";
 import { toolEnvironment } from "../agent/agent-runtime-environment.js";
 import { workspacePolicy, type SandboxPolicy } from "../sandbox/policy.js";
 import { bindRuntimeReadPolicy } from "../sandbox/read-grants.js";
-import { killSandboxGroup, launcherPath, prepareSandbox, type PreparedSandbox } from "../sandbox/process.js";
+import { killSandboxGroup, retireSandboxGroup, launcherPath, prepareSandbox, type PreparedSandbox } from "../sandbox/process.js";
 import {
   environmentPythonExecutable,
   workspaceEnvironmentVariables,
@@ -470,6 +470,10 @@ class NodeKernelSession {
         } catch (error) { fail(error); }
       });
     }
+    // Leader exit does not prove its background descendants have stopped.
+    // Keep both the process-group identity and sandbox until retirement is
+    // verified, including when stop() is triggered by a spontaneous exit.
+    if (child && this.sandbox && this.deps.platform !== "win32") await retireSandboxGroup(child.pid);
     if (this.child === child) this.child = undefined;
     this.reader?.close();
     this.reader = undefined;

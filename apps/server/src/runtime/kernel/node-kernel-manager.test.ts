@@ -1,4 +1,4 @@
-import { spawnSync, type ChildProcess, type SpawnOptions } from "node:child_process";
+import { spawn, spawnSync, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NodeKernelManager, type KernelResult, type KernelExecuteOptions } from "./node-kernel-manager.js";
 import type { WorkspaceEnvironmentStatus } from "../workspace/workspace-environment.js";
 import * as sandboxPolicies from "../sandbox/policy.js";
+import * as sandboxProcesses from "../sandbox/process.js";
 
 function systemPython(): string | null {
   const commands = process.platform === "win32" ? ["python", "python3"] : ["python3", "python"];
@@ -74,6 +75,66 @@ function status(workspace: string, prefix: string): WorkspaceEnvironmentStatus {
 }
 
 describe("NodeKernelManager native execution", () => {
+  it.skipIf(!["linux", "darwin"].includes(process.platform))("retires a real sandbox process group after its leader exits and retries failed verification", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "kernel-orphan-retirement-")); cleanup.push(cwd);
+    vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "private"));
+    const { saveSessionApproval, readSessionApproval } = await import("../sandbox/session-approval.js");
+    const { AgentCoreSessionService } = await import("../agent/agent-core-session-service.js");
+    const { workspaceIdentity } = await import("../agent/workspace-session-identity.js");
+    await saveSessionApproval(cwd, "owner", "full", 0);
+    let leader: ChildProcess | undefined;
+    // Exercise real POSIX process lifetime independently of sandbox installation:
+    // the bridge stand-in leaves an ordinary background descendant on normal exit.
+    const bridge = `const {spawn}=require('node:child_process');
+      const background=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'}); background.unref();
+      require('node:readline').createInterface({input:process.stdin}).on('line',line=>{
+        const request=JSON.parse(line); console.log(JSON.stringify({id:request.id,type:'result',ok:true,stdout:String(background.pid),stderr:'',interrupted:false}));
+      }).on('close',()=>process.exit(0));`;
+    const manager = new NodeKernelManager({ interpreterAvailable: () => true,
+      spawnProcess: ((_command: string, _args: readonly string[], options: SpawnOptions) =>
+        (leader = spawn(process.execPath, ["-e", bridge], { ...options, detached: true }))) as typeof spawn });
+    const cleanupSandbox = vi.fn(async () => undefined);
+    const verification = vi.spyOn(sandboxProcesses, "retireSandboxGroup").mockRejectedValue(new Error("group verification failed"));
+    let descendant = 0;
+    try {
+      const result = await manager.execute({ language: "python", cwd, environment: status(cwd, cwd), code: "1+1", timeoutMs: 5_000,
+        sandboxPolicy: await sandboxPolicies.workspacePolicy(cwd, undefined, "analysis", "owner") });
+      descendant = Number(result.stdout);
+      const internals = manager as unknown as { sessions: Map<string, { sandbox?: { cleanup(): Promise<void> }; child?: ChildProcess; stopPromise?: Promise<void> }> };
+      const session = [...internals.sessions.values()][0]!;
+      session.sandbox = { cleanup: cleanupSandbox };
+      const exited = new Promise<void>((resolve) => leader!.once("exit", () => resolve()));
+      leader!.stdin!.end();
+      await exited;
+      await session.stopPromise?.catch(() => undefined);
+      expect(leader!.exitCode).toBe(0);
+      process.kill(descendant, 0); // The descendant really outlived the leader.
+      const service = new AgentCoreSessionService({ expectExit: vi.fn(), publish: vi.fn(async () => undefined) } as never, {} as never, {
+        hasApprovalResources: (workspace, owner) => manager.hasOwner(workspace, owner),
+        revokeApprovalResources: (workspace, owner) => manager.revokeOwner(workspace, owner),
+      });
+      const runtime = { cwd, sessionId: "owner", isClosed: false, sendCommand: vi.fn(async () => ({ success: true, data: { busy: false, queues: [], operation: null } })) };
+      (service as unknown as { live: Map<string, unknown> }).live.set(`${workspaceIdentity(cwd)}\0owner`, { key: "owner-worker", runtime, busy: false });
+      expect(await service.setApprovalMode(cwd, "owner", "ask", 1)).toMatchObject({ success: false, code: "permission_transition_failed" });
+      expect(await readSessionApproval(cwd, "owner")).toEqual({ mode: "full", revision: 1 });
+      expect(session.child).toBe(leader);
+      expect(manager.hasOwner(cwd, "owner")).toBe(true);
+      expect(cleanupSandbox).not.toHaveBeenCalled();
+      verification.mockRestore();
+      expect(await service.setApprovalMode(cwd, "owner", "ask", 1)).toMatchObject({ success: true, data: { mode: "ask", revision: 2 } });
+      const probe = spawnSync("/bin/ps", ["-p", String(descendant), "-o", "stat="], { encoding: "utf8" });
+      expect(probe.error).toBeUndefined();
+      expect([0, 1]).toContain(probe.status);
+      expect(probe.stdout.trim() === "" || probe.stdout.trim().startsWith("Z")).toBe(true);
+      expect(manager.hasOwner(cwd, "owner")).toBe(false);
+      expect(cleanupSandbox).toHaveBeenCalledOnce();
+    } finally {
+      verification.mockRestore();
+      if (leader?.pid) sandboxProcesses.killSandboxGroup(leader.pid);
+      await manager.shutdownAll();
+    }
+  });
+
   it.skipIf(python === null)("preserves native loader settings without inheriting model credentials", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "pi-science-native-env-")); cleanup.push(workspace);
     const prefix = join(workspace, "env"); await createTestEnvironment(prefix);

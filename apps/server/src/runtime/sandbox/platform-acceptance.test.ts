@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync, spawn, type SpawnOptions } from "node:child_process";
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -71,6 +71,42 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     expect(await manager.execute({ ...options, code: "state=40\nprint('ready')" })).toMatchObject({ ok: true, stdout: "ready\n" });
     expect(await manager.execute({ ...options, code: "print(state+2)" })).toMatchObject({ ok: true, stdout: "42\n" });
     expect(await manager.execute({ ...options, code: `import os\ntry:\n open(${JSON.stringify(join(prefix, "forbidden-by-sandbox"))},'w'); raise AssertionError('environment writable')\nexcept OSError: pass\nprint('readonly')` })).toMatchObject({ ok: true, stdout: "readonly\n" });
+  }, 30_000);
+  it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("downgrades only after retiring the sandbox group when its launcher exits normally", async () => {
+    const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    vi.stubEnv("PI_SCIENCE_HOME", await fixture());
+    const { saveSessionApproval } = await import("./session-approval.js");
+    const { AgentCoreSessionService } = await import("../agent/agent-core-session-service.js");
+    const { workspaceIdentity } = await import("../agent/workspace-session-identity.js");
+    await saveSessionApproval(cwd, "retiring-owner", "full", 0);
+    const prefix = process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT!;
+    let launcher: ReturnType<typeof spawn> | undefined;
+    // Test-only hook lets the real launcher exit with code 0 while its workload
+    // is still running, without terminating that workload via a group signal.
+    const exitHook = "data:text/javascript," + encodeURIComponent("process.on('SIGUSR2',()=>process.exit(0))");
+    const manager = new NodeKernelManager({ spawnProcess: ((command: string, args: readonly string[], options: SpawnOptions) =>
+      (launcher = spawn(command, ["--import", exitHook, ...args], options))) as typeof spawn });
+    managers.push(manager);
+    const policy = await workspacePolicy(cwd, undefined, "analysis", "retiring-owner");
+    const result = await manager.execute({ cwd, language: "python", environment: { ready: true, workspace: cwd, prefix,
+      python: join(prefix, "bin/python3"), pip: join(prefix, "bin/pip"), npm: { local_prefix: cwd, global_prefix: cwd, cache: cwd } },
+      sandboxPolicy: policy, timeoutMs: 10_000,
+      code: "import subprocess\nbackground=subprocess.Popen(['/bin/sh','-c','sleep 2; echo leaked > leaked.txt'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nprint('spawned')" });
+    expect(result).toMatchObject({ ok: true, stdout: "spawned\n" });
+    const exited = new Promise<void>((resolve) => launcher!.once("exit", () => resolve()));
+    launcher!.kill("SIGUSR2");
+    await exited;
+    expect(launcher!.exitCode).toBe(0);
+    const service = new AgentCoreSessionService({ expectExit: vi.fn(), publish: vi.fn(async () => undefined) } as never, {} as never, {
+      hasApprovalResources: (workspace, owner) => manager.hasOwner(workspace, owner),
+      revokeApprovalResources: (workspace, owner) => manager.revokeOwner(workspace, owner),
+    });
+    const runtime = { cwd, sessionId: "retiring-owner", isClosed: false, sendCommand: vi.fn(async () => ({ success: true, data: { busy: false, queues: [], operation: null } })) };
+    (service as unknown as { live: Map<string, unknown> }).live.set(`${workspaceIdentity(cwd)}\0retiring-owner`, { key: "owner-worker", runtime, busy: false });
+    expect(await service.setApprovalMode(cwd, "retiring-owner", "ask", 1)).toMatchObject({ success: true, data: { mode: "ask", revision: 2 } });
+    expect(manager.hasOwner(cwd, "retiring-owner")).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 2200));
+    await expect(readFile(join(cwd, "leaked.txt"))).rejects.toThrow();
   }, 30_000);
   it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("grants and revokes network access in a running Python kernel without losing state", async () => {
     const cwd = await fixture(), home = await fixture();
