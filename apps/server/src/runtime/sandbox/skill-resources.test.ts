@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { identifyPolicy, workspacePolicy } from "./policy.js";
 import { skillResourcePolicy } from "./skill-resources.js";
+import { wrapCommandWithSandboxMacOS } from "@anthropic-ai/sandbox-runtime/dist/sandbox/macos-sandbox-utils.js";
 import { processSettings } from "./settings.js";
 
 let root: string, cwd: string, skill: string;
@@ -61,4 +62,19 @@ it("never adds implicit skill reads to confined or candidate grants", async () =
 it("drops the additional grant when the current skill list is empty", async () => {
   const base = await workspacePolicy(cwd);
   expect(await skillResourcePolicy(base, [])).toBe(base);
+});
+
+it.skipIf(process.platform === "win32").each(["project", "project[1]*?"])("generates Seatbelt child exceptions without weakening sibling or credential denials: %s", (name) => {
+  const cwd = `/private/tmp/${name}`, pi = `${cwd}/.pi`, skill = `${pi}/skills/review`, secret = `${skill}/credentials.json`;
+  const command = wrapCommandWithSandboxMacOS({ command: "true", needsNetworkRestriction: false,
+    readConfig: { denyOnly: [], literalDenyOnly: ["/", pi, secret], literalAllowWithinDeny: [cwd, skill] },
+    writeConfig: { allowOnly: [], literalAllowOnly: [cwd], denyWithinAllow: [], literalDenyWithinAllow: [pi, skill] } });
+  // The restored parent deny excludes only the explicit child. Literal paths
+  // must retain that meaning even when their names contain glob characters.
+  const parentDeny = `(require-all (subpath ${JSON.stringify(pi)}) (require-not (subpath ${JSON.stringify(skill)})))`;
+  expect(command).toContain(parentDeny);
+  const lateDeny = command.slice(command.indexOf(parentDeny));
+  expect(lateDeny).toContain(`(subpath ${JSON.stringify(secret)})`);
+  expect(lateDeny).not.toContain(`(require-not (subpath ${JSON.stringify(secret)}))`);
+  expect(command).toContain(`(deny file-write*`);
 });

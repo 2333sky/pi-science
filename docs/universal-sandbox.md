@@ -128,3 +128,5 @@ execution grant. Runtime dependencies and package installation remain separate.
 The directory list is read from current Harness resources for each Bash call, so
 Skills policy changes and refreshes affect subsequent invocations without a Worker
 restart. An already admitted invocation retains its original sandbox policy.
+
+The pinned SRT 0.0.79 dependency carries a pnpm patch for macOS Seatbelt read-rule generation. When a literal parent denial is restored after the workspace allow, it excludes explicitly allowed literal child directories. This preserves enabled Skill helper reads under `.pi` while leaving sibling directories and independently denied sensitive descendants inaccessible. Literal path semantics also apply to project names containing glob characters. The platform acceptance suite runs real helper execution on both Linux and macOS; the [Skill policy benchmark](performance/skill-resources-benchmark.md) records the cost of scanning enabled resource trees on every Bash invocation.

@@ -16,7 +16,7 @@ const runtimes: SessionRuntime[] = [];
 const context = BACKGROUND_CONTEXT;
 
 async function runtime(prepare?: (cwd: string) => Promise<void>, options: Partial<AgentRuntimeStartOptions> = {}) {
-  const cwd = resolve(await mkdtemp(join(tmpdir(), "pi-science-worker-mutations-")));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "pi-science-worker-mutations-")));
   roots.push(cwd);
   if (prepare) await prepare(cwd);
   const events: Array<Record<string, unknown>> = [];
