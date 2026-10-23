@@ -1,7 +1,17 @@
 import { createServer as httpServer, request as httpRequest, type IncomingHttpHeaders } from "node:http";
 import { connect, createServer, isIP, type Socket } from "node:net";
-import { createResolvedAddressGuard } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
+import { createResolvedAddressGuard, type ResolvedAddressGuardOptions } from "@anthropic-ai/sandbox-runtime/dist/sandbox/resolved-address-guard.js";
 import type { SandboxPolicy } from "./policy.js";
+
+/** SRT leaves RFC1918 DNS answers enabled by default. Require an explicit
+ * IP:port allowance for them, both on lookup and when rechecking open sockets. */
+export function sandboxAddressGuard(network: SandboxPolicy["network"], resolver: Pick<ResolvedAddressGuardOptions, "resolve" | "localAddresses"> = {}) {
+  return createResolvedAddressGuard({
+    ...resolver,
+    ...(network.mode === "allowlist" ? { allowedDomains: network.allowedDomains, deniedDomains: network.deniedDomains } : {}),
+    deniedResolvedAddresses: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"],
+  });
+}
 
 /** TLS ClientHello parser. Fragmented records are assembled before parsing;
  * malformed, duplicate and encrypted-only server names are refused. A valid
@@ -75,8 +85,7 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
     const next = (refreshing ?? Promise.resolve()).then(async () => {
       try { network = await source(); }
       catch { network = { mode: "none" }; } // Corrupt/unreadable state never widens access.
-      const guard = createResolvedAddressGuard(network.mode === "allowlist"
-        ? { allowedDomains: network.allowedDomains, deniedDomains: network.deniedDomains } : {});
+      const guard = sandboxAddressGuard(network);
       for (const [socket, target] of bindings) {
         if (!domainAllowed(target.host, target.port, network, target.transport)
           || target.address && !guard.permits(target.host, target.address, target.port)) socket.destroy();
@@ -89,8 +98,7 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
   await refresh();
   const timer = source ? setInterval(() => { if (!refreshing) void refresh(); }, 200) : undefined;
   timer?.unref();
-  const lookupFor = (port: number) => createResolvedAddressGuard(network.mode === "allowlist"
-    ? { allowedDomains: network.allowedDomains, deniedDomains: network.deniedDomains } : {}).lookupFor(port);
+  const lookupFor = (port: number) => sandboxAddressGuard(network).lookupFor(port);
   const sockets = new Set<Socket>();
   const watch = (socket: Socket) => { sockets.add(socket); socket.on("error", () => socket.destroy()); socket.on("close", () => { sockets.delete(socket); bindings.delete(socket); }); socket.setTimeout(120_000, () => socket.destroy()); };
   const tunnel = (client: Socket, host: string, port: number, initial: Buffer = Buffer.alloc(0)) => {
@@ -112,6 +120,8 @@ export async function startSandboxNetwork(network: SandboxPolicy["network"], sou
       upstream.once("connect", () => {
         if (client.destroyed || !domainAllowed(host, port, network)) { upstream!.destroy(); return; }
         bindings.set(upstream!, { host, port, transport: "https", address: upstream!.remoteAddress });
+        // This is a destination-bounded TCP tunnel after ClientHello inspection.
+        // The proxy does not terminate TLS or verify the subsequent handshake.
         client.setTimeout(120_000); upstream!.write(buffered);
         upstream!.pipe(client); client.pipe(upstream!); client.resume();
       });

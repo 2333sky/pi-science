@@ -90,8 +90,9 @@ service-owned data.
 
 Settings → Network manages persistent domain decisions for `analysis` and local
 `mcp` independently. Decisions apply to every workspace served by this user’s
-server. Public hostname allows grant HTTPS/443. Exact RFC1918 IPv4 endpoints
-allow HTTP/HTTPS on their specified port (default 443). A block without a port
+server. Public hostname allows grant ClientHello-inspected TCP tunnels on port
+443. Exact RFC1918 IPv4 endpoints additionally allow HTTP on their specified
+port (default 443). A block without a port
 denies the destination on every port; a port-specific block denies that port.
 Blocks override configured allows. Removing a decision
 restores the operator baseline. Operator and built-in deny rules always win.
@@ -136,7 +137,11 @@ HTTP requests use validated absolute authorities. CONNECT and SOCKS tunnels
 require a bounded TLS ClientHello. Hostname destinations require matching SNI;
 explicitly approved IPv4 destinations can omit SNI. Malformed and encrypted
 ClientHello names are refused. SOCKS supports domain-name and IPv4 CONNECT with
-no authentication; UDP and raw plaintext tunnels remain blocked. HTTPS is tunneled without decrypting application data.
+no authentication. These are destination-bounded raw TCP tunnels after initial
+ClientHello inspection: the proxy neither terminates TLS nor verifies a successful
+TLS handshake, and subsequent bytes may be non-TLS. A client must present the
+accepted ClientHello prefix before upstream connection; bare plaintext connections
+and UDP remain blocked. Normal HTTPS clients validate certificates themselves.
 Clients must use the provided proxy variables; applications that bypass them
 receive OS denials. Node's environment proxy support is enabled, and the system
 CA bundle is copied into private scratch for curl, Python and Node.
@@ -263,15 +268,19 @@ while `/proc` is read.
 
 Settings → Network and `request_network_access` accept exact RFC1918 IPv4
 addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) with an optional
-port, for example `192.168.1.10:8080`. These entries allow HTTP and HTTPS only
-on that destination port; omitting the port means 443. Operator profile
+port, for example `192.168.1.10:8080`. These entries allow HTTP and a
+destination-bounded TCP tunnel after TLS ClientHello inspection on that port;
+omitting the port means 443. Operator profile
 `allowedDomains` and `deniedDomains` accept the same endpoint syntax. Public
-hostname approvals remain HTTPS/443 only. IP ranges, loopback, link-local,
+hostname approvals remain restricted to ClientHello-inspected tunnels on port 443. IP ranges, loopback, link-local,
 metadata addresses and noncanonical IP spellings are not accepted as user grants.
 
 An IP allowance is scoped to analysis or MCP, persists across projects, and
 can be revoked while kernels remain running. Denials take precedence. Broad
 public HTTPS access does not grant private IP access. A permitted hostname can
 resolve to a private address only when that exact IP and port are also allowed.
-HTTPS to an IP literal may omit SNI; TLS for hostnames still requires matching
-SNI. This does not add arbitrary TCP or UDP forwarding.
+The ClientHello prefix for an IP literal may omit SNI; hostname tunnels require
+matching SNI. After that check the proxy forwards raw TCP bytes without verifying
+a TLS handshake. These permissions therefore authorize TCP access to the exact
+approved endpoint, not an HTTPS-only protocol boundary. UDP remains blocked.
+Settings help and the approval card disclose this scope before access is granted.

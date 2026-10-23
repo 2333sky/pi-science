@@ -9,19 +9,21 @@ import type { InteractionBridge } from "./interaction-bridge.js";
 export function networkAccessTool(bridge: InteractionBridge, cwd?: string, sessionId?: string): AgentHarnessTool<{ env: NodeExecutionEnv }> {
   return {
     name: "request_network_access", label: "Request network access",
-    description: "Ask the user to permanently allow a public hostname over HTTPS/443 or an exact RFC1918 IPv4 address with an optional port over HTTP/HTTPS (default port 443) for analysis (Bash, Python and Jobs) or local MCP. Grants apply across projects until revoked in Network settings. Denied destinations cannot be bypassed. Approval updates running proxies without restarting kernels; retry the blocked request afterwards. Use profile=mcp for MCP tools; analysis grants do not authorize MCP connections. Candidate, install, control and BYOC policies are separate.",
+    description: "Ask the user to permanently allow a public hostname on port 443 or an exact RFC1918 IPv4 address with an optional port (default 443). CONNECT/SOCKS grants permit destination-bounded raw TCP after TLS ClientHello inspection; the proxy does not verify a TLS handshake. Private IP grants also permit HTTP on the approved port for analysis (Bash, Python and Jobs) or local MCP. Grants apply across projects until revoked in Network settings. Denied destinations cannot be bypassed. Approval updates running proxies without restarting kernels; retry the blocked request afterwards. Use profile=mcp for MCP tools; analysis grants do not authorize MCP connections. Candidate, install, control and BYOC policies are separate.",
     parameters: Type.Object({ domain: Type.String(), profile: Type.Optional(Type.Union([Type.Literal("analysis"), Type.Literal("mcp")])), reason: Type.Optional(Type.String({ maxLength: 2000 })) }),
     async execute(_id, params, _update, _ctx, _invocation, context) {
       const { domain, profile, reason } = z.object({ domain: networkDomain, profile: networkGrantProfile.default("analysis"), reason: z.string().max(2000).optional() }).strict().parse(params);
       const target = privateNetworkTarget(domain);
-      const access = target ? `HTTP/HTTPS on port ${target.port}` : "HTTPS/443";
+      const access = target
+        ? `HTTP and a TCP tunnel on port ${target.port} after TLS ClientHello inspection (the TLS handshake is not verified)`
+        : "a TCP tunnel on port 443 after TLS ClientHello inspection (the TLS handshake is not verified)";
       const result = (status: string, message: string) => ({ content: [{ type: "text" as const, text: JSON.stringify({ status, message }) }], details: { status, domain, profile } });
       await assertGrantable(profile, domain);
       const before = await readNetworkGrants();
       const decision = before.rules.some((rule) => rule.profile === profile && rule.decision === "deny" && domainMatches(domain, rule.domain))
         ? "deny" : before.rules.find((rule) => rule.profile === profile && rule.domain === domain)?.decision;
       if (decision === "deny") return result("denied", "A standing denial blocks this domain. The user can change it in Network settings.");
-      if (!target && cwd && await sessionMode(cwd, sessionId) !== "ask") return result("session_allowed", "Public HTTPS access is permitted by this session mode; existing denials still apply.");
+      if (!target && cwd && await sessionMode(cwd, sessionId) !== "ask") return result("session_allowed", "Public port-443 tunnels after TLS ClientHello inspection are permitted by this session mode; the TLS handshake is not verified and existing denials still apply.");
       const config = await profileConfiguration();
       if (decision === "allow" || config.profiles[profile]?.allowedDomains.some((pattern) => (!target || pattern.includes(":") || target.port === 443) && domainMatches(domain, pattern))) return result("already_allowed", `This destination is already allowed over ${access}.`);
       _update({ content: [], details: { approval: "waiting" } });

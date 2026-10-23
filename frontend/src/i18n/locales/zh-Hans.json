@@ -10,7 +10,7 @@
   "settings.network.allow": "允许",
   "settings.network.deny": "阻止",
   "settings.network.save": "保存权限",
-  "settings.network.scope": "公网主机名仅允许 HTTPS/443；RFC1918 内网 IPv4 地址允许指定端口的 HTTP/HTTPS（默认 443），例如 192.168.1.10:8080。不含协议、路径或通配符。阻止规则优先。",
+  "settings.network.scope": "公网主机名允许 443 端口的 TCP 隧道；内网 IPv4 地址还允许指定端口的 HTTP（默认 443），例如 192.168.1.10:8080。隧道只检查 TLS ClientHello，之后可转发原始 TCP 数据，代理不验证 TLS 握手。不含协议、路径或通配符。阻止规则优先。",
   "settings.network.remove": "移除",
   "settings.network.empty": "尚未添加域名权限。",
   "settings.network.operator": "服务器策略",

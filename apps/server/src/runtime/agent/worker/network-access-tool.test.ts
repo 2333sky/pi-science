@@ -23,6 +23,8 @@ it.each(["api.example.org", "192.168.1.10:8080"])("persists %s only after approv
   await vi.waitFor(() => expect(events).toHaveLength(1));
   expect(workerEventSchema.safeParse({ type: "runtime_event", event: { ...events[0], runtime_epoch: "network-test", runtime_sequence: 1 } }).success).toBe(true);
   expect(events[0]).toMatchObject({ type: "interaction.requested", method: "select", kind: "permission", message: expect.stringContaining("across all projects") });
+  expect(events[0]).toMatchObject({ message: expect.stringContaining("TLS handshake is not verified") });
+  if (domain.includes(":")) expect(events[0]).toMatchObject({ message: expect.stringContaining("HTTP and a TCP tunnel on port 8080") });
   expect((await readNetworkGrants()).rules).toHaveLength(0);
   bridge.notify("extension_ui_response", { id: events[0]!.id, value: "allow" });
   expect(await result).toMatchObject({ details: { status: "granted" } });
@@ -84,7 +86,7 @@ it("still asks for an unapproved private IP in auto mode", async () => {
   const item = request("192.168.1.10:8080", "analysis", "private-session");
   const result = item.run();
   await vi.waitFor(() => expect(item.events).toHaveLength(1));
-  expect(item.events[0]).toMatchObject({ message: expect.stringContaining("HTTP/HTTPS on port 8080") });
+  expect(item.events[0]).toMatchObject({ message: expect.stringContaining("HTTP and a TCP tunnel on port 8080") });
   item.bridge.notify("extension_ui_response", { id: item.events[0]!.id, value: "deny_once" });
   expect(await result).toMatchObject({ details: { status: "denied" } });
 });

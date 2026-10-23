@@ -36,8 +36,8 @@ export async function readNetworkGrantFile(path: string): Promise<NetworkGrants>
 export function grantedNetwork(base: SandboxPolicy["network"], state: NetworkGrants, profile: NetworkGrantProfile): SandboxPolicy["network"] {
   const rules = state.rules.filter((rule) => rule.profile === profile);
   const allowedDomains = base.mode === "allowlist" ? base.allowedDomains : [];
-  // Public hostname approvals remain HTTPS-only. Exact private endpoints permit
-  // HTTP and TLS on the approved port for local research services.
+  // Public hostname approvals permit ClientHello-inspected tunnels on port 443.
+  // Exact private endpoints also permit HTTP on their approved port.
   const privateAllows = rules.filter((rule) => rule.decision === "allow").flatMap((rule) => {
     const target = privateNetworkTarget(rule.domain);
     return target ? [`${target.host}:${target.port}`] : [];

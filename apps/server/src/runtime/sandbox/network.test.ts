@@ -3,7 +3,7 @@ import { createServer as httpServer } from "node:http";
 import { networkInterfaces } from "node:os";
 import { once } from "node:events";
 import { afterEach, expect, it } from "vitest";
-import { clientHelloServerName, domainAllowed, startSandboxNetwork } from "./network.js";
+import { clientHelloServerName, domainAllowed, sandboxAddressGuard, startSandboxNetwork } from "./network.js";
 import { grantedNetwork, privateNetworkTarget, type NetworkGrants } from "./network-grant-state.js";
 
 function hello(host?: string) {
@@ -108,22 +108,22 @@ it.skipIf(!privateHost)("forwards HTTP to an approved private endpoint and appli
     expect((await exchange(proxy.httpPort, request)).toString()).toContain("403");
   } finally { await proxy?.close(); proxy = undefined; await new Promise<void>((resolve) => target.close(() => resolve())); }
 });
-it.skipIf(!privateHost).each(["CONNECT", "SOCKS"])("forwards private IP TLS without SNI through %s and closes the tunnel on revocation", async (transport) => {
+it.skipIf(!privateHost).each(["CONNECT", "SOCKS"])("opens a destination-bounded TCP tunnel after ClientHello inspection through %s and revokes it", async (transport) => {
   const received: Buffer[] = [];
   let allowed = true;
   const target = tcpServer((socket) => socket.once("data", (data) => {
-    received.push(data); socket.write("private-tls-ok"); allowed = false;
+    received.push(data); socket.write("private-tcp-response"); allowed = false;
   }));
   target.listen(0, privateHost!); await once(target, "listening");
   const port = (target.address() as { port: number }).port;
   try {
     proxy = await startSandboxNetwork({ mode: "none" }, async () => ({ mode: "allowlist", allowedDomains: allowed ? [`${privateHost}:${port}`] : [], deniedDomains: [] }));
-    const data = hello();
+    const data = Buffer.concat([hello(), Buffer.from("plain TCP payload after ClientHello")]);
     expect(clientHelloServerName(data)).toBe("");
     const response = await new Promise<Buffer>((resolve, reject) => {
       const client = connect(transport === "CONNECT" ? proxy!.httpPort : proxy!.socksPort, "127.0.0.1");
       let buffer = Buffer.alloc(0), ready = false;
-      client.setTimeout(2000, () => client.destroy(new Error("private TLS timeout")));
+      client.setTimeout(2000, () => client.destroy(new Error("private tunnel timeout")));
       client.on("error", reject); client.on("close", () => resolve(buffer));
       client.on("data", (chunk) => {
         buffer = Buffer.concat([buffer, chunk]);
@@ -139,7 +139,47 @@ it.skipIf(!privateHost).each(["CONNECT", "SOCKS"])("forwards private IP TLS with
         }
       });
     });
-    expect(response.toString()).toContain("private-tls-ok");
+    expect(response.toString()).toContain("private-tcp-response");
     expect(received).toEqual([data]);
+  } finally { await proxy?.close(); proxy = undefined; await new Promise<void>((resolve) => target.close(() => resolve())); }
+});
+
+it.each(["10.20.30.40", "172.20.1.50", "192.168.1.50"])("requires exact IP:port approval for an allowed hostname resolving to %s", async (address) => {
+  const hostname = "api.example.org";
+  const base = { mode: "allowlist" as const, allowedDomains: [`${hostname}:443`], deniedDomains: [] as string[] };
+  // Remove host-interface denials so this specifically exercises RFC1918 policy.
+  const resolver = { localAddresses: () => [], resolve: (_host: string, _options: unknown, callback: (error: NodeJS.ErrnoException | null, addresses: { address: string; family: number }[]) => void) => callback(null, [{ address, family: 4 }]) };
+  const lookup = (network: typeof base) => new Promise((resolve, reject) => {
+    sandboxAddressGuard(network, resolver).lookupFor(443)(hostname, { all: true }, (error, addresses) => error ? reject(error) : resolve(addresses));
+  });
+  expect(domainAllowed(hostname, 443, base)).toBe(true);
+  await expect(lookup(base)).rejects.toMatchObject({ code: "ERR_SRT_RESOLVED_ADDRESS_DENIED" });
+  await expect(lookup({ ...base, allowedDomains: [...base.allowedDomains, `${address}:8443`] })).rejects.toMatchObject({ code: "ERR_SRT_RESOLVED_ADDRESS_DENIED" });
+  const approved = { ...base, allowedDomains: [...base.allowedDomains, `${address}:443`] };
+  await expect(lookup(approved)).resolves.toEqual([{ address, family: 4 }]);
+  await expect(lookup({ ...approved, deniedDomains: [address] })).rejects.toMatchObject({ code: "ERR_SRT_RESOLVED_ADDRESS_DENIED" });
+  // The same guard drives active-socket revocation after the IP grant disappears.
+  expect(sandboxAddressGuard(approved, resolver).permits(hostname, address, 443)).toBe(true);
+  expect(sandboxAddressGuard(base, resolver).permits(hostname, address, 443)).toBe(false);
+  await expect(lookup(base)).rejects.toMatchObject({ code: "ERR_SRT_RESOLVED_ADDRESS_DENIED" });
+});
+
+it.skipIf(!privateHost)("refuses bare plaintext before opening a private IP tunnel", async () => {
+  let connections = 0;
+  const target = tcpServer((socket) => { connections++; socket.destroy(); });
+  target.listen(0, privateHost!); await once(target, "listening");
+  const port = (target.address() as { port: number }).port;
+  try {
+    proxy = await startSandboxNetwork({ mode: "allowlist", allowedDomains: [`${privateHost}:${port}`], deniedDomains: [] });
+    await new Promise<void>((resolve, reject) => {
+      const client = connect(proxy!.httpPort, "127.0.0.1");
+      let ready = false;
+      client.setTimeout(2000, () => client.destroy(new Error("plaintext refusal timeout")));
+      client.once("error", reject);
+      client.once("close", () => ready ? resolve() : reject(new Error("CONNECT was not accepted")));
+      client.once("data", (response) => { ready = response.toString().includes("200 Connection Established"); client.write("GET /raw HTTP/1.1\r\n\r\n"); });
+      client.once("connect", () => client.write(`CONNECT ${privateHost}:${port} HTTP/1.1\r\nHost: ${privateHost}:${port}\r\n\r\n`));
+    });
+    expect(connections).toBe(0);
   } finally { await proxy?.close(); proxy = undefined; await new Promise<void>((resolve) => target.close(() => resolve())); }
 });
