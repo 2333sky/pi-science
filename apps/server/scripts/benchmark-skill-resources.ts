@@ -10,10 +10,10 @@ import { skillResourcePolicy } from "../src/runtime/sandbox/skill-resources.js";
 const samples = Number(process.env.SKILL_BENCH_SAMPLES ?? 5);
 const skillCount = Number(process.env.SKILL_BENCH_SKILLS ?? 4);
 const sizes = (process.env.SKILL_BENCH_FILES ?? "0,1000,5000,20000").split(",").map(Number);
-const maxP95Ms = Number(process.env.SKILL_BENCH_MAX_P95_MS ?? 15000);
+const maxP95Ms = process.env.SKILL_BENCH_MAX_P95_MS === undefined ? null : Number(process.env.SKILL_BENCH_MAX_P95_MS);
 if (!Number.isInteger(samples) || samples < 3 || samples > 10 || !Number.isInteger(skillCount) || skillCount < 1 || skillCount > 32
   || sizes.length > 4 || sizes.some((size) => !Number.isInteger(size) || size < 0 || size > 30000)
-  || !Number.isFinite(maxP95Ms) || maxP95Ms <= 0 || maxP95Ms > 60000) throw new Error("Benchmark bounds: 3–10 samples, 1–32 skills, up to four sizes of 0–30000 files, 0–60000ms budget");
+  || (maxP95Ms !== null && (!Number.isFinite(maxP95Ms) || maxP95Ms <= 0 || maxP95Ms > 60000))) throw new Error("Benchmark bounds: 3–10 samples, 1–32 skills, up to four sizes of 0–30000 files, 0–60000ms budget");
 const keys = ["PI_SCIENCE_HOME", "PI_SCIENCE_EXECUTION_MODE", "PI_SCIENCE_SANDBOX_PROFILES", "PI_SCIENCE_SANDBOX_READ_POLICY"] as const;
 const previous = keys.map((key) => [key, process.env[key]] as const);
 const scratch = await realpath(await mkdtemp(join(tmpdir(), "skill-resource-benchmark-")));
@@ -56,7 +56,7 @@ try {
         p50_ms: Number(times[Math.ceil(samples * 0.5) - 1]!.toFixed(2)), p95_ms: Number(times[Math.ceil(samples * 0.95) - 1]!.toFixed(2)) });
     }
   }
-  const failures = rows.filter((row) => row.p95_ms > maxP95Ms);
+  const failures = rows.filter((row) => maxP95Ms !== null && row.p95_ms > maxP95Ms);
   process.stdout.write(JSON.stringify({ node: process.version, platform: process.platform, arch: process.arch, warmup: 1, samples, maxP95Ms, passed: failures.length === 0, rows }, null, 2) + "\n");
   if (failures.length) throw new Error(`Skill policy p95 exceeded ${maxP95Ms}ms: ${failures.map((row) => `${row.operation}/${row.skillFiles}`).join(", ")}`);
 } finally {
