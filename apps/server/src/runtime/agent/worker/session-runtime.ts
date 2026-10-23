@@ -10,7 +10,7 @@ import { sandboxBashTool } from "./sandbox-bash.js";
 import { confinedReadTool, type SandboxIdentity } from "./confined-read-tool.js";
 import { randomUUID } from "node:crypto";
 import { decodeCommand, decodeNotification } from "./command-contract.js";
-import { isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { listWorkspaceSessions, retrySessionDirectory } from "../workspace-session-identity.js";
 import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, formatSkillsForSystemPrompt, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill } from "@earendil-works/pi-agent-core/node";
 import { agentModelCatalog, agentModels } from "./agent-models.js";
@@ -183,13 +183,19 @@ export class SessionRuntime {
       const nativeWebTools = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name === "web_search" || name === "web_fetch")) ? await webTools() : [];
       const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
       const basePrompt = options.systemPrompt ?? "You are a helpful scientific research assistant.";
+      // Resolve per invocation so policy changes and refreshes affect Bash too.
+      // A standalone .md skill does not authorize its shared parent directory.
+      const currentSkillDirectories = async (): Promise<string[]> => {
+        const { skills = [] } = await harness.getResources(context);
+        return skills.filter((skill) => basename(skill.filePath) === "SKILL.md").map((skill) => dirname(skill.filePath));
+      };
       const { harness, open } = await AgentHarness.create({
         session,
         models,
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions, options.cwd, session.metadata.id)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
+        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions, options.cwd, session.metadata.id)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
           todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...nativeWebTools, ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {

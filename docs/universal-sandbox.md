@@ -107,3 +107,24 @@ Builtin, project and Skill-local roles follow one rule: omitted `tools` inherits
 Admission persists each effective tool set. Restore/resume and every delegated invocation intersect it with current Parent/role permissions; editing a role or enabling a new Parent tool cannot widen an existing task. An interrupted task without a tool snapshot cannot infer historical authority from current definitions: inspect prior results and dispatch a new invocation. Committed results remain readable without executing again.
 
 Workspace-scoped Researcher/Reviewer roles can inherit side-effectful tools already active in the Parent. Read-only instructions express task intent, not enforced permissions; supply a narrowed per-task tool list for strict read-only work. Confined Experimenters remain limited to read/Bash/Notebook and a validated grant even when their role omits `tools`.
+
+
+## Skill helper resources
+
+Each workspace Bash invocation adds read-only access to the current Harness's
+enabled directory-based Skills (`SKILL.md` plus helpers, references and assets).
+This allows commands such as `python -B .pi/skills/stats-integrity/stats_integrity_check.py study.md`
+while keeping the rest of `.pi`, including configuration and prompts, hidden.
+Explicitly configured external Skill directories receive the same narrow read
+access; their parent and sibling directories receive no additional permission.
+
+Skill resource directories are not writable. Helpers should write results to the
+workspace or `$TMPDIR`, rather than beside their source files. Existing credential,
+symlink, hardlink and service-data restrictions still apply inside resource trees.
+Standalone `.md` Skills do not authorize their shared parent directory. Confined
+and Candidate workers do not inherit these extra reads; they keep their explicit
+execution grant. Runtime dependencies and package installation remain separate.
+
+The directory list is read from current Harness resources for each Bash call, so
+Skills policy changes and refreshes affect subsequent invocations without a Worker
+restart. An already admitted invocation retains its original sandbox policy.

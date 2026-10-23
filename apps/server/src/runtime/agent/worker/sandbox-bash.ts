@@ -3,6 +3,7 @@ import { createBashTool, NodeExecutionEnv, type AgentHarnessTool } from "@earend
 import { withFileWriteLock, workspaceFile } from "../../../storage/persistence.js";
 import { executionIdFor, executionRepository } from "../../executions/execution-repository.js";
 import { identifyPolicy, workspacePolicy } from "../../sandbox/policy.js";
+import { skillResourcePolicy } from "../../sandbox/skill-resources.js";
 import { prepareSandbox, type PreparedSandbox } from "../../sandbox/process.js";
 import { bashDependencies, SANDBOX_RUNTIME } from "../../sandbox/settings.js";
 import { executionGrantPolicy } from "../../sandbox/execution-grants.js";
@@ -14,13 +15,14 @@ import { publishWorkspaceArtifactsDetailed } from "../../artifacts/workspace-art
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 /** Keep upstream schema, output capture/checkpoints and result contract. Only replace its OS backend. */
-export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Record<string, string> = toolEnvironment(process.env)): Tool {
+export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Record<string, string> = toolEnvironment(process.env), skillDirectories: () => Promise<string[]> = async () => []): Tool {
   const original = createBashTool();
-  return { ...original, description: `${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. HTTP downloads must check failure status and use timeouts.`, async execute(id, params, update, ctx, invocation, context) {
+  return { ...original, description: `${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts.`, async execute(id, params, update, ctx, invocation, context) {
     const confined = !!identity.executionGrantId || !!identity.candidateId || identity.executionScope === "candidate" || identity.executionScope === "confined";
     if (confined && !identity.executionGrantId) throw new Error("Candidate execution requires a server-bound candidate or generic execution grant");
     const revision = hostEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID;
-    const policy = confined ? await executionGrantPolicy(identity, revision, "bash") : await workspacePolicy(identity.cwd, revision, "analysis", identity.delegatedAgent ? undefined : identity.sessionId);
+    const policy = confined ? await executionGrantPolicy(identity, revision, "bash")
+      : await skillResourcePolicy(await workspacePolicy(identity.cwd, revision, "analysis", identity.delegatedAgent ? undefined : identity.sessionId), await skillDirectories());
     const binding = confined ? { directory: policy.cwd } : undefined;
     const values = params as { command: string; timeout?: number };
     const timeout = values.timeout ?? 600;

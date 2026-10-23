@@ -1,6 +1,7 @@
 import { execFileSync, spawn, type SpawnOptions } from "node:child_process";
-import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { cp, link, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { changeNetworkGrant, revokeNetworkGrant, networkGrantsPath } from "./network-grants.js";
 import type { SandboxProfile } from "./profiles.js";
@@ -40,6 +41,43 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     expect(await readFile(join(cwd, ".netrc"), "utf8")).toBe("SECRET");
     expect(result, result.stderr).toMatchObject({ code: 0, stdout: "isolated\n" }); expect(await readFile(join(cwd, "result.txt"), "utf8")).toBe("success");
   }, 30_000);
+  it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("executes enabled skill helpers read-only while keeping .pi configuration and disabled skills hidden", async () => {
+    const cwd = await fixture(), externalRoot = await fixture();
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    vi.stubEnv("PI_SCIENCE_HOME", await fixture());
+    const skill = join(cwd, ".pi/skills/stats-integrity");
+    const external = join(externalRoot, "custom-skill");
+    await mkdir(skill, { recursive: true }); await mkdir(external);
+    await cp(fileURLToPath(new URL("../../../../../skills/stats-integrity", import.meta.url)), skill, { recursive: true });
+    await writeFile(join(skill, "helper.sh"), "printf 'shell-helper-ok\n'\n");
+    await writeFile(join(external, "SKILL.md"), "external helper");
+    await writeFile(join(external, "helper.sh"), "printf 'external-helper-ok\n'\n");
+    await writeFile(join(externalRoot, "sibling.txt"), "SECRET");
+    await writeFile(join(cwd, ".pi/settings.json"), "SECRET");
+    await mkdir(join(cwd, ".pi/prompts")); await writeFile(join(cwd, ".pi/prompts/private.md"), "SECRET");
+    await mkdir(join(cwd, ".pi/skills/disabled")); await writeFile(join(cwd, ".pi/skills/disabled/helper.sh"), "SECRET");
+    await writeFile(join(skill, "credentials.json"), "SECRET");
+    await symlink(join(cwd, ".pi/settings.json"), join(skill, "linked.txt"));
+    await link(join(cwd, ".pi/settings.json"), join(skill, "hardlinked.txt"));
+    await writeFile(join(cwd, "study.md"), "Observational association without a causal claim.");
+    let enabled = true;
+    const tool = sandboxBashTool({ cwd, sessionId: "skill-helpers" }, {}, async () => enabled ? [skill, external] : []);
+    const run = (id: string, command: string) => tool.execute(id, { command, timeout: 20 }, () => {}, { env: new NodeExecutionEnv({ cwd }) },
+      { operationId: "skills", invocationId: id, turnId: "turn", getMemo: async () => undefined, setMemo: async () => {} }, BACKGROUND_CONTEXT);
+    const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+    const helper = join(skill, "stats_integrity_check.py");
+    const blocked = [join(cwd, ".pi/settings.json"), join(cwd, ".pi/prompts/private.md"), join(cwd, ".pi/skills/disabled/helper.sh"), join(skill, "credentials.json"), join(skill, "linked.txt"), join(skill, "hardlinked.txt"), join(externalRoot, "sibling.txt")];
+    const result = await run("enabled", ["set -e", `${quote(process.env.PI_SCIENCE_SANDBOX_PYTHON!)} -B ${quote(helper)} study.md > review.json`,
+      `/bin/bash ${quote(join(skill, "helper.sh"))}`, `/bin/bash ${quote(join(external, "helper.sh"))}`,
+      ...blocked.map((path) => `test ! -s ${quote(path)}`),
+      `if printf changed > ${quote(helper)} 2>/dev/null; then exit 71; fi`,
+      `if printf changed > ${quote(join(external, "helper.sh"))} 2>/dev/null; then exit 72; fi`, "echo skills-readonly"].join("; "));
+    expect(JSON.stringify(result.content)).toContain("skills-readonly");
+    expect(await readFile(join(cwd, "review.json"), "utf8")).toContain("Stats integrity gate");
+    expect(await readFile(join(external, "helper.sh"), "utf8")).toContain("external-helper-ok");
+    enabled = false;
+    expect(JSON.stringify((await run("disabled", `test ! -s ${quote(helper)} && test ! -s ${quote(join(external, "helper.sh"))} && echo skills-disabled`)).content)).toContain("skills-disabled");
+  }, 60_000);
   it("removes descendants which detach and outlive the original command", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     const descendant = "setTimeout(()=>require('node:fs').writeFileSync('leaked.txt','escaped'),1500);setInterval(()=>{},1000)";

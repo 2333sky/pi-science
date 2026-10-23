@@ -338,6 +338,44 @@ describe("agent-core worker mutations", () => {
     await nextPrompt(["added"]);
   }, 20_000);
 
+  it("derives Bash resource grants from current skills after policy changes and refresh", async () => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const { instance, parts } = await runtime(async (cwd) => {
+      await mkdir(join(cwd, ".pi/skills/review"), { recursive: true });
+      await writeFile(join(cwd, ".pi/skills/review/SKILL.md"), "---\nname: review\ndescription: Review evidence\n---\nRun helper.py");
+      await writeFile(join(cwd, ".pi/skills/loose.md"), "---\nname: loose\ndescription: A standalone skill\n---\nInstructions only.");
+    });
+    const cwd = parts.executionEnv.cwd;
+    const privateRoot = resolve(await mkdtemp(join(tmpdir(), "skill-grants-service-"))); roots.push(privateRoot);
+    vi.stubEnv("PI_SCIENCE_HOME", privateRoot);
+    const sandbox = await import("../../sandbox/process.js");
+    const prepare = vi.spyOn(sandbox, "prepareSandbox").mockRejectedValue(new Error("stop before spawn"));
+    const bash = (await parts.harness.getTools(context)).find((tool) => tool.name === "bash")!;
+    async function policyForCall(id: string) {
+      await expect(bash.execute(id, { command: "true" }, () => {}, { env: parts.executionEnv },
+        { operationId: "skill-resources", invocationId: id, turnId: "turn", getMemo: async () => undefined, setMemo: async () => {} }, context)).rejects.toThrow("stop before spawn");
+      return prepare.mock.calls.at(-1)![0];
+    }
+    const review = join(cwd, ".pi/skills/review");
+    const initial = await policyForCall("initial");
+    expect(initial.readPaths).toContain(review);
+    expect(initial.readPaths).not.toContain(join(cwd, ".pi/skills")); // Loose .md files do not authorize a shared parent directory.
+    expect(initial.writeDenyPaths).toContain(review);
+    expect(await instance.command("set_skill_policy", { policy: { mode: "none" } })).toMatchObject({ success: true });
+    const disabled = await policyForCall("disabled");
+    expect(disabled.readPaths).not.toContain(review);
+    expect(disabled.id).not.toBe(initial.id);
+    expect(await instance.command("set_skill_policy", { policy: { mode: "inherit" } })).toMatchObject({ success: true });
+    expect((await policyForCall("reenabled")).readPaths).toContain(review);
+    const added = join(cwd, ".pi/skills/added"); await mkdir(added);
+    await writeFile(join(added, "SKILL.md"), "---\nname: added\ndescription: Newly added helper\n---\nRun helper.sh");
+    await rm(join(review, "SKILL.md"));
+    expect(await instance.command("refresh_skills", {})).toMatchObject({ success: true });
+    const refreshed = await policyForCall("refreshed");
+    expect(refreshed.readPaths).toContain(added);
+    expect(refreshed.readPaths).not.toContain(review);
+  }, 20_000);
+
   it("does not give ordinary bash processes model, server, or inherited credentials", async () => {
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");
     vi.stubEnv("PR115_PARENT_SECRET", "parent-test-secret");
