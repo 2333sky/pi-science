@@ -17,6 +17,7 @@ const putCalls: { url: string; body: unknown }[] = [];
 
 function defaultFetch(url: string, init: RequestInit): Promise<Response> {
   const method = (init.method || "GET").toUpperCase();
+  if (url === "/api/settings/approval") return Promise.resolve(jsonResponse({ defaultMode: "ask" }));
   if (url.startsWith("/api/provider-views")) return Promise.resolve(jsonResponse({ providers: [] }));
   if (url.startsWith("/api/model-selection/catalog")) return Promise.resolve(jsonResponse({ available_models: [{ id: "deepseek/deepseek-v4-flash", label: "DeepSeek V4 Flash", thinking_levels: ["off", "high", "max"], context_window: 1000000 }] }));
   if (url === "/api/model-selection/default") {
@@ -38,6 +39,7 @@ function defaultFetch(url: string, init: RequestInit): Promise<Response> {
     return Promise.resolve(jsonResponse({ ok: true, model: "deepseek/deepseek-v4-flash", thinking: "high" }));
   }
   if (url.startsWith("/api/settings/subagents?")) return Promise.resolve(jsonResponse({ agents: [{ name: "reviewer", path: ".pi/agents/reviewer.md" }] }));
+  if (url === "/api/settings/web-access") return Promise.resolve(jsonResponse({ web_access: { search_enabled: true, fetch_enabled: true, provider: "auto", api_keys: {} } }));
   if (url === "/api/mcp/connectors") return Promise.resolve(jsonResponse({ connectors: [] }));
   if (url === "/api/settings/skills" || url.startsWith("/api/settings/skills?cwd=")) {
     return Promise.resolve(jsonResponse({
@@ -122,7 +124,7 @@ describe("SettingsContent", () => {
     // Every nav item uses a different outline icon (distinct svg content).
     const icons = screen.getAllByRole("tab").map((tab) => tab.querySelector("svg")?.innerHTML ?? null);
     expect(icons.every(Boolean)).toBe(true);
-    expect(new Set(icons).size).toBe(9);
+    expect(new Set(icons).size).toBe(11);
   });
 
   it("moves the close control into the content header, outside the sidebar", async () => {
@@ -158,6 +160,28 @@ describe("SettingsContent", () => {
     expect(screen.getByRole("tab", { name: "General" })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByRole("tabpanel", { name: "AI Models" })).toHaveAttribute("aria-labelledby", "settings-tab-models");
     expect(await screen.findByText("Model services")).toBeInTheDocument();
+  });
+
+  it("shows global Network scope when opened from a workspace and restores workspace scope on other tabs", async () => {
+    renderContent("/lab/project");
+    const aside = (await screen.findByRole("tablist", { name: "Settings" })).closest("aside")!;
+    expect(within(aside).getByText("Workspace settings")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Network" }));
+    expect(within(aside).getByText("Global settings")).toBeInTheDocument();
+    expect(within(aside).queryByText("Workspace settings")).not.toBeInTheDocument();
+    expect(within(aside).queryByText("/lab/project")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "General" }));
+    expect(within(aside).getByText("Workspace settings")).toBeInTheDocument();
+    expect(within(aside).getByText("/lab/project")).toBeInTheDocument();
+  });
+
+  it("opens global web search settings from a workspace", async () => {
+    renderContent("/lab/project");
+    const aside = (await screen.findByRole("tablist", { name: "Settings" })).closest("aside")!;
+    fireEvent.click(screen.getByRole("tab", { name: "Web search" }));
+    expect(await screen.findByRole("checkbox", { name: "Enable web search" })).toBeChecked();
+    expect(within(aside).getByText("Global settings")).toBeInTheDocument();
+    expect(within(aside).queryByText("/lab/project")).not.toBeInTheDocument();
   });
 
   it("shows separate Built-in and User Skills tables inside Settings", async () => {

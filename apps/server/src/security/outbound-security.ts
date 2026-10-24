@@ -24,12 +24,18 @@ export function isPrivateOrReservedAddress(address: string): boolean {
   return family === 4 ? ipv4IsBlocked(address) : family === 6 ? ipv6IsBlocked(address) : true;
 }
 
-export async function validateOutboundHttpUrl(raw: string, options: { allowPrivate?: boolean } = {}): Promise<URL> {
+/** URL syntax validation without requiring DNS in a network-isolated process. */
+export function parseOutboundHttpUrl(raw: string): URL {
   let url: URL;
   try { url = new URL(raw); } catch { throw new Error("base_url must be a valid absolute URL"); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("only http(s) URLs are allowed");
   if (url.username || url.password) throw new Error("URL credentials are not allowed");
   if (!url.hostname) throw new Error("URL hostname is required");
+  return url;
+}
+
+export async function validateOutboundHttpUrl(raw: string, options: { allowPrivate?: boolean } = {}): Promise<URL> {
+  const url = parseOutboundHttpUrl(raw);
   const allowPrivate = options.allowPrivate ?? process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0";
   // URL.hostname keeps the brackets for IPv6 literals ("[::1]"); strip them
   // so isIP can classify the address without a DNS round-trip.

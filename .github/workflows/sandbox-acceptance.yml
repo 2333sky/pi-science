@@ -1,0 +1,72 @@
+name: sandbox acceptance
+on:
+  pull_request:
+    paths:
+      - 'apps/server/src/runtime/agent/**'
+      - 'apps/server/src/runtime/sandbox/**'
+      - 'apps/server/src/runtime/kernel/**'
+      - 'apps/server/src/runtime/executions/**'
+      - 'apps/server/src/runtime/artifacts/**'
+      - 'apps/server/src/runtime/jobs/**'
+      - 'apps/server/src/runtime/workspace/**'
+      - 'apps/server/src/mcp/**'
+      - 'apps/server/package.json'
+      - 'apps/server/scripts/benchmark-skill-resources.ts'
+      - 'patches/**'
+      - 'pnpm-workspace.yaml'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/sandbox-acceptance.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sandbox:
+    name: ${{ matrix.os == 'macos-latest' && 'macOS Seatbelt acceptance' || 'Linux Bubblewrap acceptance' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.16.0
+          cache: pnpm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install trusted test dependencies
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update
+            sudo apt-get install -y bubblewrap socat ripgrep
+            # Dedicated ephemeral CI runner; Ubuntu's AppArmor default blocks user namespaces.
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          else
+            brew install socat ripgrep
+          fi
+          python -m pip install numpy==2.3.5
+          pnpm install --frozen-lockfile
+      - name: Validate real platform isolation and role policies
+        shell: bash
+        run: |
+          export PI_SCIENCE_SANDBOX_TEST=1
+          export PI_SCIENCE_SANDBOX_PYTHON="$(python -c 'import os,sys; print(os.path.realpath(sys.executable))')"
+          export PI_SCIENCE_SANDBOX_PYTHON_ROOT="$(python -c 'import os,sys; print(os.path.realpath(sys.base_prefix))')"
+          export PI_SCIENCE_SANDBOX_SOCAT="$(command -v socat)"
+          export PI_SCIENCE_SANDBOX_RIPGREP="$(command -v rg)"
+          pnpm --filter @pi-science/server exec vitest run src/runtime/agent/worker/confined-read-tool.test.ts src/runtime/agent/agent-core-tools.test.ts src/runtime/sandbox/universal-sandbox.test.ts src/runtime/sandbox/execution-scope.test.ts src/runtime/sandbox/execution-grants.test.ts src/runtime/agent/subagent-dispatch.test.ts src/runtime/sandbox/platform-acceptance.test.ts src/runtime/sandbox/skill-resources.test.ts src/runtime/sandbox/session-approval.test.ts src/runtime/sandbox/profiles.test.ts src/runtime/sandbox/network.test.ts src/runtime/sandbox/network-grants.test.ts src/runtime/agent/worker/network-access-tool.test.ts src/runtime/executions/execution-budget.test.ts src/runtime/agent/worker/execution-budget.test.ts src/mcp/call-scheduler.test.ts --reporter=default --reporter=junit --outputFile.junit=sandbox-acceptance.xml
+      - name: Measure per-Bash Skill policy scans
+        shell: bash
+        run: pnpm --filter @pi-science/server exec tsx scripts/benchmark-skill-resources.ts > skill-resource-performance.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sandbox-acceptance-${{ matrix.os }}
+          path: |
+            apps/server/sandbox-acceptance.xml
+            skill-resource-performance.json

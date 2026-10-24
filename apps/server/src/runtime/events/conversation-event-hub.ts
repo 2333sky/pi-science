@@ -1,3 +1,4 @@
+import { pathIsInside } from "../../support/platform-utils.js";
 import type { ProductInput } from "./product-input.js";
 import type { AssistantContentKind } from "./assistant-content.js";
 import { randomUUID } from "node:crypto";
@@ -361,7 +362,7 @@ export class ConversationEventHub {
   private readonly subscribers = new Map<string, Set<Subscriber>>();
   private readonly pendingInteractions = new Map<string, SseEventRecord[]>();
   private readonly publishing = new Map<string, Promise<void>>();
-  private readonly observing = new Set<Promise<void>>();
+  private readonly observing = new Map<Promise<void>, string>();
   private readonly pendingText = new Map<string, PendingText>();
   private readonly turns = new Map<string, TurnState>();
   private readonly bound = new WeakSet<RuntimeEventSource>();
@@ -380,19 +381,23 @@ export class ConversationEventHub {
     this.log = log;
   }
 
-  async flush(): Promise<void> {
+  async flush(cwd?: string): Promise<void> {
     // Process exit handlers append terminal records through their event queue.
     // Yield once so those publishes are registered before taking the snapshot.
+    const includes = (key: string) => !cwd || pathIsInside(resolve(cwd), key.split("\0")[0]!, true);
+    const observations = () => [...this.observing].filter(([, key]) => includes(key)).map(([pending]) => pending);
+    const publications = () => [...this.publishing].filter(([key]) => includes(key)).map(([, pending]) => pending);
+    const texts = () => [...this.pendingText.values()].filter((pending) => includes(streamKey(pending.cwd, pending.sessionId)));
     await new Promise<void>((resolve) => setImmediate(resolve));
     do {
-      await Promise.allSettled([...this.observing]);
-      await Promise.all([...this.pendingText.values()].map((pending) => this.flushPendingText(pending.cwd, pending.sessionId)));
-      await Promise.allSettled([...this.publishing.values()]);
-    } while (this.observing.size || this.publishing.size || this.pendingText.size);
+      await Promise.allSettled(observations());
+      await Promise.all(texts().map((pending) => this.flushPendingText(pending.cwd, pending.sessionId)));
+      await Promise.allSettled(publications());
+    } while (observations().length || publications().length || texts().length);
   }
 
-  private trackObservation(pending: Promise<void>): void {
-    this.observing.add(pending);
+  private trackObservation(pending: Promise<void>, cwd: string, sessionId: string): void {
+    this.observing.set(pending, streamKey(cwd, sessionId));
     const done = () => this.observing.delete(pending);
     void pending.then(done, done);
   }
@@ -495,7 +500,7 @@ export class ConversationEventHub {
         }
         await Promise.resolve(options.observe?.(input, sessionId, identity)).catch(() => undefined);
       });
-      this.trackObservation(eventQueue);
+      this.trackObservation(eventQueue, cwd, sessionId);
     });
     process.on("exit", ({ code, signal }: { code: number | null; signal: NodeJS.Signals | null }) => {
       const sessionId = options.activeSessionId();
@@ -518,7 +523,7 @@ export class ConversationEventHub {
         });
         await this.publish(cwd, sessionId, { type: "runtime.paused", sessionId });
       });
-      this.trackObservation(terminal);
+      this.trackObservation(terminal, cwd, sessionId);
     });
   }
 
@@ -642,19 +647,26 @@ export class ConversationEventHub {
     }
     if (!canPublish()) return "cancelled";
     const type = String(payload.type ?? "");
-    if (type === "questionnaire.asked") {
-      this.pendingInteractions.set(key, [record]);
-    } else if (type === "interaction.requested" && payload.questionnaire === true) {
+    if (type === "questionnaire.asked" || type === "interaction.requested") {
       const pending = this.pendingInteractions.get(key) ?? [];
-      const questionnaire = pending.find((candidate) => {
-        const candidatePayload = recordPayload(candidate);
-        return candidatePayload?.type === "questionnaire.asked"
-          && candidatePayload.toolCallId === payload.toolCallId;
+      // Parallel tool calls can each wait for browser input. Keep every
+      // unresolved request so a fresh browser attachment restores the queue.
+      const remaining = pending.filter((candidate) => {
+        const previous = recordPayload(candidate);
+        if (previous?.type !== type) return true;
+        return type === "questionnaire.asked"
+          ? previous.toolCallId !== payload.toolCallId
+          : previous.requestId !== payload.requestId;
       });
-      this.pendingInteractions.set(key, questionnaire ? [questionnaire, record] : [record]);
-    } else if (type === "interaction.requested") {
-      this.pendingInteractions.set(key, [record]);
-    } else if (type === "questionnaire.finished" || type === "operation.settled") {
+      this.pendingInteractions.set(key, [...remaining, record]);
+    } else if (type === "questionnaire.finished") {
+      const remaining = (this.pendingInteractions.get(key) ?? []).filter((candidate) => {
+        const previous = recordPayload(candidate);
+        return previous?.toolCallId !== payload.toolCallId;
+      });
+      if (remaining.length) this.pendingInteractions.set(key, remaining);
+      else this.pendingInteractions.delete(key);
+    } else if (type === "operation.settled") {
       this.pendingInteractions.delete(key);
     }
     for (const subscriber of this.subscribers.get(key) ?? []) {
@@ -876,6 +888,13 @@ export class ConversationEventHub {
       case "tool.updated": {
         turn.hadActivity = true;
         const record: Record<string, unknown> = { type: "tool.updated", sessionId, callId: String(event.toolCallId ?? ""), itemId: String(event.toolCallId ?? ""), ...turnFields(turn), tool: String(event.toolName ?? ""), status: "running" };
+        let snapshot: unknown = event.partialResult;
+        if (typeof snapshot === "string") {
+          try { snapshot = JSON.parse(snapshot); } catch { /* ordinary text output */ }
+        }
+        const partialDetails = snapshot && typeof snapshot === "object"
+          ? (snapshot as { details?: { approval?: unknown } }).details : undefined;
+        if (partialDetails?.approval === "waiting") record.status = "waiting-approval";
         // Partial results arrive as result-shaped snapshots; unwrap the text
         // so the live row shows real output. An empty snapshot must not
         // clobber an already accumulated tail, so it is simply omitted.
@@ -933,6 +952,7 @@ export class ConversationEventHub {
           requestId,
           kind,
           method,
+          ...(typeof eventField(event, "toolCallId") === "string" ? { toolCallId: String(eventField(event, "toolCallId")) } : {}),
           title: questionnaireId
             ? "Questionnaire"
             : markedPermissionTitle ?? String(rawTitle ?? (method === "confirm" ? "Confirmation" : "Question")),

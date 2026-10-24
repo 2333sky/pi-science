@@ -10,10 +10,8 @@ import type { ServerConfig } from "../config/config.js";
 import { WorkspaceEnvironmentService } from "../runtime/workspace/workspace-environment.js";
 import { NodeKernelManager } from "../runtime/kernel/node-kernel-manager.js";
 import { NotebookService } from "../runtime/notebooks/notebook-service.js";
-import { ResearchLoopCoordinator } from "../research-loop/coordinator.js";
 import { ProjectReviewService } from "../project-review/service.js";
 import { CoreReviewSubagentRunner } from "../project-review/core-subagent-runner.js";
-import { CoreResearchSubagentRunner } from "../research-loop/core-subagent-runner.js";
 import { configPath } from "../storage/persistence.js";
 import { EnvironmentRepository } from "../storage/sqlite/repositories/environment-repository.js";
 import { JobRepository } from "../storage/sqlite/repositories/job-repository.js";
@@ -34,7 +32,6 @@ export interface ServerModules {
   readonly environments: WorkspaceEnvironmentService;
   readonly kernels: NodeKernelManager;
   readonly notebooks: NotebookService;
-  readonly research: ResearchLoopCoordinator;
   readonly projectReview: ProjectReviewService;
   readonly stateStore: SqliteStateStore;
   readonly workspaces: WorkspaceRepository;
@@ -70,16 +67,16 @@ export function createServerModules(config?: ServerConfig, options: ServerModule
   });
   const settings = new SettingsStore();
   const modelResources = new ModelResourceService({ settings, runtimeCatalog });
-  const coreServer = { backendUrl: config ? `http://127.0.0.1:${config.port}` : undefined, internalToken: config?.internalToken };
+  const coreServer = { backendUrl: config ? `http://127.0.0.1:${config.port}` : undefined, internalToken: config?.internalToken, onWorkerExit: (cwd: string, owner: string) => kernels.shutdownOwner(cwd, owner), hasApprovalResources: (cwd: string, owner: string) => kernels.hasOwner(cwd, owner), revokeApprovalResources: (cwd: string, owner: string) => kernels.revokeOwner(cwd, owner) };
   const projectReview = new ProjectReviewService(new CoreReviewSubagentRunner(environments, coreServer), sessionRepository);
   const sessions = new NodeSessionService(events, sessionRepository, environments, projectReview, undefined, modelResources, {
     backendUrl: config ? `http://127.0.0.1:${config.port}` : undefined,
     internalToken: config?.internalToken,
+    onWorkerExit: coreServer.onWorkerExit,
   });
   const mcpRepository = new McpRepository(stateStore);
   const mcp = new McpConnectorService(mcpRepository, workspaces, settings, sessions, new McpRuntimeProjection(mcpRepository));
   if (sqliteEnabled) sessions.configureBeforeRuntimeStart((cwd) => mcp.materializeWorkspace(cwd));
   const jobs = new JobCoordinator(environments, {}, undefined, sqliteEnabled ? jobRepository : undefined);
-  const research = new ResearchLoopCoordinator(jobs, new CoreResearchSubagentRunner(environments, coreServer));
-  return { sessions, events, sessionRepository, runtimeCatalog, settings, modelResources, jobs, research, projectReview, environments, kernels, notebooks, stateStore, workspaces, environmentRepository, jobRepository, sqliteEnabled, mcp };
+  return { sessions, events, sessionRepository, runtimeCatalog, settings, modelResources, jobs, projectReview, environments, kernels, notebooks, stateStore, workspaces, environmentRepository, jobRepository, sqliteEnabled, mcp };
 }

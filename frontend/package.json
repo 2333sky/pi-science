@@ -12,6 +12,7 @@
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.app.json --noEmit",
     "test:uat:conversation": "node scripts/uat-conversation.mjs",
+    "test:uat:slash": "node scripts/uat-slash-commands.mjs",
     "test:uat:knowledge": "node scripts/uat-project-knowledge.mjs",
     "test:uat:notebook": "node scripts/uat-notebook.mjs",
     "test:uat:office": "node scripts/uat-office-preview.mjs",

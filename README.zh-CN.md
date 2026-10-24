@@ -25,7 +25,7 @@ Pi-Science 将 AI 对话、科学计算、数据预览和项目知识整合到�
 
 - **在上下文中运行分析。** 在会话内核执行 Python/R 代码，与对话一起查看表格、图像和生成文件。
 - **保留执行证据。** 运行记录保存代码、环境版本、产物哈希和谱系，便于检查与复现结果。
-- **通过研究循环探索。** 智能体提出并分析候选方案，控制面负责确定性评估、预算和暂停恢复。
+- **在对话中开展研究。** Auto Research 技能指导动态子问题、独立审查和任务专属评价，保存恢复检查点，并由运行时限制工具预算。
 - **检索科学来源。** 内置连接器获取论文和科学数据，提供可以核对的引用元数据。
 - **使用普通项目目录。** 科研文件保存在工作区，模型请求和外部检索使用你配置的服务。
 
@@ -67,7 +67,11 @@ powershell -File scripts/install.ps1
 powershell -File scripts/start.ps1
 ```
 
-打开 **http://127.0.0.1:8787**，在 **设置 → LLM** 配置提供商和默认模型，再打开工作区开始对话。**设置 → Skills** 管理技能，**设置 → MCP** 启用科学连接器；初始启用 Paper Search 和 Web Search & Fetch。控制面 API 位于同一端口。
+打开 **http://127.0.0.1:8787**，在 **设置 → LLM** 配置提供商和默认模型，再打开工作区开始对话。**设置 → Skills** 管理技能，**设置 → MCP** 启用科学连接器；初始启用 Paper Search；在**设置 → 联网搜索**中配置内置网页搜索与抓取。控制面 API 位于同一端口。
+
+Linux/WSL 需要安装 `ripgrep`、`socat` 和 `bubblewrap`（Debian/Ubuntu：`sudo apt-get install ripgrep socat bubblewrap`）。安装、启动和 `pi-science doctor` 都会检查这些工具，并离线验证 Bubblewrap 能否创建隔离命名空间；缺少依赖或系统禁止隔离时，会停止安装/启动并提示原因。
+
+Linux sandbox 中的 MCP 通过受控 HTTP/HTTPS 代理访问网络，域名由宿主侧代理解析；sandbox 内不提供通用 DNS，`/etc/resolv.conf` 不可见或 `socket.getaddrinfo()` 失败不能单独说明 MCP 无法联网。内置检索工具会直接使用该代理。自定义 MCP 也需要使用支持 `HTTP_PROXY`/`HTTPS_PROXY` 的客户端；若宿主机本身无法解析域名，则需要先修复宿主机 DNS。
 
 安装器构建控制面、Agent Worker 和前端。默认启动运行**编译后的 JavaScript**，由控制面在同一个端口提供前端和 API，运行时不使用 Vite 或 tsx。Bash 支持 macOS/Linux 与 WSL，原生 Windows 不需要 Git Bash；Agent Core SDK 随项目依赖安装。
 
@@ -120,10 +124,16 @@ Windows 停止失败时保留身份记录以便重试，并返回退出码 1。W
 | 并行会话 | 活跃、恢复和分叉的对话使用独立的 Agent Core Worker 进程 |
 | 科学文件 | 原生预览分子结构、FITS、基因组、相图、3D 模型、表格、办公文档、媒体和代码 |
 | 可复现性 | 实时的会话级执行记录、产物哈希、生成代码与差异、环境快照、谱系历史和一键复现 |
-| 项目记忆 | Reviewer 提案、人工审核、证据链接、项目版本、研究循环和 Pareto 前沿 |
+| 项目记忆 | Reviewer 提案、人工审核、证据链接、项目版本与只读历史研究归档 |
 | 科学计算 | 可复用的 Micromamba 环境、隔离的 Python/R Session 内核、可执行 `.ipynb` 文件、与对话关联的运行记录和应用级 Jupyter Lab |
 | 扩展能力 | Pi skills、提示模板、MCP、subagents、自定义模型提供商和托管端点 |
 | 工作区安全 | 项目级元数据、路径校验、会话状态隔离和受控的模型端点发现 |
+
+## 会话审批模式
+
+输入框底部的审批模式菜单按会话保存，默认“请求批准”。“帮我批准”允许工作区执行和公网 HTTPS，并自动批准明确声明为安全只读的 MCP 工具；其他需要审批的工具仍会询问。“完全访问”可访问用户目录与项目文件、使用公网 HTTPS，并自动批准工具调用，启用前会显示范围确认。明确的域名和工具禁止规则、应用私有数据以及受限子任务边界始终保留。
+
+模式由后端策略执行，不依赖模型自行判断或批准。任务进行中不能切换；切换会重启该会话的运行环境并清除内核变量。新会话和受限子任务不会自动继承完全访问权限。
 
 ## 科学 MCP 连接器
 
@@ -133,7 +143,6 @@ Pi-Science 内置 19 个 MCP 连接器，覆盖公共科学数据服务和通用
 | 连接器 | 上游服务 | 默认状态 |
 |---|---|---|
 | Paper Search | PubMed、arXiv、Crossref、bioRxiv、medRxiv、Europe PMC | 启用 |
-| Web Search & Fetch | pi-web-access：网页搜索、网页 / PDF 抓取、来源核查 | 启用 |
 | Literature Graph | OpenAlex | 关闭 |
 | Clinical Trials | ClinicalTrials.gov | 关闭 |
 | Structures & Interactions | RCSB PDB、AlphaFold DB、EMDB、IntAct、Complex Portal | 关闭 |
@@ -160,7 +169,7 @@ Pi-Science 内置 19 个 MCP 连接器，覆盖公共科学数据服务和通用
 
 连接器认证可引用托管密钥/令牌或具名环境变量，作为进程变量、HTTP Header 或 Bearer Token 传递。策略快照只含凭据引用，获准使用的凭据在 Worker 内存中解析。目前不支持 OAuth 登录与刷新。
 
-Web Search & Fetch 固定使用 `pi-web-access@0.40.0` 独立 MCP，不打开 Curator 页面，无需 `pi install`。Paper Search 用于结构化学术数据库检索；Web Access 用于通用网页与来源核查。默认询问授权，可在 MCP 设置中设为 `allow_all`；已有的显式 `ask` 需改为 `allow`，`deny` 继续生效。内置连接器使用 Pi-Science 独立配置，关闭 GitHub Clone / PR Issue 特殊处理；配置 Brave Key 不会自动选择 Brave，需显式设置 Provider。Provider 配置、缓存生存期和出站安全验收见 [Web Access 使用与验收说明](docs/web-access-mcp.md)。
+`web_search` 和 `web_fetch` 是 Agent 内置工具，复用固定版本的 `pi-web-access@0.40.0` 核心。在**设置 → 联网搜索**中配置全局工具开关、搜索服务和 API Key。工具直接在可信 Worker 中执行，不经过代码执行沙箱，保留公网地址、重定向和响应体大小检查。Paper Search 继续作为学术数据库 MCP 连接器。详见 [Web Access 配置与验证](docs/web-access-mcp.md)。
 
 ## 科学文件查看器
 
@@ -275,7 +284,7 @@ pnpm --filter frontend test:uat:office
 | 支持的工具与已知限制 | [Agent Core 能力清单](docs/agent-core-capability-inventory.md) |
 | 旧会话与离线转换 | [会话转换](docs/agent-core-session-conversion.md) |
 | 科学连接器、凭据与工具策略 | [MCP 管理](docs/mcp-management-implementation.md) |
-| 研究编排与确定性评估 | [研究循环 ADR](docs/adr-research-loop-subagents.md) |
+| 研究编排与确定性评估 | [对话原生 Auto Research](docs/auto-research.md) |
 | 编写项目技能 | [技能编写](docs/skill-authoring.md) |
 
 架构文档提供对应的实现记录链接，未提供双语版本的文档保留原语言。

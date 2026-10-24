@@ -1,7 +1,11 @@
+import { updateWebSettings, webSettingsSchema } from "../web/settings.js";
+import { redactMcpError } from "./diagnostics.js";
+export { redactMcpError } from "./diagnostics.js";
 import { bindingError } from "./bindings.js";
 import { createHash } from "node:crypto";
-import { stat } from "node:fs/promises";
-import { isAbsolute, normalize } from "node:path";
+import { mkdtemp, realpath, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { isAbsolute, join, normalize } from "node:path";
 import {
   mcpCredentialUpdateSchema,
   mcpConnectorCreateSchema,
@@ -48,6 +52,27 @@ export class McpConnectorService {
   ) {}
 
   async ensureBuiltins(): Promise<void> {
+    // Retire the built-in connector; web access is now a native harness capability.
+    const oldWeb = await this.repository.get("mcp_builtin_web_access");
+    if (oldWeb) {
+      const grants = await this.repository.globalToolGrants(oldWeb.connector_id);
+      await this.settings.update(async (config) => {
+        if (config.web_access !== undefined) return;
+        const enabled = (tool: string) => oldWeb.enabled && !oldWeb.exclude_tools.includes(tool)
+          && (!oldWeb.include_tools.length || oldWeb.include_tools.includes(tool)) && grants.get(tool) !== "deny";
+        await updateWebSettings(config, { search_enabled: enabled("web_search"), fetch_enabled: enabled("fetch_content") });
+        const migrated = webSettingsSchema.parse(config.web_access);
+        const binding = oldWeb.runtime_config.environment.BRAVE_API_KEY;
+        if (binding?.kind === "credential") {
+          migrated.credential_refs.brave ??= binding.credential_ref;
+        } else if (binding?.kind === "environment") {
+          const entry = await this.credentials.put({ kind: "api_key", backend: "environment", environment_variable: binding.name, label: "Web search: brave" });
+          migrated.credential_refs.brave ??= entry.id;
+        }
+        config.web_access = migrated;
+      });
+      await this.repository.delete(oldWeb.connector_id);
+    }
     for (const builtin of builtinMcpConnectors()) {
       const connector = await this.repository.upsertBuiltin(builtin.connector_id, builtin.definition, builtin.enabled_by_default);
       const cache = await this.repository.toolCache(connector.connector_id);
@@ -254,14 +279,20 @@ export class McpConnectorService {
     const result = await probeMcpHealth(definition, process.env, { allowPrivate: connector.runtime_config.allow_private });
     const checkedAt = Date.now();
     if (result.health === "error") { const safeError = redactMcpError(result.error); return { connector_id: connectorId, runtime_state: "error", auth_state: this.authState(connector), error_code: classifyProbeError(safeError), error: safeError, tools: [], checked_at: checkedAt }; }
+    let probeWorkspace: string | undefined;
     try {
-      const tools = await connectAndListMcpTools(connector, process.cwd());
+      // Builtin discovery must not grant writes to the service installation
+      // (the launcher's cwd). Use a private disposable workspace instead.
+      if (connector.source === "builtin") probeWorkspace = await mkdtemp(join(await realpath(tmpdir()), "pi-science-mcp-probe-"));
+      const tools = await connectAndListMcpTools(connector, probeWorkspace ?? process.cwd());
       await this.repository.replaceToolCache({ connector_id: connectorId, config_revision: connector.revision, fingerprint: mcpConnectorFingerprint(connector), tools, fetched_at: checkedAt, expires_at: checkedAt + 5 * 60_000 });
       return { connector_id: connectorId, runtime_state: "ready", auth_state: this.authState(connector), error_code: null, error: null, tools, checked_at: checkedAt };
     } catch (error) {
       const message = redactMcpError(error instanceof Error ? error.message : String(error)) ?? "MCP probe failed";
       const auth = /401|403|unauthori[sz]ed|oauth|authentication/i.test(message) ? "needs-auth" : this.authState(connector);
       return { connector_id: connectorId, runtime_state: "error", auth_state: auth, error_code: classifyProbeError(message), error: message, tools: [], checked_at: checkedAt };
+    } finally {
+      if (probeWorkspace) await rm(probeWorkspace, { recursive: true, force: true });
     }
   }
 
@@ -480,13 +511,6 @@ function classifyProbeError(error: string | null): string {
   return "unknown";
 }
 
-export function redactMcpError(value: string | null): string | null {
-  if (!value) return value;
-  return value
-    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
-    .replace(/\b(authorization|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
-    .replace(/https?:\/\/[^\s"')]+/gi, (raw) => { try { return new URL(raw).origin; } catch { return "[redacted-url]"; } });
-}
 
 function sqliteConflict(error: unknown): McpServiceError {
   const message = error instanceof Error ? error.message : String(error);

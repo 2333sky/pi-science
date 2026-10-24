@@ -138,10 +138,14 @@ export class JobLeaseManager {
   }
 }
 
-function ownerProcessIdentity(pid: number, platform: NodeJS.Platform): JobOwnerProcessIdentity | null {
+export function ownerProcessIdentity(pid: number, platform: NodeJS.Platform): JobOwnerProcessIdentity | null {
   const linux = childProcessIdentity(pid, platform);
   if (linux) return { ...linux, platform };
-  if (platform === "win32") return null;
+  if (platform === "win32") {
+    const result = spawnSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", `(Get-Process -Id ${pid}).StartTime.ToUniversalTime().Ticks`], { encoding: "utf8", windowsHide: true });
+    const value = result.status === 0 ? result.stdout.trim() : "";
+    return value ? { kind: "windows-start-ticks", platform, value } : null;
+  }
   const result = spawnSync("ps", ["-ww", "-o", "lstart=", "-p", String(pid)], { encoding: "utf8", windowsHide: true, env: { ...process.env, LC_ALL: "C", LANG: "C", TZ: "UTC" } });
   const value = result.status === 0 ? result.stdout.trim() : "";
   return value ? { kind: "ps-lstart-utc", platform, value } : null;

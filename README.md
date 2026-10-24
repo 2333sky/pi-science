@@ -25,7 +25,7 @@ Pi-Science brings AI conversations, scientific computation, data previews and pr
 
 - **Run analyses in context.** Execute Python/R code on session kernels and inspect the resulting tables, plots and files alongside the conversation.
 - **Keep execution evidence.** Runs record code, environment revisions, artifact hashes and provenance so results can be inspected and reproduced.
-- **Explore with research loops.** Agents propose and analyze candidates; the control plane applies deterministic evaluation, budgets and pause/resume controls.
+- **Research in Conversation.** The Auto Research skill guides dynamic subquestions, independent review and task-specific evaluation, with saved checkpoints and runtime tool budgets.
 - **Find scientific sources.** Built-in connectors retrieve papers and scientific data, with linked citation metadata you can verify.
 - **Use ordinary project folders.** Research files stay in your workspace. Model requests and external connector calls use the services you configure.
 
@@ -67,7 +67,11 @@ powershell -File scripts/install.ps1
 powershell -File scripts/start.ps1
 ```
 
-Open **http://127.0.0.1:8787**. In **Settings → LLM**, configure a provider and default model, then open a workspace and start a conversation. Use **Settings → Skills** to manage skills and **Settings → MCP** to enable scientific connectors; Paper Search and Web Search & Fetch are enabled initially. The control-plane API runs on `127.0.0.1:8787`.
+Open **http://127.0.0.1:8787**. In **Settings → LLM**, configure a provider and default model, then open a workspace and start a conversation. Use **Settings → Skills** to manage skills and **Settings → MCP** to enable scientific connectors; Paper Search is enabled initially; configure built-in web search and fetching in **Settings → Web search**. The control-plane API runs on `127.0.0.1:8787`.
+
+Linux/WSL requires `ripgrep`, `socat` and `bubblewrap` (Debian/Ubuntu: `sudo apt-get install ripgrep socat bubblewrap`). Installation, startup and `pi-science doctor` check these tools and run an offline Bubblewrap namespace probe. Missing dependencies or blocked namespaces stop installation/startup with a diagnostic.
+
+MCP processes in the Linux sandbox access the network through the policy HTTP/HTTPS proxy, which resolves destinations on the host. General DNS is unavailable inside the sandbox: a hidden `/etc/resolv.conf` or a failed `socket.getaddrinfo()` alone does not indicate that MCP requests cannot reach the network. Built-in search tools use this proxy directly. Custom MCP clients must also support `HTTP_PROXY`/`HTTPS_PROXY`; DNS failures on the host itself require fixing the host resolver.
 
 The installer builds the server, Agent Workers and frontend. Default startup runs **compiled JavaScript** and serves the frontend from the control plane on one port; Vite and tsx are not used at runtime. Bash supports macOS/Linux and WSL; native Windows does not require Git Bash. Installation includes the Agent Core SDK through workspace dependencies.
 
@@ -120,7 +124,7 @@ Application state uses `PI_SCIENCE_HOME` or `~/.pi-science`, with a checkout-loc
 | Concurrent sessions | Independent Agent Core Worker processes for active, restored, and forked conversations |
 | Scientific files | Native previews for molecular structures, FITS, genomics, phase data, 3D models, tables, office documents, media, and code |
 | Reproducibility | Live session-scoped execution records, artifact hashes, generating code and diffs, environment snapshots, provenance history, and reproduce actions |
-| Project memory | Reviewer proposals, human approval, evidence links, project versions, research loops, and Pareto-frontier tracking |
+| Project memory | Reviewer proposals, human approval, evidence links, project versions, and read-only historical research archives |
 | Computation | Shared versioned Micromamba environments, isolated Python/R Session kernels, executable `.ipynb` files, agent notebook cell read/edit/run tools, conversation-linked runs, and an optional app-managed Jupyter Lab |
 | Extensibility | Pi skills, prompt templates, MCP servers, subagents, custom model providers, and managed endpoints |
 | Workspace safety | Project-scoped metadata, validated paths, isolated session state, and controlled outbound provider discovery |
@@ -134,7 +138,6 @@ the upstream searches still make outbound network requests.
 | Connector | Upstream services | Default |
 |---|---|---|
 | Paper Search | PubMed, arXiv, Crossref, bioRxiv, medRxiv, Europe PMC | Enabled |
-| Web Search & Fetch | pi-web-access: web search, webpage / PDF extraction, source checks | Enabled |
 | Literature Graph | OpenAlex | Disabled |
 | Clinical Trials | ClinicalTrials.gov | Disabled |
 | Structures & Interactions | RCSB PDB, AlphaFold DB, EMDB, IntAct, Complex Portal | Disabled |
@@ -163,7 +166,7 @@ active agent runtimes without manually editing Pi configuration files.
 
 Connector authentication can reference a managed key/token or a named environment variable, delivered as a process variable, HTTP header or Bearer token. Policy snapshots contain only credential references; permitted credentials are resolved in Worker memory. OAuth login/refresh is not currently supported.
 
-Web Search & Fetch uses the pinned standalone `pi-web-access@0.40.0` MCP CLI, with no Curator page or `pi install`. Use Paper Search for structured scholarly databases and Web Access for general web sources. Approval defaults to `ask`; select `allow_all` in MCP settings and change any explicit `ask` overrides to `allow` to avoid repeated confirmations. Explicit `deny` remains effective. The connector uses isolated Pi-Science configuration and disables GitHub Clone / PR Issue handling. Adding a Brave key does not select Brave; choose the Provider explicitly. See [Web Access configuration and validation](docs/web-access-mcp.md) for providers, cache lifetime, and outbound security limits.
+`web_search` and `web_fetch` are built-in Agent tools backed by the pinned `pi-web-access@0.40.0` core. Configure global tool switches, search provider and API keys in **Settings → Web search**. They execute directly in the trusted worker, outside the code-execution sandbox, with public-address/redirect/size checks. Paper Search remains an MCP connector for scholarly databases. See [Web access configuration](docs/web-access-mcp.md).
 
 ## Scientific Viewers
 
@@ -287,7 +290,7 @@ pnpm --filter frontend test:uat:office
 | Supported tools and known limits | [Agent Core capability inventory](docs/agent-core-capability-inventory.md) |
 | Existing sessions and offline conversion | [Session conversion](docs/agent-core-session-conversion.md) |
 | Scientific connectors, credentials and tool policy | [MCP management](docs/mcp-management-implementation.md) |
-| Research orchestration and deterministic evaluation | [Research-loop ADR](docs/adr-research-loop-subagents.md) |
+| Research orchestration and deterministic evaluation | [Conversation-native Auto Research](docs/auto-research.md) |
 | Writing project skills | [Skill authoring](docs/skill-authoring.md) |
 
 Implementation notes are linked from the architecture reference. Documents without an English counterpart are available in their original language.

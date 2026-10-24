@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentRuntimeManager } from "./agent-runtime-manager.js";
+import { AgentRuntimeManager, hasActiveWorkspaceRuntimes, closeIdleWorkspaceRuntimes } from "./agent-runtime-manager.js";
 import { AgentRuntimeCapacityError } from "./agent-runtime-errors.js";
 
 const roots: string[] = [];
@@ -15,6 +15,25 @@ afterEach(async () => {
 });
 
 describe("AgentRuntimeManager", () => {
+  it("keeps the workspace occupied until exit cleanup drains exactly once", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-science-exit-drain-")); roots.push(cwd);
+    await mkdir(join(cwd, ".pi-science"));
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const cleanup = vi.fn(async () => gate);
+    const manager = new AgentRuntimeManager(cleanup); managers.push(manager);
+    const runtime = await manager.start("draining", { cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), model: { provider: "openai", modelId: "gpt-4.1-mini" } });
+    const stopping = manager.stop("draining");
+    try {
+      await vi.waitFor(() => expect(cleanup).toHaveBeenCalledTimes(1));
+      expect(runtime.isClosed).toBe(true);
+      expect(await hasActiveWorkspaceRuntimes(cwd)).toBe(true);
+      await expect(closeIdleWorkspaceRuntimes(cwd)).rejects.toThrow();
+    } finally { release(); await stopping; }
+    expect(cleanup).toHaveBeenCalledTimes(1);
+    expect(await hasActiveWorkspaceRuntimes(cwd)).toBe(false);
+  }, 20_000);
+
   it("shares capacity and excludes duplicate owners across managers", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-science-agent-capacity-")); roots.push(cwd);
     await mkdir(join(cwd, ".pi-science"));
@@ -31,6 +50,19 @@ describe("AgentRuntimeManager", () => {
     const reopened = await second.start("reopened", { ...options, sessionId: runtime.sessionId });
     expect(reopened.sessionId).toBe(runtime.sessionId);
   }, 20000);
+  it("checks and drains workspace workers across managers without stopping another workspace", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-science-runtime-lifecycle-")); const other = await mkdtemp(join(tmpdir(), "pi-science-runtime-other-")); roots.push(cwd, other);
+    await mkdir(join(cwd, ".pi-science")); await mkdir(join(other, ".pi-science"));
+    const first = new AgentRuntimeManager(), second = new AgentRuntimeManager(); managers.push(first, second);
+    const options = { cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), model: { provider: "openai", modelId: "gpt-4.1-mini" } };
+    const runtime = await first.start("hidden", options);
+    await second.start("unrelated", { ...options, cwd: other, sessionsRoot: join(other, ".pi-science/agent-sessions") });
+    const snapshot = vi.spyOn(runtime, "sendCommand").mockResolvedValue({ success: true, data: { busy: true } });
+    expect(await hasActiveWorkspaceRuntimes(cwd)).toBe(true);
+    snapshot.mockRestore(); expect(await hasActiveWorkspaceRuntimes(cwd)).toBe(false);
+    await closeIdleWorkspaceRuntimes(cwd); expect(first.processCount).toBe(0); expect(second.processCount).toBe(1);
+  }, 20000);
+
   it("deduplicates opens of the same session and clears ownership on exit", async () => {
     const cwd = await mkdtemp(join(tmpdir(), "pi-science-agent-manager-"));
     roots.push(cwd);
@@ -46,4 +78,20 @@ describe("AgentRuntimeManager", () => {
     await manager.stop("create");
     expect(manager.processCount).toBe(0);
   });
+});
+
+it("retains failed exit cleanup and retries it before allowing the same session to restart", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "pi-science-revoke-retry-")); roots.push(cwd);
+  const sessionsRoot = join(cwd, ".pi-science/agent-sessions");
+  await mkdir(sessionsRoot, { recursive: true });
+  const cleanup = vi.fn().mockRejectedValueOnce(new Error("kernel revocation failed")).mockResolvedValue(undefined);
+  const manager = new AgentRuntimeManager(cleanup); managers.push(manager);
+  const options = { cwd, sessionsRoot, model: { provider: "openai", modelId: "gpt-4.1-mini" } };
+  const runtime = await manager.start("retry", options);
+  await expect(manager.stop("retry")).rejects.toThrow("kernel revocation failed");
+  await expect(manager.start("reopen", { ...options, sessionId: runtime.sessionId })).rejects.toThrow("revocation");
+  await manager.stop("retry");
+  expect(cleanup).toHaveBeenCalledTimes(2);
+  const reopened = await manager.start("reopen", { ...options, sessionId: runtime.sessionId });
+  expect(reopened.sessionId).toBe(runtime.sessionId);
 });

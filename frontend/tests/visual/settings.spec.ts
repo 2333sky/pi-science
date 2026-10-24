@@ -164,7 +164,7 @@ test("explicitly enables a disabled endpoint without committing connection draft
 test("Core capabilities replace extension installation controls", async ({ page }, testInfo) => {
   const obsoleteRequests: string[] = [];
   page.on("request", (request) => {
-    if (/\/api\/(settings\/(extensions|web-access)|agent-profiles)/.test(request.url())) obsoleteRequests.push(request.url());
+    if (/\/api\/(settings\/(extensions)|agent-profiles)/.test(request.url())) obsoleteRequests.push(request.url());
   });
   await page.goto("/settings");
   const dialog = page.getByRole("dialog", { name: "Settings" });
@@ -180,4 +180,31 @@ test("Core capabilities replace extension installation controls", async ({ page 
   await dialog.getByRole("button", { name: "Manage MCP connectors", exact: true }).click();
   await expect(dialog.getByRole("tab", { name: "MCP", exact: true })).toHaveAttribute("aria-selected", "true");
   expect(obsoleteRequests).toEqual([]);
+});
+
+test("native web search settings save provider credentials and switches @accessibility", async ({ page }, testInfo) => {
+  let settings = { search_enabled: true, fetch_enabled: true, provider: "auto", api_keys: {} as Record<string, boolean> };
+  const writes: Array<Record<string, unknown>> = [];
+  await page.route("**/api/settings/web-access", async (route) => {
+    if (route.request().method() === "PUT") {
+      const body = route.request().postDataJSON(); writes.push(body);
+      settings = { ...settings, ...body, api_keys: { ...settings.api_keys, ...Object.fromEntries(Object.entries(body.api_keys ?? {}).map(([name, key]) => [name, Boolean(key)])) } };
+    }
+    await route.fulfill({ json: { ok: true, web_access: settings, session_replacements: [] } });
+  });
+  await page.goto("/settings");
+  const dialog = page.getByRole("dialog", { name: "Settings" });
+  await dialog.getByRole("tab", { name: "Web search", exact: true }).click();
+  await expect(dialog.getByRole("checkbox", { name: "Enable web search" })).toBeChecked();
+  await dialog.getByRole("combobox", { name: "Search provider" }).selectOption("brave");
+  await dialog.getByLabel("API key", { exact: true }).fill("fixture-key");
+  await dialog.getByRole("checkbox", { name: "Enable web search" }).uncheck();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog.getByRole("status")).toHaveText("Settings saved");
+  expect(writes).toEqual([{ search_enabled: false, fetch_enabled: true, provider: "brave", api_keys: { brave: "fixture-key" } }]);
+  await expect(dialog.getByLabel("API key", { exact: true })).toHaveValue("");
+  expect(await dialog.getByRole("tabpanel").evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
+  const violations = (await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations.filter(item => item.impact === "critical" || item.impact === "serious");
+  expect(violations).toEqual([]);
+  await dialog.screenshot({ path: testInfo.outputPath("web-search-settings.png"), animations: "disabled" });
 });

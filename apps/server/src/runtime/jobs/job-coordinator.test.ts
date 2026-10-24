@@ -2,16 +2,20 @@ import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { availableParallelism, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { JobCoordinator, parseCommand, type JobOwnership, type JobRecord, type JobStatus, restrictLocalJobEnvironment, restrictResearchEnvironment, windowsTaskkillArgs } from "./job-coordinator.js";
 
 const cleanup: string[] = [];
 const jobs: JobCoordinator[] = [];
 const TERMINAL: JobStatus[] = ["succeeded", "failed", "cancelled", "timed_out"];
+// Lifecycle fixtures exercise the host backend. Required-mode jobs have real
+// isolation acceptance in platform-acceptance.test.ts.
+beforeEach(() => vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host"));
 
 afterEach(async () => {
   await Promise.allSettled(jobs.splice(0).map((coordinator) => coordinator.shutdown()));
   await Promise.all(cleanup.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
+  vi.unstubAllEnvs();
 });
 
 async function workspace(): Promise<string> {
@@ -58,6 +62,44 @@ async function linuxStartTicks(pid: number): Promise<string | null> {
 async function processExists(pid: number): Promise<boolean> { try { process.kill(pid, 0); return true; } catch { return false; } }
 
 describe("job coordinator", () => {
+  it("keeps a task cancelled during job preparation from spawning", async () => {
+    const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+    const cwd = await workspace(); const ledger = new ExecutionBudgetLedger(cwd, "cancel-before-launch");
+    await ledger.configure({ max_seconds: 30 });
+    const child = await ledger.createChild("child");
+    const coordinator = jobCoordinator({ PATH: process.env.PATH }, { beforeSpawn: () => child.cancel() });
+    const job = await coordinator.submit(cwd, { command: [process.execPath, "-e", "require('node:fs').writeFileSync('late.txt','escaped')"] }, { owner: "cancel-before-launch", nodeId: "child" });
+    expect(await waitFor(() => coordinator.get(cwd, job.job_id), terminal)).toMatchObject({ status: "cancelled", stderr: expect.stringContaining("task cancelled") });
+    await expect(readFile(join(cwd, "late.txt"))).rejects.toThrow();
+  });
+
+  it.each(["cancel", "deadline"] as const)("terminates a real background process on task-tree %s", async (mode) => {
+    const { ExecutionBudgetLedger } = await import("../executions/execution-budget.js");
+    const cwd = await workspace(); const ledger = new ExecutionBudgetLedger(cwd, "job-tree");
+    await ledger.configure({ max_seconds: 30, by_kind: { job: 1 } });
+    const child = await ledger.createChild("child", { max_seconds: mode === "deadline" ? 3 : 30 });
+    const coordinator = jobCoordinator({ PATH: process.env.PATH });
+    const job = await coordinator.submit(cwd, { command: [process.execPath, "-e", "console.log('ready');setTimeout(()=>require('node:fs').writeFileSync('late.txt','escaped'),15000)"] }, { owner: "job-tree", nodeId: "child" });
+    await waitFor(() => coordinator.get(cwd, job.job_id), (record) => !!record?.ownership?.child);
+    await expect(coordinator.submit(cwd, { command: [process.execPath, "-e", "console.log('over quota')"] }, { owner: "job-tree", nodeId: "child" })).rejects.toThrow("job budget exhausted");
+    if (mode === "cancel") await child.cancel();
+    const record = await waitFor(() => coordinator.get(cwd, job.job_id), terminal);
+    expect(record?.status).toBe(mode === "cancel" ? "cancelled" : "timed_out");
+    await expect(readFile(join(cwd, "late.txt"))).rejects.toThrow();
+    expect(await ledger.status()).toMatchObject({ used: 1, usage: { job: 1 } });
+  });
+
+  it.each(["beforeSpawn", "testBeforeAuthorizedSpawn"] as const)("refuses a persisted host-mode job when required mode is enabled at %s", async (barrier) => {
+    const cwd = await workspace();
+    const coordinator = jobCoordinator({ PATH: process.env.PATH }, {
+      [barrier]: async () => { vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); },
+    });
+    const submitted = await coordinator.submit(cwd, { command: [process.execPath, "-e", "require('node:fs').writeFileSync('unsafe.txt','escaped')"] });
+    const record = await waitFor(() => coordinator.get(cwd, submitted.job_id), terminal);
+    expect(record).toMatchObject({ status: "failed", stderr: expect.stringContaining("execution mode changed after admission") });
+    await expect(readFile(join(cwd, "unsafe.txt"))).rejects.toThrow();
+  });
+
   it("parses command strings without a backtracking regular expression", () => {
     expect(parseCommand(`python -c "print('hello world')" --label='quoted value'`)).toEqual(["python", "-c", "print('hello world')", "--label=quoted value"]);
     expect(parseCommand("node -e 'process.stdout.write(\\\"ok\\\")'" )).toEqual(["node", "-e", "process.stdout.write(\\\"ok\\\")"]);

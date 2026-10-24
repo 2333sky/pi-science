@@ -75,7 +75,9 @@ function sendSse(res, sessionId) {
   res.on("error", stop);
 }
 
-function handleApi(req, res, url) {
+const sessionApprovals = new Map();
+
+async function handleApi(req, res, url) {
   const { pathname, searchParams } = url;
   const method = req.method || "GET";
   const log = () => console.log(`[mock] ${method} ${pathname}${searchParams.size ? `?${searchParams}` : ""}`);
@@ -135,6 +137,25 @@ function handleApi(req, res, url) {
     }
     const sub = sessionMatch[2] || "";
 
+    if (sub === "/approval-mode") {
+      const key = JSON.stringify([searchParams.get("cwd"), sessionId]);
+      const current = sessionApprovals.get(key) ?? { mode: "ask", revision: 0 };
+      if (method === "GET") return json(res, 200, current);
+      if (method === "PUT") {
+        const chunks = [];
+        for await (const chunk of req) chunks.push(chunk);
+        let input;
+        try { input = JSON.parse(Buffer.concat(chunks).toString()); }
+        catch { return json(res, 400, { error: "invalid approval JSON" }); }
+        if (!["ask", "auto", "full"].includes(input.mode) || input.mode === "full" && input.acknowledgeFullAccess !== true) {
+          return json(res, 400, { error: "invalid approval mode or missing full-access acknowledgement" });
+        }
+        if (input.revision !== current.revision) return json(res, 409, { error: "approval mode changed" });
+        const next = { mode: input.mode, revision: current.revision + 1 };
+        sessionApprovals.set(key, next);
+        return json(res, 200, next);
+      }
+    }
     if (method === "GET" && sub === "/model-selection") {
       return json(res, 200, { scope: "session", session_id: sessionId, selection: { model: FIXTURES.sessionState.model, thinking: FIXTURES.sessionState.thinking } });
     }
@@ -206,12 +227,8 @@ function handleApi(req, res, url) {
     return json(res, 404, { error: "fixture file not found", file: filePath });
   }
 
-  if (method === "GET" && pathname === "/api/project-memory/research-events") {
-    log();
-    return sendSse(res, "research");
-  }
 
-  // Knowledge badge + research-loop landing probe.
+  // Knowledge badge and historical archive access.
   if (method === "GET" && pathname === "/api/project-knowledge/proposals/count") {
     log();
     return json(res, 200, { pending_count: 0 });
@@ -224,9 +241,8 @@ function handleApi(req, res, url) {
     log();
     return json(res, 200, {});
   }
-  if (method === "GET" && pathname === "/api/project-memory/research-loops") {
-    log();
-    return json(res, 200, { loops: [] });
+  if (method === "GET" && pathname === "/api/project-memory/archives") {
+    return json(res, 200, { archives: [] });
   }
   if (method === "GET" && pathname === "/api/executions") {
     log();
@@ -261,7 +277,7 @@ const server = createServer(async (req, res) => {
     }
 
     if (url.pathname.startsWith("/api/")) {
-      return handleApi(req, res, url);
+      return await handleApi(req, res, url);
     }
 
     let filePath;

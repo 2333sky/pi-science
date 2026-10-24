@@ -1,3 +1,6 @@
+import { workspaceIdentity } from "./workspace-session-identity.js";
+import { pathIsInside } from "../../support/platform-utils.js";
+import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../workspace/workspace-lifecycle.js";
 import { join, resolve } from "node:path";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import { metadataRoot } from "../../storage/persistence.js";
@@ -9,6 +12,7 @@ import { bindSubagentDispatch } from "./subagent-dispatch.js";
 // Includes pending starts and workers belonging to every app-owned manager.
 const capacity = new Set<symbol>();
 const processOwners = new Map<string, symbol>();
+const workspaceRuntimes = new Map<AgentCoreRuntimeClient, { manager: AgentRuntimeManager; key: string; hasActiveTasks: () => boolean }>();
 function workerLimit(): number {
   const value = Number(process.env.PI_SCIENCE_AGENT_MAX_WORKERS ?? 16);
   return Number.isSafeInteger(value) && value > 0 ? value : 16;
@@ -25,8 +29,32 @@ function idleTimeoutMs(): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+/** Called under exclusive lifecycle admission, including hidden workers owned by other managers. */
+export async function hasActiveWorkspaceRuntimes(cwd: string): Promise<boolean> {
+  for (const [runtime, owner] of workspaceRuntimes) {
+    if (!pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
+    if (owner.hasActiveTasks()) return true;
+    if (runtime.isClosed) continue;
+    const state = await runtime.sendCommand("get_state").catch(() => null); const data = state?.data;
+    if (!state?.success || !data || data.busy || data.pendingInteraction || Array.isArray(data.queues) && data.queues.length > 0) return true;
+  }
+  return false;
+}
+export async function closeIdleWorkspaceRuntimes(cwd: string): Promise<void> {
+  for (const [runtime, owner] of [...workspaceRuntimes]) {
+    if (!pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
+    if (owner.hasActiveTasks()) throw new WorkspaceLifecycleBusyError();
+    if (runtime.isClosed) continue;
+    await owner.manager.stop(owner.key);
+    if (!runtime.isClosed) throw new WorkspaceLifecycleBusyError();
+  }
+}
+
 /** Owns one child process per durable session and deduplicates concurrent opens. */
 export class AgentRuntimeManager {
+  constructor(private readonly onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>) {}
+  private readonly retirements = new Map<string, { runtime: AgentCoreRuntimeClient; drain?: () => Promise<void> }>();
+  private readonly pendingStops = new Map<string, Promise<void>>();
   private readonly runtimes = new Map<string, AgentCoreRuntimeClient>();
   private readonly pendingStarts = new Map<string, Promise<AgentCoreRuntimeClient>>();
   private readonly owners = new Map<string, string>();
@@ -34,7 +62,12 @@ export class AgentRuntimeManager {
   private readonly dispatchDrains = new Map<AgentCoreRuntimeClient, () => Promise<void>>();
 
   async start(key: string, options: AgentRuntimeStartOptions): Promise<AgentCoreRuntimeClient> {
+    return withWorkspaceAdmission(options.cwd, () => this.startAdmitted(key, options));
+  }
+
+  private async startAdmitted(key: string, options: AgentRuntimeStartOptions): Promise<AgentCoreRuntimeClient> {
     const cwd = await validateWorkspaceCwd(options.cwd);
+    if (this.retirements.has(key) || [...this.retirements.values()].some(({ runtime }) => runtime.cwd === cwd && runtime.sessionId === options.sessionId)) throw new Error("Previous worker capability revocation must finish before restart");
     const requestedRoot = resolve(options.sessionsRoot);
     const acceptedRoots = [options.cwd, cwd].map((workspace) => join(metadataRoot(workspace), "agent-sessions"));
     if (!acceptedRoots.includes(requestedRoot)) {
@@ -64,11 +97,22 @@ export class AgentRuntimeManager {
   }
 
   async stop(key: string): Promise<void> {
-    const runtime = this.runtimes.get(key);
-    if (!runtime) return;
-    this.forget(key, runtime);
-    await runtime.shutdown();
-    await this.dispatchDrains.get(runtime)?.();
+    const pending = this.pendingStops.get(key);
+    if (pending) return pending;
+    const retirement = this.retirements.get(key) ?? (() => {
+      const runtime = this.runtimes.get(key);
+      return runtime ? { runtime, drain: this.dispatchDrains.get(runtime) } : undefined;
+    })();
+    if (!retirement) return;
+    this.retirements.set(key, retirement);
+    const stopped = (async () => {
+      await retirement.runtime.shutdown();
+      await retirement.drain?.();
+      this.forget(key, retirement.runtime);
+      this.retirements.delete(key);
+    })();
+    this.pendingStops.set(key, stopped);
+    try { await stopped; } finally { this.pendingStops.delete(key); }
   }
 
   async shutdownAll(): Promise<void> {
@@ -79,10 +123,13 @@ export class AgentRuntimeManager {
       await runtime.shutdown();
       await this.dispatchDrains.get(runtime)?.();
     }));
+    await Promise.allSettled([...this.retirements.keys()].map((key) => this.stop(key)));
     await Promise.allSettled([...this.dispatchDrains.values()].map((drain) => drain()));
   }
 
   get processCount(): number { return this.runtimes.size; }
+
+  hasActiveTasks(runtime: AgentCoreRuntimeClient): boolean { return workspaceRuntimes.get(runtime)?.hasActiveTasks() ?? false; }
 
   private async startOnce(key: string, options: AgentRuntimeStartOptions, ownerKey: string): Promise<AgentCoreRuntimeClient> {
     // Typed so the caller can tell a definite pre-dispatch rejection from an
@@ -103,10 +150,12 @@ export class AgentRuntimeManager {
       for (const [identity, owner] of processOwners) if (owner === slot) processOwners.delete(identity);
     };
     runtime.once("exit", release);
-    const drain = bindSubagentDispatch(this, runtime, options);
+    const dispatchDrain = bindSubagentDispatch(this, runtime, options);
+    let drained: Promise<void> | undefined;
+    const drain = () => drained ??= (async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); })().catch((error) => { drained = undefined; throw error; });
     this.dispatchDrains.set(runtime, drain);
     runtime.once("exit", () => {
-      const done = () => this.dispatchDrains.delete(runtime);
+      const done = () => { this.dispatchDrains.delete(runtime); workspaceRuntimes.delete(runtime); };
       void drain().then(done, done);
     });
     const canonical = sessionKey(options.cwd, runtime.sessionId);
@@ -121,6 +170,7 @@ export class AgentRuntimeManager {
       throw new Error(`session ${runtime.sessionId} is already owned by another worker`);
     }
     this.runtimes.set(key, runtime);
+    workspaceRuntimes.set(runtime, { manager: this, key, hasActiveTasks: () => dispatchDrain.isBusy() || runtime.isClosed && this.dispatchDrains.has(runtime) });
     this.owners.set(ownerKey, key);
     this.owners.set(canonical, key);
     runtime.once("exit", () => this.forget(key, runtime));
@@ -161,7 +211,7 @@ export class AgentRuntimeManager {
       const state = await runtime.sendCommand("get_state");
       const data = state.data;
       const queued = Array.isArray(data?.queues) && data?.queues.length > 0;
-      if (!state.success || !data || data.busy || queued || data?.pendingInteraction) {
+      if (!state.success || !data || data.busy || queued || data?.pendingInteraction || workspaceRuntimes.get(runtime)?.hasActiveTasks()) {
         this.scheduleIdleCheck(key, runtime);
         return;
       }

@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { Activity, Blocks, Boxes, BrainCircuit, ServerCog, Settings2, FolderOpen, Globe2, Unplug, UserRound, WandSparkles, X, type LucideIcon } from "lucide-react";
+import { Activity, Blocks, Boxes, BrainCircuit, ServerCog, Settings2, ShieldCheck, FolderOpen, Globe2, Unplug, UserRound, WandSparkles, X, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "../../lib/ui";
 import { settingsApi } from "../../lib/settings";
@@ -14,9 +14,12 @@ const AgentTab = lazy(() => import("./agent/AgentTab").then((module) => ({ defau
 const MCPTab = lazy(() => import("./MCPTab").then((module) => ({ default: module.MCPTab })));
 const SkillsTab = lazy(() => import("./SkillsTab").then((module) => ({ default: module.SkillsTab })));
 const EnvironmentSettings = lazy(() => import("./EnvironmentSettings").then((module) => ({ default: module.EnvironmentSettings })));
+const NetworkTab = lazy(() => import("./NetworkTab").then((module) => ({ default: module.NetworkTab })));
 const ProgressTab = lazy(() => import("./ProgressTab").then((module) => ({ default: module.ProgressTab })));
 
-type Tab = "general" | "models" | "agent" | "progress" | "skills" | "capabilities" | "mcp" | "compute" | "environments";
+const WebSearchTab = lazy(() => import("./WebSearchTab").then((module) => ({ default: module.WebSearchTab })));
+
+type Tab = "web-search" | "network" | "general" | "models" | "agent" | "progress" | "skills" | "capabilities" | "mcp" | "compute" | "environments";
 
 const GROUP_STARTS: Partial<Record<Tab, string>> = { general: "settings.redesign.workbench", skills: "settings.redesign.capabilities", environments: "settings.redesign.computeGroup" };
 
@@ -27,6 +30,8 @@ const TABS: { id: Tab; labelKey: string; titleKey: string; icon: LucideIcon }[] 
   { id: "progress", labelKey: "settings.progress.nav", titleKey: "settings.progress.nav", icon: Activity },
   { id: "skills", labelKey: "skills.title", titleKey: "skills.title", icon: WandSparkles },
   { id: "capabilities", labelKey: "settings.capabilities.title", titleKey: "settings.capabilities.title", icon: Blocks },
+  { id: "web-search", labelKey: "settings.webSearch.title", titleKey: "settings.webSearch.title", icon: Globe2 },
+  { id: "network", labelKey: "settings.network.title", titleKey: "settings.network.title", icon: ShieldCheck },
   { id: "mcp", labelKey: "settings.mcp", titleKey: "settings.mcpPage.title", icon: Unplug },
   { id: "environments", labelKey: "settings.environments", titleKey: "settings.environments", icon: Boxes },
   { id: "compute", labelKey: "settings.compute", titleKey: "settings.computePage.title", icon: ServerCog },
@@ -166,8 +171,8 @@ export function SettingsContent({ scope, onClose }: { scope: string | null; onCl
           ))}
         </nav>
         <div className="mt-4 hidden border-t border-border px-3 py-4 md:block">
-          <p className="flex items-center gap-2 text-ui-caption font-medium text-text"><Icon icon={scope ? FolderOpen : Globe2} size={14} />{scope ? t("settings.scope.workspace") : t("settings.scope.global")}</p>
-          <p title={scope ?? undefined} className="mt-2 break-words text-ui-meta leading-relaxed text-muted">{scope || t("settings.redesign.globalScopeHelp")}</p>
+          <p className="flex items-center gap-2 text-ui-caption font-medium text-text"><Icon icon={scope && tab !== "network" && tab !== "web-search" ? FolderOpen : Globe2} size={14} />{scope && tab !== "network" && tab !== "web-search" ? t("settings.scope.workspace") : t("settings.scope.global")}</p>
+          <p title={scope ?? undefined} className="mt-2 break-words text-ui-meta leading-relaxed text-muted">{(tab === "network" || tab === "web-search" ? null : scope) || t(tab === "web-search" ? "settings.webSearch.scopeHelp" : "settings.redesign.globalScopeHelp")}</p>
         </div>
       </aside>
 
@@ -178,7 +183,7 @@ export function SettingsContent({ scope, onClose }: { scope: string | null; onCl
         <div className="mx-auto flex min-h-full w-full max-w-[820px] flex-col md:px-6">
           <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-card border-b border-faint bg-surface-raised px-card py-panel md:px-0 md:py-4">
             <div className="min-w-0">
-              <p className="mb-1 text-ui-meta text-muted">{t("nav.settings")} / {t(tab === "skills" || tab === "capabilities" || tab === "mcp" ? "settings.redesign.capabilities" : tab === "environments" || tab === "compute" ? "settings.redesign.computeGroup" : "settings.redesign.workbench")}</p>
+              <p className="mb-1 text-ui-meta text-muted">{t("nav.settings")} / {t(tab === "skills" || tab === "capabilities" || tab === "mcp" || tab === "network" || tab === "web-search" ? "settings.redesign.capabilities" : tab === "environments" || tab === "compute" ? "settings.redesign.computeGroup" : "settings.redesign.workbench")}</p>
               <h1 id="settings-panel-title" className="text-ui-title font-medium tracking-tight text-text">{t(activeTab.titleKey)}</h1>
             </div>
             <IconButton
@@ -190,14 +195,16 @@ export function SettingsContent({ scope, onClose }: { scope: string | null; onCl
             />
           </header>
           <div className="min-h-0 flex-1 px-card py-card md:px-0 md:py-6">
-            <p className="mb-4 flex items-start gap-2 rounded-input bg-sidebar px-3 py-2 text-ui-caption leading-relaxed text-muted"><Icon icon={scope ? FolderOpen : Globe2} size={14} className="mt-0.5 shrink-0" /><span>{t(scope ? "settings.redesign.workspaceScopeHelp" : "settings.redesign.globalScopeHelp")}</span></p>
+            <p className="mb-4 flex items-start gap-2 rounded-input bg-sidebar px-3 py-2 text-ui-caption leading-relaxed text-muted"><Icon icon={scope && tab !== "network" && tab !== "web-search" ? FolderOpen : Globe2} size={14} className="mt-0.5 shrink-0" /><span>{t(tab === "web-search" ? "settings.webSearch.scopeHelp" : scope && tab !== "network" ? "settings.redesign.workspaceScopeHelp" : "settings.redesign.globalScopeHelp")}</span></p>
             <Suspense fallback={<div role="status" className="py-4 text-sm text-muted">{t("common.loading")}</div>}>
+                {tab === "web-search" && <WebSearchTab />}
+                {tab === "network" && <NetworkTab />}
                 {tab === "general" && <GeneralTab />}
                 {tab === "models" && <AIModelsTab scope={scope} apiKeyInput={apiKeyInput} setApiKeyInput={setApiKeyInput} showKey={showKey} setShowKey={setShowKey} saving={saving} saveKey={saveKey} deleteKey={deleteKey} />}
                 {tab === "agent" && <AgentTab config={config} saving={saving === "compaction"} onSave={saveCompaction} scope={scope} loading={loading} error={error} onRefreshContext={loadConfig} onOpenModels={() => { changeTab("models"); focusTab("models"); }} />}
                 {tab === "progress" && <ProgressTab />}
                 {tab === "skills" && <SkillsTab workspaceCwd={scope} />}
-                {tab === "capabilities" && <CapabilitiesTab workspaceCwd={scope} onOpenMcp={() => { changeTab("mcp"); focusTab("mcp"); }} />}
+                {tab === "capabilities" && <CapabilitiesTab workspaceCwd={scope} onOpenWeb={() => { changeTab("web-search"); focusTab("web-search"); }} onOpenMcp={() => { changeTab("mcp"); focusTab("mcp"); }} />}
                 {tab === "mcp" && <MCPTab workspaceCwd={scope} />}
                 {tab === "compute" && <ComputeSettings workspaceCwd={scope} />}
                 {tab === "environments" && <EnvironmentSettings workspaceCwd={scope} />}

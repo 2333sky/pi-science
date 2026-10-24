@@ -30,6 +30,20 @@ it("flush waits for durable observer work before shutdown completes", async () =
   expect(completed).toBe(true);
 });
 
+it("workspace drain ignores unrelated durable observers and publications", async () => {
+  const cwd = await workspace(); const other = await workspace();
+  let release!: () => void; const hold = new Promise<void>((resolve) => { release = resolve; });
+  let entered!: () => void; const started = new Promise<void>((resolve) => { entered = resolve; });
+  const hub = new ConversationEventHub({ append: async (workspace) => { if (workspace === other) { entered(); await hold; } }, readAfter: async () => [] });
+  const runtime = new EventEmitter();
+  hub.bind(other, runtime, { activeSessionId: () => "other", onBusy: () => undefined, onExit: () => undefined });
+  runtime.emit("event", { type: "operation.settled", status: "completed" });
+  await started;
+  let allFlushed = false; const globalFlush = hub.flush().then(() => { allFlushed = true; });
+  try { await hub.flush(cwd); expect(allFlushed).toBe(false); }
+  finally { release(); await globalFlush; }
+});
+
 afterEach(async () => {
   await Promise.all(workspaces.splice(0).map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
 });
@@ -356,7 +370,7 @@ describe("central conversation event hub", () => {
     expect(received).toEqual(["questionnaire.asked", "interaction.requested"]);
   });
 
-  it("keeps only the latest generic interaction for refresh recovery", async () => {
+  it("restores every unresolved parallel interaction on refresh", async () => {
     const cwd = await workspace();
     const hub = new ConversationEventHub({ append: async () => undefined, readAfter: async () => [] });
     await hub.publish(cwd, "session-generic", { type: "interaction.requested", sessionId: "session-generic", requestId: "request-1" });
@@ -367,7 +381,31 @@ describe("central conversation event hub", () => {
       received.push(JSON.parse(record.data));
     }, false);
 
-    expect(received).toEqual([expect.objectContaining({ type: "interaction.requested", requestId: "request-2" })]);
+    expect(received).toEqual([
+      expect.objectContaining({ type: "interaction.requested", requestId: "request-1" }),
+      expect.objectContaining({ type: "interaction.requested", requestId: "request-2" }),
+    ]);
+    hub.resolvePendingInteraction(cwd, "session-generic", "request-1");
+    const restored: Record<string, unknown>[] = [];
+    await hub.subscribe(cwd, "session-generic", undefined, (record) => { restored.push(JSON.parse(record.data)); }, false);
+    expect(restored).toEqual([expect.objectContaining({ requestId: "request-2" })]);
+  });
+
+  it("keeps parallel permissions when a questionnaire finishes", async () => {
+    const cwd = await workspace();
+    const hub = new ConversationEventHub({ append: async () => undefined, readAfter: async () => [] });
+    await hub.publish(cwd, "mixed", { type: "interaction.requested", requestId: "permission-1" });
+    await hub.publish(cwd, "mixed", { type: "questionnaire.asked", toolCallId: "question-tool", questions: [] });
+    await hub.publish(cwd, "mixed", { type: "interaction.requested", requestId: "question-1", questionnaire: true, toolCallId: "question-tool" });
+    await hub.publish(cwd, "mixed", { type: "interaction.requested", requestId: "permission-2" });
+    await hub.publish(cwd, "mixed", { type: "questionnaire.finished", toolCallId: "question-tool" });
+    const received: Record<string, unknown>[] = [];
+    await hub.subscribe(cwd, "mixed", undefined, (record) => { received.push(JSON.parse(record.data)); }, false);
+    expect(received.map((event) => event.requestId)).toEqual(["permission-1", "permission-2"]);
+    await hub.publish(cwd, "mixed", { type: "operation.settled", status: "aborted" });
+    const afterAbort: SseEventRecord[] = [];
+    await hub.subscribe(cwd, "mixed", undefined, (record) => afterAbort.push(record), false);
+    expect(afterAbort).toEqual([]);
   });
 
   it("removes the questionnaire pair when its interaction is resolved", async () => {
@@ -389,7 +427,7 @@ describe("central conversation event hub", () => {
       append: async () => undefined,
       readAfter: async () => [],
     });
-    await hub.publish(cwd, "session-resolved", { type: "interaction.requested", sessionId: "session-resolved", requestId: "request-q1" });
+    await hub.publish(cwd, "session-resolved", { type: "interaction.requested", sessionId: "session-resolved", requestId: "request-q1", questionnaire: true, toolCallId: "call-q1" });
     await hub.publish(cwd, "session-resolved", { type: "questionnaire.finished", sessionId: "session-resolved", toolCallId: "call-q1" });
 
     const received: SseEventRecord[] = [];
@@ -509,6 +547,23 @@ describe("central conversation event hub", () => {
       expect.objectContaining({ itemId: "m1", partId: "m1:0", baseRevision: 0, revision: 1, text: "first" }),
       expect.objectContaining({ itemId: "m1", partId: "m1:2", baseRevision: 0, revision: 1, text: "second" }),
     ]);
+  });
+
+  it.each([false, true])("projects approval waiting and dispatch separately (serialized=%s)", async (serialized) => {
+    const cwd = await workspace();
+    const hub = new ConversationEventHub();
+    const runtime = new EventEmitter() as RuntimeEventSource;
+    const received: Array<Record<string, unknown>> = [];
+    hub.bind(cwd, runtime, { activeSessionId: () => "approval-state", onBusy: () => undefined, onExit: () => undefined });
+    await hub.subscribe(cwd, "approval-state", undefined, (record) => received.push(JSON.parse(record.data)));
+    runtime.emit("event", { type: "tool.started", toolCallId: "mcp-1", toolName: "mcp__test__fetch", args: {} });
+    for (const approval of ["waiting", "resolved"]) {
+      const result = { content: [], details: { approval } };
+      runtime.emit("event", { type: "tool.updated", toolCallId: "mcp-1", toolName: "mcp__test__fetch", partialResult: serialized ? JSON.stringify(result) : result });
+      await hub.flush();
+    }
+    expect(received.filter((event) => event.type === "tool.updated").map((event) => event.status))
+      .toEqual(["waiting-approval", "running"]);
   });
 
   it("streams Core bash partial results as tool updates", async () => {

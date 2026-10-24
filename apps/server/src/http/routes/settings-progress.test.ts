@@ -43,7 +43,7 @@ describe("progress appearance settings", () => {
     await expect(modules.settings.read()).resolves.toMatchObject({ progress_appearance: progress });
   });
 
-  it("does not expose synthetic extensions or unused web-access settings", async () => {
+  it("does not expose synthetic extensions", async () => {
     const home = join(tmpdir(), `pi-science-retired-settings-${Date.now()}-${Math.random().toString(16).slice(2)}`);
     tempDirs.push(home);
     await mkdir(home, { recursive: true });
@@ -52,8 +52,8 @@ describe("progress appearance settings", () => {
     const reload = vi.spyOn(modules.sessions, "reloadConfiguration");
     const app = buildApp(config(), modules);
     apps.push(app);
-    for (const [method, url] of [["GET", "/api/settings/extensions"], ["GET", "/api/settings/web-access"], ["PUT", "/api/settings/web-access"]] as const) {
-      const response = await app.inject({ method, url, ...(method === "PUT" ? { payload: { provider: "exa" } } : {}) });
+    for (const [method, url] of [["GET", "/api/settings/extensions"]] as const) {
+      const response = await app.inject({ method, url,  });
       expect(response.statusCode).toBe(404);
     }
     expect(reload).not.toHaveBeenCalled();

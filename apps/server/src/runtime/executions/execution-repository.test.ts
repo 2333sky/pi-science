@@ -47,6 +47,21 @@ describe("ExecutionRepository", () => {
     await expect(repository.list(cwd, { session_id: "session-1" })).resolves.toHaveLength(1);
   });
 
+  it.each(["succeeded", "failed", "cancelled", "timed_out", "lost"] as const)("reads retired sandbox_run %s evidence without an executor or replay", async (status) => {
+    const cwd = await workspace();
+    const repository = new ExecutionRepository();
+    const execution_id = executionIdFor("sandbox_run", "historical-session", "historical-operation", "historical-call");
+    const request = { candidate_id: "candidate-001", research_id: "study-1", code: "print('historical')", code_sha256: "historical-code-digest", timeout_seconds: 60 };
+    const result = { execution_id, status, stdout: "historical output\n", stderr: "historical diagnostic", artifact_refs: [{ artifact_id: "historical-artifact", version: 2, relation: "output" }] };
+    await repository.start(cwd, { execution_id, kind: "tool", surface: "python", producer: "sandbox_run", request });
+    await repository.finish(cwd, execution_id, { status, producer: "sandbox_run", result, artifacts: [{ artifact_id: "historical-artifact", version: 2, relation: "output" }] });
+    const events = await repository.events(cwd);
+    const reopened = new ExecutionRepository();
+    expect(await reopened.get(cwd, execution_id)).toMatchObject({ producer: "sandbox_run", status, request, result, artifacts: [{ artifact_id: "historical-artifact", version: 2, relation: "output" }] });
+    expect(await reopened.list(cwd)).toHaveLength(1);
+    expect(await reopened.events(cwd)).toEqual(events);
+  });
+
   it("is idempotent for duplicate starts and terminal updates", async () => {
     const cwd = await workspace();
     const repository = new ExecutionRepository();

@@ -48,6 +48,17 @@ function firstSkillWithSubdir(): { name: string; subdir: string } {
 }
 
 describe("seedWorkspaceAssets", () => {
+  it("ships canonical research modules and roles with inherited tools and explicit scopes", () => {
+    const cwd = tempCwd(); seedWorkspaceAssets(cwd);
+    const root = join(cwd, ".pi/skills/auto-research");
+    for (const path of ["references/research-protocol.md", "references/experimental-research.md", "references/experiment-safety.md", "scripts/validate-manifest.mjs", "templates/research-manifest.json"])
+      expect(existsSync(join(root, path))).toBe(true);
+    for (const role of ["researcher", "reviewer", "experimenter"]) {
+      const text = readFileSync(join(root, `agents/${role}.md`), "utf8");
+      expect(text).not.toMatch(/^tools:/m);
+      expect(text).toContain(`execution_scope: ${role === "experimenter" ? "confined" : "workspace"}`);
+    }
+  });
   it("refuses a symlink at the skill tree root and never deletes through it", () => {
     const cwd = tempCwd();
     const external = tempExternal();

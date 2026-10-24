@@ -77,6 +77,7 @@ export function state(sessionId: string, overrides: Record<string, unknown> = {}
  *  a fake EventSource and localStorage, a fresh client, and a store reset. */
 export function installRuntimeTestEnvironment(): void {
   beforeEach(() => {
+    useRuntimeStore.setState({ draftApproval: null });
     FakeEventSource.instances = [];
     vi.stubGlobal("EventSource", FakeEventSource);
     const storage = new Map<string, string>();
@@ -113,12 +114,14 @@ export function installRuntimeTestEnvironment(): void {
       model: null,
       thinking: null,
       contextTokens: null,
+      mcpDiagnostics: [],
       contextWindow: null,
       contextPercent: null,
       compactionEnabled: true,
       compactionThresholdPercent: null,
       sessionStats: null,
       pendingInteraction: null,
+      pendingInteractionQueue: [],
       pendingQuestionnaire: null,
       fileRevision: 0,
       draft: "",

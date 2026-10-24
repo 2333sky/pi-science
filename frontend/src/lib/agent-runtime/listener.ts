@@ -1,6 +1,7 @@
 /** Single SSE subscription that drives the store: connection status, turn
  *  lifecycle, interaction prompts and thread folding. */
 
+import { enqueueInteraction, resolveInteraction } from "./interaction-queue";
 import type { PiScienceClient, PiScienceEvent, SessionStats } from "../client/pi-science-client";
 import { aiTitleAttemptedAt, hasAiTitle, markAiTitleAttempted } from "../client/pi-science-client";
 import { queryClient } from "../client/query-client";
@@ -225,6 +226,7 @@ async function runTurnWatchdogTick(): Promise<void> {
         turnLifecycle: successful ? "settled" : "failed",
         status: successful ? "ready" : "error",
         pendingInteraction: null,
+        pendingInteractionQueue: [],
         pendingQuestionnaire: null,
       });
       markWorkspaceFilesChanged();
@@ -280,6 +282,10 @@ export function registerEventListener(client: PiScienceClient) {
   _listenerUnsubscribe = client.onEvent((event) => {
     const state = useRuntimeStore.getState();
     if (event.sessionId && state.activeSessionId && event.sessionId !== state.activeSessionId) {
+      return;
+    }
+    if (event.type === "approval.mode.changed") {
+      window.dispatchEvent(new CustomEvent("pi-science-approval-mode-changed", { detail: { ...event, cwd: state.cwd } }));
       return;
     }
     // Transport lifecycle chatter (connection.connecting/closed/ready) does
@@ -478,7 +484,7 @@ export function registerEventListener(client: PiScienceClient) {
         && current.pendingInteraction.toolCallId === toolCallId;
       useRuntimeStore.setState({
         ...(questionnaireMatches ? { pendingQuestionnaire: null } : {}),
-        ...(interactionMatches ? { pendingInteraction: null } : {}),
+        ...(interactionMatches ? resolveInteraction(current, current.pendingInteraction!.requestId) : {}),
       });
     }
 
@@ -498,7 +504,7 @@ export function registerEventListener(client: PiScienceClient) {
           working: true,
           turnLifecycle: "waiting",
           status: "ready",
-          pendingInteraction: {
+          ...enqueueInteraction(useRuntimeStore.getState(), {
             requestId: interactionId,
             kind,
             method: ["confirm", "select", "input", "editor"].includes(method) ? method : "input",
@@ -510,8 +516,9 @@ export function registerEventListener(client: PiScienceClient) {
             operation: String(event.operation || payload.operation || ""),
             scope: String(event.scope || payload.scope || ""),
             effect: String(event.effect || payload.effect || ""),
-            ...(event.questionnaire === true ? { questionnaire: true, toolCallId: String(event.toolCallId || "") } : {}),
-          },
+            ...(event.toolCallId ? { toolCallId: String(event.toolCallId) } : {}),
+            ...(event.questionnaire === true ? { questionnaire: true } : {}),
+          }),
         });
       }
       // The reducer still records the envelope; the interaction card is a
@@ -520,9 +527,8 @@ export function registerEventListener(client: PiScienceClient) {
       bumpConversationGeneration();
       const interactionId = String(event.interactionId || event.requestId || payload.interactionId || payload.requestId || event.itemId || "");
       const current = useRuntimeStore.getState();
-      if (current.pendingInteraction?.requestId === interactionId) {
-        useRuntimeStore.setState({ pendingInteraction: null, turnLifecycle: current.working ? "active" : current.turnLifecycle });
-      }
+      const remaining = resolveInteraction(current, interactionId);
+      useRuntimeStore.setState({ ...remaining, turnLifecycle: remaining.pendingInteraction ? "waiting" : current.working ? "active" : current.turnLifecycle });
     }
 
     const eventStatus = String(event.status ?? payload.status ?? "");
@@ -546,7 +552,7 @@ export function registerEventListener(client: PiScienceClient) {
       bumpConversationGeneration();
       if (!blocksLateEvents(state.turnLifecycle) && state.turnLifecycle !== "stopping" && !knownTerminalRun) {
         turnState.errored = false;
-        useRuntimeStore.setState({ working: true, turnLifecycle: event.type === "tool.updated" && eventStatus === "waiting-approval" ? "waiting" : "active", status: "ready" });
+        useRuntimeStore.setState({ working: true, turnLifecycle: state.pendingInteraction || state.pendingQuestionnaire || event.type === "tool.updated" && eventStatus === "waiting-approval" ? "waiting" : "active", status: "ready" });
         if (state.turnLifecycle !== "waiting") ensureTurnWatchdog();
       }
     } else if (event.type === "compaction.progress" || event.type === "compaction.started" || event.type === "compaction.completed" || event.type === "compaction.failed") {
@@ -573,6 +579,7 @@ export function registerEventListener(client: PiScienceClient) {
           turnLifecycle: cancelled ? "aborted" : successful ? "settled" : "failed",
           status: successful || cancelled ? "ready" : "error",
           pendingInteraction: null,
+          pendingInteractionQueue: [],
           pendingQuestionnaire: null,
         });
         disarmTurnWatchdog();
@@ -584,7 +591,7 @@ export function registerEventListener(client: PiScienceClient) {
       }
       void loadSessionsInternal();
     } else if (event.type === "runtime.paused") {
-      useRuntimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingQuestionnaire: null });
+      useRuntimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       disarmTurnWatchdog();
     } else if (event.type === "session.stats") {
       bumpPresentationMetadataGeneration();
@@ -601,7 +608,7 @@ export function registerEventListener(client: PiScienceClient) {
         if (!blocksLateEvents(state.turnLifecycle)) useRuntimeStore.setState({ turnLifecycle: "recovering", status: "connecting" });
       } else if (!blocksLateEvents(state.turnLifecycle)) {
         turnState.errored = true;
-        useRuntimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingQuestionnaire: null });
+        useRuntimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
         disarmTurnWatchdog();
       }
     }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildApp } from "./app.js";
@@ -71,11 +71,31 @@ const fakeKernels = {
 } as unknown as NodeKernelManager;
 
 function kernelModules() {
+  // This fake does not start an OS sandbox; characterize native gateway evidence.
+  vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");
   return { ...createServerModules(config("http://127.0.0.1:1")), kernels: fakeKernels };
 }
 
 
 describe("Node control plane", () => {
+  it("allows composer skill discovery through the global API boundary without opening a session", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pi-science-composer-app-"));
+    vi.stubEnv("PI_SCIENCE_HOME", join(root, "state"));
+    const cwd = join(root, "workspace");
+    await mkdir(join(cwd, ".pi-science"), { recursive: true });
+    const app = buildApp(config("http://127.0.0.1:1", { nodeSessions: true, nodePiManager: true }));
+    openApps.push(app);
+    try {
+      const response = await app.inject({ method: "GET", url: `/api/composer/commands?${new URLSearchParams({ cwd })}` });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["x-pi-science-runtime"]).toBe("node-control-plane");
+      expect(response.json().commands).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "skill:literature-review", source: "skill" }),
+      ]));
+      expect((await app.inject({ method: "GET", url: "/api/health" })).json().active_agent_workers).toBe(0);
+    } finally { await app.close(); await rm(root, { recursive: true, force: true }); }
+  });
+
   it("exposes liveness and readiness separately", async () => {
     const app = buildApp(config("http://127.0.0.1:1"));
     openApps.push(app);
@@ -121,6 +141,7 @@ describe("Node control plane", () => {
     const app = buildApp(config("http://127.0.0.1:1", { internalToken: "test-control-token", requireInternalToken: true }));
     openApps.push(app);
 
+    expect((await app.inject({ method: "POST", url: "/api/settings/network", payload: { profile: "analysis", domain: "example.org", decision: "allow" } })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/health" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/health", headers: { "x-pi-science-internal-token": "test-control-token" } })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: "/api/health", headers: { cookie: "pi-science-internal=test-control-token" } })).statusCode).toBe(200);
@@ -246,8 +267,9 @@ describe("Node control plane", () => {
     const execution = await app.inject({ method: "GET", url: `/api/executions/${response.json().execution_id}?cwd=${encodeURIComponent(workspace)}` });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ ok: true, artifact_publish_errors: [{ path: "cell-output.csv", code: "EISDIR" }] });
-    expect(execution.json()).toMatchObject({ status: "succeeded", result: { artifact_publish_errors: [{ path: "cell-output.csv", code: "EISDIR" }] } });
+    const code = process.platform === "win32" ? expect.stringMatching(/^(EISDIR|EPERM|EACCES)$/) : "EISDIR";
+    expect(response.json()).toMatchObject({ ok: true, artifact_publish_errors: [{ path: "cell-output.csv", code }] });
+    expect(execution.json()).toMatchObject({ status: "succeeded", result: { artifact_publish_errors: response.json().artifact_publish_errors } });
     await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   }, 30_000);
 
@@ -306,6 +328,19 @@ describe("Node control plane", () => {
     expect(events.at(-1)).toMatchObject({ type: "result", ok: true, result: "42", execution_id: executionId });
     expect(execution.json()).toMatchObject({ status: "succeeded", result: { stdout_preview: "first\nsecond\n", mime: { "application/json": "42" } } });
     await rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  }, 30_000);
+
+  // App setup and execution-evidence I/O need the same 30 s budget as neighboring integration cases.
+  // The asserted 1,000 ms kernel deadline remains independent of the test runner timeout.
+  it.each(["execute", "execute-stream"])("enforces the requested kernel time limit for %s independently of gateway grace", async (endpoint) => {
+    const workspace = join(tmpdir(), `pi-kernel-budget-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    await mkdir(join(workspace, ".pi-science"), { recursive: true });
+    const execute = vi.spyOn(fakeKernels, "execute");
+    try {
+      const app = buildApp(config("http://127.0.0.1:1", { upstreamTimeoutMs: 600_000 }), kernelModules()); openApps.push(app);
+      const response = await app.inject({ method: "POST", url: `/api/kernels/${endpoint}?cwd=${encodeURIComponent(workspace)}`, payload: { language: "python", code: "1+1", timeout_seconds: 1 } });
+      expect(response.statusCode).toBe(200); expect(execute).toHaveBeenCalledWith(expect.objectContaining({ timeoutMs: 1000 }));
+    } finally { execute.mockRestore(); await rm(workspace, { recursive: true, force: true }); }
   }, 30_000);
 
   it("shuts down core sessions on close even when session routes are off", async () => {

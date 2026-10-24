@@ -1,16 +1,29 @@
 import { productInputSchema } from "../../events/product-input.js";
 import { z } from "zod";
+import { initialSessionApprovalSchema, type CreateSessionRequest } from "@pi-science/contracts";
 import { resultSchema, skillPolicySchema, type RuntimeCommand, type RuntimeNotification } from "./command-contract.js";
-import type { RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
+import type { ExecutionScope, RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
 import type { RuntimeSettings } from "../agent-runtime-settings.js";
 
 export interface AgentRuntimeStartOptions {
   cwd: string;
+  initialApproval?: CreateSessionRequest["initialApproval"];
   sessionId?: string;
   parentSessionId?: string;
   depth?: number;
   /** Exact tool capabilities. Without an mcp__ capability, MCP discovery is skipped. */
   allowedTools?: string[];
+  /** Hidden children spend against the owning operation, never a fresh quota. */
+  budgetOperationId?: string;
+  /** Durable local node within the inherited task-tree ledger. */
+  budgetNodeId?: string;
+  delegatedAgent?: string;
+  /** Assigned by authenticated parent dispatch; never inferred from child task text. */
+  sandboxCandidateId?: string;
+  /** Bound by dispatch from role metadata and inherited restrictions; never a tool parameter. */
+  executionScope?: ExecutionScope;
+  /** Opaque service-issued authority, never a model tool parameter. */
+  executionGrantId?: string;
   sessionsRoot: string;
   model: { provider: string; modelId: string };
   thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -39,13 +52,17 @@ export type WorkerEvent =
 const startOptionsSchema = z.object({
   cwd: z.string().min(1), sessionsRoot: z.string().min(1), sessionId: z.string().min(1).optional(),
   parentSessionId: z.string().optional(), depth: z.number().int().nonnegative().optional(), allowedTools: z.array(z.string()).optional(),
+  executionScope: z.enum(["workspace", "confined", "candidate"]).optional(),
+  executionGrantId: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  sandboxCandidateId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/).optional(),
+  budgetOperationId: z.string().min(1).optional(), budgetNodeId: z.string().min(1).optional(), delegatedAgent: z.string().min(1).optional(),
   model: z.object({ provider: z.string().min(1), modelId: z.string().min(1) }).strict(),
   thinking: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
   settings: z.object({ compaction_enabled: z.boolean().optional(), compaction_threshold_percent: z.number().min(50).max(95).optional(),
     model_context_window_override: z.object({ model: z.string(), context_window: z.number().int().positive() }).optional(),
   }).passthrough().optional(), systemPrompt: z.string().optional(), skillPaths: z.array(z.string()).optional(),
   skillPolicy: skillPolicySchema.optional(), env: z.record(z.string(), z.string()).optional(), credentialEnvNames: z.array(z.string()).optional(),
-  deferActivation: z.boolean().optional(),
+  deferActivation: z.boolean().optional(), initialApproval: initialSessionApprovalSchema.optional(),
 }).strict();
 export const workerRequestSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("initialize"), requestId: z.string().min(1), options: startOptionsSchema }).strict(),
