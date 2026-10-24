@@ -383,8 +383,8 @@ describe("job coordinator", () => {
     const ready = join(cwd, "cross-ready"); const delayed = join(cwd, "cross-delayed");
     const runner = jobCoordinator(undefined, { leaseMs: 300, heartbeatMs: 25 });
     const canceller = jobCoordinator();
-    const script = `const fs=require("node:fs"); fs.writeFileSync(${JSON.stringify(ready)},"ready"); setTimeout(()=>fs.writeFileSync(${JSON.stringify(delayed)},"bad"),1000); setTimeout(()=>{},30000)`;
-    const submitted = await runner.submit(cwd, { command: [process.execPath, "-e", script] });
+    const script = `const fs=require("node:fs"); fs.writeFileSync(process.argv[1],"ready"); setTimeout(()=>fs.writeFileSync(process.argv[2],"bad"),1000); setTimeout(()=>{},30000)`;
+    const submitted = await runner.submit(cwd, { command: [process.execPath, "-e", script, ready, delayed] });
     await waitFor(async () => stat(ready).then(() => true, () => false), Boolean);
     const started = Date.now();
     expect((await canceller.cancel(cwd, submitted.job_id))?.status).toBe("cancelled");
@@ -421,7 +421,7 @@ describe("job coordinator", () => {
     const releasePromise = new Promise<void>((resolve) => { release = resolve; });
     const runner = jobCoordinator(undefined, { leaseMs: 300, heartbeatMs: 25, testBeforeAuthorizedSpawn: async () => { entered(); await releasePromise; } });
     const canceller = jobCoordinator();
-    const submitted = await runner.submit(cwd, { command: [process.execPath, "-e", `setTimeout(()=>require("node:fs").writeFileSync(${JSON.stringify(delayed)},"bad"),1000); setTimeout(()=>{},30000)`] });
+    const submitted = await runner.submit(cwd, { command: [process.execPath, "-e", 'setTimeout(()=>require("node:fs").writeFileSync(process.argv[1],"bad"),1000); setTimeout(()=>{},30000)', delayed] });
     await enteredPromise;
     const cancellation = canceller.cancel(cwd, submitted.job_id);
     release();

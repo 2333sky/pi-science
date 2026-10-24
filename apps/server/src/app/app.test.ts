@@ -123,9 +123,14 @@ describe("Node control plane", () => {
   });
 
   it("owns health without a Python scientific worker", async () => {
-    const app = buildApp(config("http://127.0.0.1:1"));
+    const settings = config("http://127.0.0.1:1");
+    const modules = createServerModules(settings);
+    const discovery = vi.spyOn(modules.kernels, "status").mockImplementation(() => { throw new Error("Health must not probe interpreters"); });
+    const app = buildApp(settings, modules);
     openApps.push(app);
     const response = await app.inject({ method: "GET", url: "/api/health" });
+    expect(discovery).not.toHaveBeenCalled();
+    discovery.mockRestore();
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok", service: "pi-science-server", control_plane: "node", active_agent_workers: 0, active_kernels: 0 });
   });

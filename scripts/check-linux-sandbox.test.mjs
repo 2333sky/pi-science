@@ -45,7 +45,7 @@ test("probe fails closed on namespace denial, timeout, or launch failure", () =>
 test("shell preflight exports canonical helper paths and propagates probe errors", { skip: process.platform !== "linux" }, async () => fixture(async (root) => {
   for (const tool of ["rg", "socat", "bwrap"]) await executable(join(root, tool));
   const environment = { ...process.env, PI_SCIENCE_EXECUTION_MODE: "required", PI_SCIENCE_SANDBOX_RIPGREP: join(root, "rg"), PI_SCIENCE_SANDBOX_SOCAT: join(root, "socat"), PI_SCIENCE_SANDBOX_BWRAP: join(root, "bwrap") };
-  const run = () => spawnSync("/bin/bash", ["-c", 'set -e; source "$1"; pi_science_check_linux_sandbox "$2"; "$2" -e \'console.log(JSON.stringify({rg:process.env.PI_SCIENCE_SANDBOX_RIPGREP,socat:process.env.PI_SCIENCE_SANDBOX_SOCAT,bwrap:process.env.PI_SCIENCE_SANDBOX_BWRAP}))\'', "_", join(scripts, "sandbox-prerequisites.sh"), process.execPath], { env: environment, encoding: "utf8", timeout: 15_000 });
+  const run = () => spawnSync("/bin/bash", [join(scripts, "fixtures/sandbox-preflight.sh"), join(scripts, "sandbox-prerequisites.sh"), process.execPath, "report"], { env: environment, encoding: "utf8", timeout: 15_000 });
   const passed = run(); assert.equal(passed.status, 0, passed.stderr);
   assert.deepEqual(JSON.parse(passed.stdout.trim().split("\n").at(-1)), { rg: await realpath(join(root, "rg")), socat: await realpath(join(root, "socat")), bwrap: await realpath(join(root, "bwrap")) });
   await executable(join(root, "bwrap"), "echo 'namespace denied' >&2; exit 1");
@@ -71,7 +71,7 @@ test("launcher refuses to start services when the namespace probe fails", { skip
 }));
 
 test("explicit trusted-host selection skips the Linux probe without silently changing mode", { skip: process.platform !== "linux" }, () => {
-  const result = spawnSync("/bin/bash", ["-c", 'source "$1"; pi_science_check_linux_sandbox "$2"', "_", join(scripts, "sandbox-prerequisites.sh"), process.execPath], { env: { ...process.env, PI_SCIENCE_EXECUTION_MODE: "trusted-host", PI_SCIENCE_SANDBOX_RIPGREP: "/missing/rg" }, encoding: "utf8", timeout: 5000 });
+  const result = spawnSync("/bin/bash", [join(scripts, "fixtures/sandbox-preflight.sh"), join(scripts, "sandbox-prerequisites.sh"), process.execPath], { env: { ...process.env, PI_SCIENCE_EXECUTION_MODE: "trusted-host", PI_SCIENCE_SANDBOX_RIPGREP: "/missing/rg" }, encoding: "utf8", timeout: 5000 });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /operator explicitly selected trusted-host/);
 });

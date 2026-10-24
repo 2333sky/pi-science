@@ -118,7 +118,7 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
   app.get("/api/health", async () => gatewayHealthSchema.parse({
     status: "ok",
     active_agent_workers: nodeSessionService.processCount,
-    active_kernels: kernels.status().active_count,
+    active_kernels: kernels.activeCount,
     service: "pi-science-server",
     control_plane: "node",
   }));

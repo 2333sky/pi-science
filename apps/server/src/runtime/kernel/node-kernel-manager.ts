@@ -251,6 +251,11 @@ export class NodeKernelManager {
     return session;
   }
 
+  /** Health probes count managed processes without launching interpreter discovery. */
+  get activeCount(): number {
+    return this.managedSessions().filter(([, session]) => !session.exited).length;
+  }
+
   status(): KernelManagerStatus {
     const sessions = this.managedSessions().map(([, session]) => session);
     const python = this.deps.interpreterAvailable(this.deps.platform === "win32" ? "python" : "python3");

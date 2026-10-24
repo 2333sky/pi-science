@@ -291,10 +291,12 @@ describe("NodeKernelManager native execution", () => {
       const before = manager.status();
       expect(before.native).toBe(true);
       expect(before.active_count).toBe(1);
+      expect(manager.activeCount).toBe(1);
       expect(before.sessions).toEqual([expect.objectContaining({ notebookId: "nb-1", language: "python", cwd: workspace })]);
 
       await manager.shutdownNotebook("nb-1", workspace);
       expect(manager.status().active_count).toBe(0);
+      expect(manager.activeCount).toBe(0);
     } finally {
       await manager.shutdownAll();
     }
