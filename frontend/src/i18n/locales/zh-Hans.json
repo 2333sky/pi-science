@@ -1778,5 +1778,11 @@
   "settings.native.error.discovery_empty": "未返回模型，可手动填写模型 ID。",
   "settings.native.error.discovery_incomplete": "模型列表不完整或超出发现限制，未保存部分结果。",
   "settings.native.error.discovery_failed": "模型发现失败，请检查连接或手动填写模型 ID。",
-  "settings.native.error.revision_conflict": "配置已变化，请重新加载后再操作，旧配置未被自动重试。"
+  "settings.native.error.revision_conflict": "配置已变化，请重新加载后再操作，旧配置未被自动重试。",
+  "conversation.citationEvidence": "{{title}}（{{year}}）",
+  "conversation.citationRetracted": "该文献有撤稿通知",
+  "conversation.citationState.verified": "已核验",
+  "conversation.citationState.retracted": "已撤稿",
+  "conversation.citationState.not_found": "无法核验",
+  "conversation.citationState.unverified": "尚未核验"
 }

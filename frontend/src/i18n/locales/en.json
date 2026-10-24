@@ -1778,5 +1778,11 @@
   "settings.native.error.discovery_empty": "No models returned. You can add model IDs manually.",
   "settings.native.error.discovery_incomplete": "The model list is incomplete or exceeds discovery limits. No partial list was saved.",
   "settings.native.error.discovery_failed": "Discovery failed. Check the connection or add model IDs manually.",
-  "settings.native.error.revision_conflict": "Configuration changed. Reload before trying again; no stale write was retried."
+  "settings.native.error.revision_conflict": "Configuration changed. Reload before trying again; no stale write was retried.",
+  "conversation.citationEvidence": "{{title}} ({{year}})",
+  "conversation.citationRetracted": "A retraction notice is linked to this source",
+  "conversation.citationState.verified": "Verified",
+  "conversation.citationState.retracted": "Retracted",
+  "conversation.citationState.not_found": "Could not be verified",
+  "conversation.citationState.unverified": "Not yet verified"
 }
