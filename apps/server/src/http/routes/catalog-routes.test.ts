@@ -22,6 +22,7 @@ describe("catalog route platform defaults", () => {
 });
 
 const originalHome = process.env.PI_SCIENCE_HOME;
+const originalWorkspaces = process.env.PI_SCIENCE_WORKSPACES;
 let home: string;
 const cleanups: string[] = [];
 
@@ -29,11 +30,16 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "pi-catalog-routes-"));
   cleanups.push(home);
   process.env.PI_SCIENCE_HOME = home;
+  // Keep managed workspaces inside the fixture: the developer's real
+  // ~/pi-science-workspaces would otherwise leak into every listing assertion.
+  process.env.PI_SCIENCE_WORKSPACES = join(home, "managed-workspaces");
 });
 
 afterEach(async () => {
   if (originalHome === undefined) delete process.env.PI_SCIENCE_HOME;
   else process.env.PI_SCIENCE_HOME = originalHome;
+  if (originalWorkspaces === undefined) delete process.env.PI_SCIENCE_WORKSPACES;
+  else process.env.PI_SCIENCE_WORKSPACES = originalWorkspaces;
   await Promise.all(cleanups.splice(0).map((path) => rm(path, {
     recursive: true,
     force: true,
