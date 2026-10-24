@@ -3,13 +3,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
 import { once } from "node:events";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { AgentMcpTools } from "./mcp-tools.js";
 import { InteractionBridge } from "./interaction-bridge.js";
+import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { CredentialStore } from "../../../model-resources/credential-store.js";
+
+// These protocol/authorization fixtures deliberately run on the host. Real
+// isolated MCP startup is covered by platform-acceptance.test.ts.
+beforeEach(() => vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host"));
+afterEach(() => vi.unstubAllEnvs());
 
 describe("agent-core managed MCP tools", () => {
   it("scopes discovery and credential materialization to permitted connectors and exposes only permitted tools", async () => {
@@ -48,6 +54,50 @@ describe("agent-core managed MCP tools", () => {
       await mcp?.close();
       await rm(cwd, { recursive: true, force: true });
     }
+  }, 20000);
+
+  it("requires explicit child preauthorization and rechecks deny, revocation, disabled connectors and identity on every call", async () => {
+    const cwd = await mkdtemp(join(tmpdir(), "pi-science-child-mcp-"));
+    let mcp: AgentMcpTools | undefined;
+    try {
+      await mkdir(join(cwd, ".pi-science"));
+      const server = join(cwd, "server.mjs");
+      await writeFile(server, [
+        `import { McpServer } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};`,
+        `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
+        `const server = new McpServer({ name: "test", version: "1" });`,
+        `server.registerTool("lookup", { description: "Lookup", annotations: { readOnlyHint: true } }, async () => ({ content: [{ type: "text", text: "source" }] }));`,
+        `await server.connect(new StdioServerTransport());`,
+      ].join("\n"));
+      const base = { command: process.execPath, args: [server], __piScienceConnectorId: "connector_test", approveTools: true };
+      const project = async (policy: Record<string, unknown> | null) => writeFile(join(cwd, ".pi-science/mcp-runtime.json"),
+        JSON.stringify({ version: 1, project_id: "project_test", mcpServers: policy ? { science: policy } : {} }));
+      await project(base);
+      const interactions: unknown[] = [];
+      mcp = await AgentMcpTools.open(cwd, new InteractionBridge((event) => interactions.push(event)), { PATH: process.env.PATH ?? "" }, undefined,
+        ["mcp__science__lookup"], true);
+      expect(mcp.diagnostics).toEqual([]);
+      const call = () => mcp!.tools[0]!.execute("lookup", {}, () => {}, {} as never, {} as never, {} as never);
+      await expect(call()).rejects.toThrow("explicit preauthorization");
+      expect(interactions).toEqual([]); // readOnlyHint must not silently grant authorization or wait for hidden UI.
+      await project({ ...base, __piScienceAllowedTools: ["lookup"] });
+      expect(await call()).toMatchObject({ content: [{ text: "source" }] });
+      const slots = await Promise.all(Array.from({ length: 4 }, () => acquireMcpCall(cwd, JSON.stringify(["project_test", "connector_test"]))));
+      try {
+        const queued = call();
+        const rejected = expect(queued).rejects.toThrow("disabled or connector changed");
+        await project({ ...base, __piScienceAllowedTools: ["lookup"], excludeTools: ["lookup"] });
+        await slots[0]!.release(); await rejected;
+      } finally { await Promise.all(slots.map((slot) => slot.release())); }
+      await project(base);
+      await expect(call()).rejects.toThrow("explicit preauthorization");
+      await project({ ...base, approveTools: false, excludeTools: ["lookup"] });
+      await expect(call()).rejects.toThrow("disabled or connector changed");
+      await project({ ...base, approveTools: false, __piScienceConnectorId: "replacement" });
+      await expect(call()).rejects.toThrow("disabled or connector changed");
+      await project(null);
+      await expect(call()).rejects.toThrow("disabled or connector changed");
+    } finally { await mcp?.close(); await rm(cwd, { recursive: true, force: true }); }
   }, 20000);
 
   it("projects only each stdio connector's credentials and ordinary system variables", async () => {
@@ -115,16 +165,76 @@ describe("agent-core managed MCP tools", () => {
       mcp = await AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" });
       expect(mcp.diagnostics).toEqual([]);
       expect(mcp.tools.map((tool) => tool.name)).toEqual(["mcp__local__echo"]);
-      const pending = mcp.tools[0]!.execute("call-1", { value: "hello" }, () => undefined,
+      const updates: unknown[] = [];
+      const pending = mcp.tools[0]!.execute("call-1", { value: "hello" }, (update) => { updates.push(update); },
         {} as never, {} as never, { abortSignal: undefined } as never);
       expect(interactions).toMatchObject([{ type: "interaction.requested", kind: "permission", method: "confirm", id: expect.any(String) }]);
       bridge.notify("extension_ui_response", { id: interactions[0]!.id, confirmed: true });
       const result = await pending;
       expect(result.content).toEqual([{ type: "text", text: "hello" }]);
+      expect(updates).toEqual([
+        { content: [], details: { approval: "waiting" } },
+        { content: [], details: { approval: "resolved" } },
+      ]);
+      expect(interactions[0]).toMatchObject({ toolCallId: "call-1" });
+      expect(result.details).toMatchObject({ scheduling: { approval_ms: expect.any(Number), execution_ms: expect.any(Number) } });
     } finally {
       await mcp?.close();
       await rm(cwd, { recursive: true, force: true });
     }
+  }, 20_000);
+
+  it.each([
+    { mode: "ask", safe: true, asks: true },
+    { mode: "auto", safe: true, asks: false },
+    { mode: "auto", safe: false, asks: true },
+    { mode: "full", safe: false, asks: false },
+  ] as const)("applies $mode to safe=$safe tools using session-owned policy", async ({ mode, safe, asks }) => {
+    const cwd = await mkdtemp(join(tmpdir(), "mcp-approval-mode-"));
+    vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "service-private"));
+    let mcp: AgentMcpTools | undefined;
+    try {
+      await mkdir(join(cwd, ".pi-science"));
+      const server = join(cwd, "server.mjs");
+      await writeFile(server, [
+        `import { McpServer } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};`,
+        `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
+        `const server = new McpServer({ name: "test", version: "1" });`,
+        `server.registerTool("echo", { description: "Echo", annotations: ${JSON.stringify(safe ? { readOnlyHint: true, destructiveHint: false, idempotentHint: true } : {})} }, async () => ({ content: [{ type: "text", text: "ok" }] }));`,
+        `await server.connect(new StdioServerTransport());`,
+      ].join("\n"));
+      const definition = { command: process.execPath, args: [server], approveTools: true, __piScienceConnectorId: "connector_mode" };
+      await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "project_mode", mcpServers: { local: definition } }));
+      const { saveSessionApproval } = await import("../../sandbox/session-approval.js");
+      await saveSessionApproval(cwd, "mode-session", mode, 0);
+      const events: Array<Record<string, unknown>> = [];
+      const bridge = new InteractionBridge((event) => events.push(event));
+      mcp = await AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" }, undefined, undefined, false, undefined, "mode-session");
+      expect(mcp.diagnostics).toEqual([]);
+      const pending = mcp.tools[0]!.execute("call-mode", {}, () => {}, {} as never, {} as never, {} as never);
+      if (asks) {
+        await vi.waitFor(() => expect(events).toHaveLength(1));
+        bridge.notify("extension_ui_response", { id: events[0]!.id, confirmed: true });
+      }
+      expect(await pending).toMatchObject({ content: [{ text: "ok" }] });
+      expect(events).toHaveLength(asks ? 1 : 0);
+      if (mode === "full") {
+        const slots = [];
+        try {
+          for (let i = 0; i < 4; i++) slots.push(await acquireMcpCall(cwd, JSON.stringify(["project_mode", "connector_mode"])));
+          const queued = mcp.tools[0]!.execute("old-full-queued", {}, () => {}, {} as never, {} as never, {} as never).then(() => null, (error: Error) => error);
+          const { workspaceFile } = await import("../../../storage/persistence.js");
+          const { createHash } = await import("node:crypto");
+          const queue = workspaceFile(cwd, `mcp-call-queues/${createHash("sha256").update(JSON.stringify(["project_mode", "connector_mode"])).digest("hex")}.json`);
+          await vi.waitFor(async () => expect(JSON.parse(await readFile(queue, "utf8")).waiting).toHaveLength(1));
+          await saveSessionApproval(cwd, "mode-session", "ask", 1);
+          await Promise.all(slots.splice(0).map((slot) => slot.release()));
+          expect((await queued)?.message).toContain("approval revision changed while queued");
+        } finally { await Promise.all(slots.map((slot) => slot.release())); }
+      }
+      await writeFile(join(cwd, ".pi-science", "mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "project_mode", mcpServers: { local: { ...definition, excludeTools: ["echo"] } } }));
+      await expect(mcp.tools[0]!.execute("revoked", {}, () => {}, {} as never, {} as never, {} as never)).rejects.toThrow("disabled");
+    } finally { await mcp?.close(); await rm(cwd, { recursive: true, force: true }); }
   }, 20_000);
 
   it("uses the checked HTTP transport for a managed local endpoint", async () => {

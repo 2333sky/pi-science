@@ -3,11 +3,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ModelResourceService } from "../../model-resources/model-resource-service.js";
+import { ModelConfigService } from "../../model-config/model-config-service.js";
 import { ConversationEventHub } from "../events/conversation-event-hub.js";
 import { NodeSessionService } from "../node/node-session-service.js";
 import { SessionRepository } from "../node/session-repository.js";
 import type { AgentCoreSessionService } from "./agent-core-session-service.js";
+import { ExecutionBudgetLedger } from "../executions/execution-budget.js";
 import { turnArtifactRepository } from "../artifacts/turn-artifact-repository.js";
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -46,12 +47,13 @@ async function fixture(mode: "reply" | "write" | "hold-first" | "stall-stream" |
   vi.stubEnv("PI_SCIENCE_EVENT_WATCHDOG_MS", "100");
   const requests: Array<{ messages: Array<{ role: string; content?: unknown }> }> = [];
   let streamStallReleased = false;
+  let releaseFirstResponse = () => {};
   const server = createServer(async (request, stream) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString()) as typeof requests[number];
     requests.push(body);
-    if (mode === "hold-first" && requests.length === 1) return;
+    if (mode === "hold-first" && requests.length === 1) { releaseFirstResponse = () => response(stream); return; }
     if ((mode === "stall-stream" && requests.length === 1) || (mode === "stall-until-released" && !streamStallReleased)) {
       stream.writeHead(200, { "content-type": "text/event-stream" });
       stream.write(`data: ${JSON.stringify({ id: "stalled-response", object: "chat.completion.chunk", created: 1, model: "lab",
@@ -65,12 +67,8 @@ async function fixture(mode: "reply" | "write" | "hold-first" | "stall-stream" |
     server.closeAllConnections();
     server.close((error) => error ? reject(error) : resolve());
   }));
-  const resources = new ModelResourceService();
-  const provider = await resources.createProvider({ name: "Local Lab", adapter: "openai-compatible", catalog_mode: "manual", auth_kind: "api_key", enabled: true });
-  const credential = await resources.credentials.put({ kind: "api_key", backend: "managed", secret: "local-test-key" });
-  const endpoint = await resources.createEndpoint({ name: "Local test", base_url: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`, protocol: "openai", credential_ref: credential.id, enabled: true, data_egress: "local" });
-  await resources.createBinding({ provider_id: provider.id, endpoint_id: endpoint.id, enabled: true, priority: 1 });
-  await resources.updateModel(provider.id, "lab", { enabled: true, capabilities: { reasoning: false, context_window: 128000 } });
+  const provider = { id: "native-lab" };
+  await new ModelConfigService().createProvider(0, provider.id, { api: "openai-completions", baseUrl: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`, models: [{ id: "lab", reasoning: false, contextWindow: 128000 }] }, { source: "managed", secret: "local-test-key" });
   const events: Record<string, unknown>[] = [];
   const hub = new ConversationEventHub({ append: async () => undefined, readAfter: async () => [] });
   const publish = hub.publish.bind(hub);
@@ -81,10 +79,49 @@ async function fixture(mode: "reply" | "write" | "hold-first" | "stall-stream" |
   const created = await service.create({ cwd, config: { model: `${provider.id}/lab`, thinking: "off", skills: [], extensions: [] } });
   if (!("id" in created)) throw new Error(created.error);
   const core = (service as unknown as { agentCore: AgentCoreSessionService }).agentCore;
-  return { cwd, id: created.id, service, core, events, review, requests, releaseStreamStall: () => { streamStallReleased = true; } };
+  return { cwd, id: created.id, service, core, events, review, requests, releaseFirstResponse: () => releaseFirstResponse(), releaseStreamStall: () => { streamStallReleased = true; } };
 }
 
 describe("agent-core product turns", () => {
+  it("allows research continuation after aborting one operation", async () => {
+    const { cwd, id, service, requests, events } = await fixture("hold-first");
+    const admitted = await service.command(id, cwd, "prompt", { message: "begin research" });
+    expect(admitted.success).toBe(true);
+    await vi.waitFor(() => expect(requests).toHaveLength(1), { timeout: 15000 });
+    const first = new ExecutionBudgetLedger(cwd, String(admitted.operationId));
+    await first.configure({ max_executions: 3 }, "research-abort");
+    await first.reserve("bash", String(admitted.operationId), "spent");
+    await service.command(id, cwd, "abort", {});
+    await vi.waitFor(() => expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "operation.settled", runId: admitted.operationId }),
+    ])), { timeout: 15000 });
+    expect(await first.status()).toMatchObject({ cancelled: true, global_used: 1 });
+    const next = await service.command(id, cwd, "prompt", { message: "continue research" });
+    expect(next.success).toBe(true);
+    const continuation = new ExecutionBudgetLedger(cwd, String(next.operationId));
+    await continuation.configure({}, "research-abort");
+    await continuation.reserve("bash", String(next.operationId), "continue");
+    expect(await continuation.status()).toMatchObject({ cancelled: false, global_used: 2, remaining_executions: 1 });
+    await vi.waitFor(() => expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "operation.settled", runId: next.operationId, status: "completed" }),
+    ])), { timeout: 15000 });
+  }, 45000);
+
+  it("does not cancel a settled research operation on a later idle abort", async () => {
+    const { cwd, id, service, requests, events, releaseFirstResponse } = await fixture("hold-first");
+    const admitted = await service.command(id, cwd, "prompt", { message: "complete research" });
+    expect(admitted.success).toBe(true);
+    await vi.waitFor(() => expect(requests).toHaveLength(1), { timeout: 15000 });
+    const budget = new ExecutionBudgetLedger(cwd, String(admitted.operationId));
+    await budget.configure({ max_executions: 3 }, "research-settled");
+    releaseFirstResponse();
+    await vi.waitFor(() => expect(events).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: "operation.settled", runId: admitted.operationId, status: "completed" }),
+    ])), { timeout: 15000 });
+    await service.command(id, cwd, "abort", {});
+    expect(await budget.status()).toMatchObject({ cancelled: false, remaining_executions: 3 });
+  }, 45000);
+
   it("kills an IPC-healthy worker with a stalled provider stream and resumes the durable operation once", async () => {
     const { cwd, id, service, core, events, requests } = await fixture("stall-stream");
     vi.stubEnv("PI_SCIENCE_OPERATION_NO_PROGRESS_MS", "1000");
@@ -205,12 +242,22 @@ describe("agent-core product turns", () => {
     const original = core.liveRuntime(cwd)!;
     const emit = original.emit.bind(original);
     let droppedSettled = false;
+    let eventDropped!: () => void;
+    const dropped = new Promise<void>((resolve) => { eventDropped = resolve; });
+    // Inject the loss before allowing the watchdog to repair it. On slower
+    // hosts, its snapshot can otherwise overtake terminal IPC delivery and
+    // replace the worker before this test has actually dropped any event.
+    const supervisor = core as unknown as { probe: (...args: unknown[]) => Promise<void> };
+    const probe = supervisor.probe.bind(supervisor);
+    vi.spyOn(supervisor, "probe").mockImplementation(async (...args) => { await dropped; await probe(...args); });
+    cleanup.push(async () => { eventDropped(); });
     vi.spyOn(original, "emit").mockImplementation((type, ...args) => {
       // Lose the worker's terminal event, not a supervisor's synthetic repair.
       // Depending on the last observed sequence, the watchdog can reconcile a
       // snapshot in this worker or reopen it after detecting a sequence gap.
       if (type === "event" && args[0]?.type === "operation.settled" && !args[0]?.recovery) {
         droppedSettled = true;
+        eventDropped();
         return false;
       }
       return emit(type, ...args);

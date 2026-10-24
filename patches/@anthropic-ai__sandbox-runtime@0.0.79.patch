@@ -1,0 +1,19 @@
+diff --git a/dist/sandbox/macos-sandbox-utils.js b/dist/sandbox/macos-sandbox-utils.js
+index 9d5dc7e3dd0a9d80f10e8855edf4251161fa14b0..dae568044fffa06faee658d1b580a04f4307a9df 100644
+--- a/dist/sandbox/macos-sandbox-utils.js
++++ b/dist/sandbox/macos-sandbox-utils.js
+@@ -244,7 +244,13 @@ function lateReadDenyFilters(resolved) {
+     for (const deny of resolved.denies) {
+         if (!deny.glob) {
+             if (literalAllowDirs.some(a => isStrictlyUnder(deny, a))) {
+-                filters.push(denyPathFilter(deny));
++                // Preserve explicit literal child grants when restoring a parent
++                // deny after a broader allow. Descendant denies are still emitted
++                // independently, so sensitive files inside a grant remain denied.
++                const carveOuts = resolved.allows
++                    .filter(a => !a.glob && isStrictlyUnder(a, deny.path))
++                    .map(a => pathFilter(a));
++                filters.push(carveFilter(denyPathFilter(deny), carveOuts));
+             }
+             continue;
+         }

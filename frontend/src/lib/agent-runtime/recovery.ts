@@ -119,6 +119,7 @@ function applyRuntimeState(runtimeState: SessionState, current = useRuntimeStore
     model: runtimeState.model ?? current.model,
     thinking: runtimeState.thinking ?? current.thinking,
     contextTokens: runtimeState.context_tokens ?? current.contextTokens,
+    mcpDiagnostics: runtimeState.mcp_diagnostics ?? [],
     contextWindow: runtimeState.context_window ?? current.contextWindow,
     contextPercent: runtimeState.context_percent ?? current.contextPercent,
     compactionEnabled: runtimeState.compaction_enabled ?? current.compactionEnabled,
@@ -844,7 +845,7 @@ export async function reconcilePromptAfterLateStream(
           || !recheck.working
         ) return;
         ++generations.activity;
-        useRuntimeStore.setState({ working: false, turnLifecycle: confirmedIdleLifecycle(recheck.thread, recheck.turnLifecycle), status: "ready", pendingInteraction: null, pendingQuestionnaire: null });
+        useRuntimeStore.setState({ working: false, turnLifecycle: confirmedIdleLifecycle(recheck.thread, recheck.turnLifecycle), status: "ready", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
         void resyncCompletedHistory(sessionId, cwd);
         void loadSessionsInternal();
         return;
@@ -933,11 +934,13 @@ export function recoverMissingSession(sessionId: string, cwd: string, client?: P
     model: null,
     thinking: null,
     contextTokens: null,
+    mcpDiagnostics: [],
     contextWindow: null,
     contextPercent: null,
     compactionEnabled: true,
     compactionThresholdPercent: null,
     pendingInteraction: null,
+    pendingInteractionQueue: [],
     pendingQuestionnaire: null,
   });
 }

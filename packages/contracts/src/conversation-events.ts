@@ -6,6 +6,6 @@ export const conversationEventTypes = [
   "interaction.requested", "interaction.resolved", "questionnaire.asked", "questionnaire.finished",
   "compaction.started", "compaction.progress", "compaction.completed", "compaction.failed",
   "artifact.published", "artifact.updated", "turn.artifacts", "plan.updated",
-  "status.updated", "session.replaced", "stream.gap", "session.stats",
+  "approval.mode.changed", "status.updated", "session.replaced", "stream.gap", "session.stats",
 ] as const;
 

@@ -1,3 +1,4 @@
+import { canonicalRuntimeModelRef } from "./model-ref.js";
 import { CredentialStore } from "../../model-resources/credential-store.js";
 import { projectedEnvironmentNames } from "../shared/extensions/pi-science-mcp.js";
 import { loadDefaultPiConfig, seedWorkspaceAssets } from "../agent/runtime-config.js";
@@ -8,7 +9,6 @@ import type { AgentCoreRuntimeClient } from "./agent-runtime-client.js";
 import type { RuntimeSkillPolicy } from "./agent-runtime-types.js";
 import type { WorkspaceEnvironmentService } from "../workspace/workspace-environment.js";
 import type { TaskRuntime, TaskPrompt } from "./runner-transport.js";
-import { ModelResourceService } from "../../model-resources/model-resource-service.js";
 
 /** Uses the durable child result directly; no synthetic event stream. */
 class CoreTaskRuntime implements TaskRuntime {
@@ -38,8 +38,8 @@ class CoreTaskRuntime implements TaskRuntime {
 
 export async function openCoreRunner(manager: AgentRuntimeManager, environments: Pick<WorkspaceEnvironmentService, "environment">,
   cwd: string, key: string, owner: string, purpose: "research" | "review", server: { backendUrl?: string; internalToken?: string } = {}): Promise<TaskRuntime> {
-  await new ModelResourceService().ensureMigrated();
   const config = loadDefaultPiConfig();
+  if (config.model) config.model = canonicalRuntimeModelRef(config.model);
   const index = config.model?.indexOf("/") ?? -1;
   if (index <= 0) throw new Error("Agent-core runner requires a configured model");
   seedWorkspaceAssets(cwd);
@@ -52,9 +52,8 @@ export async function openCoreRunner(manager: AgentRuntimeManager, environments:
     skillPolicy: settings.skill_policy ?? { mode: "inherit" }, credentialEnvNames,
     env: { ...await environments.environment(cwd), ...(server.backendUrl ? { PI_SCIENCE_BACKEND_URL: server.backendUrl } : {}),
       ...(server.internalToken ? { PI_SCIENCE_INTERNAL_TOKEN: server.internalToken } : {}) },
-    allowedTools: purpose === "review" ? [] : ["read", "subagent"],
-    systemPrompt: purpose === "review" ? "You are a scientific project reviewer. Return only the requested JSON. Do not use tools."
-      : "You are a research supervisor. Delegate planning, candidate production, and review to subagents. Do not edit files or execute code.",
+    allowedTools: [],
+    systemPrompt: "You are a scientific project reviewer. Return only the requested JSON. Do not use tools.",
   }, `${purpose}:${owner}`, purpose);
   return new CoreTaskRuntime(runtime);
 }

@@ -2,6 +2,7 @@
  *  is created, and receive zustand's `set`/`get` directly — so action
  *  references stay stable across renders exactly as before. */
 
+import { resolveInteraction } from "./interaction-queue";
 import type { StoreApi } from "zustand";
 import { v4 as uuidv4 } from "uuid";
 import type { ThreadBlock } from "../../types/thread";
@@ -117,16 +118,18 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           model: null,
           thinking: null,
           contextTokens: null,
+          mcpDiagnostics: [],
           contextWindow: null,
           contextPercent: null,
           compactionEnabled: true,
           compactionThresholdPercent: null,
           sessionStats: null,
           pendingInteraction: null,
+          pendingInteractionQueue: [],
           pendingQuestionnaire: null,
         });
       }
-      set({ status: "connecting", cwd });
+      set({ status: "connecting", cwd, ...(state.cwd !== cwd ? { draftApproval: null } : {}) });
       const client = getClient();
       registerEventListener(client);
       set({ client });
@@ -226,6 +229,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           nextState.model = runtimeState.model ?? null;
           nextState.thinking = runtimeState.thinking ?? null;
           nextState.contextTokens = runtimeState.context_tokens ?? null;
+          nextState.mcpDiagnostics = runtimeState.mcp_diagnostics ?? [];
           nextState.contextWindow = runtimeState.context_window ?? null;
           nextState.contextPercent = runtimeState.context_percent ?? null;
           nextState.compactionEnabled = runtimeState.compaction_enabled ?? true;
@@ -457,7 +461,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       // Unmounting the conversation view does not stop the backend turn. Keep
       // the stop/busy state so workspace-level controls cannot race the active
       // agent merely because the user opened Files or Knowledge.
-      set({ status: "offline", pendingInteraction: null, pendingQuestionnaire: null });
+      set({ status: "offline", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
     },
 
     sendPrompt: async (message: string, requestedClientMessageId?: string): Promise<string | null> => {
@@ -652,7 +656,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
         await getClient().abort(activeSessionId, cwd);
         const current = get();
         if (current.activeSessionId === activeSessionId && current.cwd === cwd && current.turnLifecycle === "stopping") {
-          set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingQuestionnaire: null });
+          set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
         }
       } catch (error) {
         const current = get();
@@ -662,7 +666,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
             ? (error as { code?: unknown }).code
             : undefined;
           if (code === "runtime_evicted") {
-            set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingQuestionnaire: null });
+            set({ working: false, turnLifecycle: "aborted", status: "ready", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
             return;
           }
           try {
@@ -676,7 +680,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
                 working: busy,
                 turnLifecycle: busy ? "active" : "aborted",
                 status: "error",
-                ...(busy ? {} : { pendingInteraction: null, pendingQuestionnaire: null }),
+                ...(busy ? {} : { pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null }),
               });
             }
           } catch {
@@ -719,7 +723,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
               client.connect(nextSessionId, cwd);
             set({
               client,
-              activeSessionId: nextSessionId,
+              activeSessionId: nextSessionId, mcpDiagnostics: [],
               historyCursor: null,
               historyHasMore: false,
               historyLoading: false,
@@ -740,7 +744,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           }
           set({
             client,
-            activeSessionId: nextSessionId,
+            activeSessionId: nextSessionId, mcpDiagnostics: [],
             sessions: nextSessionId === activeSessionId
               ? current.sessions
               : [
@@ -812,7 +816,8 @@ export function createRuntimeActions(set: SetState, get: GetState) {
             const thread = resolvedBlocks.some((block, index) => block !== current.thread.blocks[index])
               ? { ...current.thread, blocks: resolvedBlocks, index: Object.fromEntries(resolvedBlocks.map((block, index) => [block.id, index])) }
               : current.thread;
-            set({ pendingInteraction: null, working: true, turnLifecycle: "active", status: "ready", thread });
+            const remaining = resolveInteraction(current, requestId);
+            set({ ...remaining, working: true, turnLifecycle: remaining.pendingInteraction ? "waiting" : "active", status: "ready", thread });
             ensureTurnWatchdog();
           }
         } catch (error) {
@@ -869,7 +874,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       ++generations.activity;
       ++generations.localMutation;
       optimisticSessionIds.add(result.id);
-      set({ activeSessionId: result.id, status: "connecting", pendingInteraction: null, pendingQuestionnaire: null });
+      set({ activeSessionId: result.id, mcpDiagnostics: [], status: "connecting", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       registerEventListener(client);
       client.connect(result.id, cwd);
       let history = {
@@ -891,7 +896,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
       if (latest.cwd !== cwd || latest.activeSessionId !== result.id) return result.id;
       set({
         client,
-        activeSessionId: result.id,
+        activeSessionId: result.id, mcpDiagnostics: [],
         thread: attachTurnArtifacts(threadFromMessages(history.messages), artifactTurns, { windowComplete: !history.has_more }),
         historyCursor: history.next_cursor,
         historyHasMore: history.has_more,
@@ -920,7 +925,11 @@ export function createRuntimeActions(set: SetState, get: GetState) {
         const client = getClient();
         const draft = get().draftModelSelection;
         const selection = draft?.cwd === requestCwd ? draft.selection : undefined;
-        const result = selection?.model ? await client.createSession(requestCwd, selection.model, selection.thinking) : await client.createSession(requestCwd);
+        const approvalDraft = get().draftApproval;
+        const initialApproval = !requestSessionId && approvalDraft?.cwd === requestCwd ? approvalDraft.approval : undefined;
+        const result = initialApproval
+          ? await client.createSession(requestCwd, selection?.model ?? undefined, selection?.thinking ?? undefined, initialApproval)
+          : selection?.model ? await client.createSession(requestCwd, selection.model, selection.thinking) : await client.createSession(requestCwd);
         if (get().cwd !== requestCwd || generations.connection !== requestGeneration) {
           // A late blank runtime must neither replace a newer conversation nor leak capacity.
           // Deleting it is only safe while nobody has opened it: the server lists a session as
@@ -941,7 +950,8 @@ export function createRuntimeActions(set: SetState, get: GetState) {
         const live = get();
         set({
           client,
-          activeSessionId: result.id,
+          activeSessionId: result.id, mcpDiagnostics: [],
+          draftApproval: initialApproval && get().draftApproval === approvalDraft ? null : get().draftApproval,
           draftModelSelection: selection && get().draftModelSelection === draft ? null : get().draftModelSelection,
           thread: live.thread.blocks.length > 0 ? live.thread : emptyThread(),
           historyCursor: null,
@@ -956,6 +966,7 @@ export function createRuntimeActions(set: SetState, get: GetState) {
           turnLifecycle: live.turnLifecycle,
           status: "connecting",
           pendingInteraction: null,
+          pendingInteractionQueue: [],
           pendingQuestionnaire: null,
         });
         optimisticSessionIds.add(result.id);

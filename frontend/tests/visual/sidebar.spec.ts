@@ -15,7 +15,7 @@ test("desktop rail reveals labels above adjacent panes without shifting the layo
   if (testInfo.project.name === "desktop-dark") {
     await page.addInitScript(() => localStorage.setItem("pi-science.theme", JSON.stringify("dark")));
   }
-  await page.goto(`${root}/research`);
+  await page.goto(`${root}/knowledge`);
   const rail = page.locator(RAIL);
   const railSlot = page.locator("[data-workspace-rail-slot]");
   const main = page.locator("#main-content");
@@ -43,8 +43,8 @@ test("desktop rail reveals labels above adjacent panes without shifting the layo
   });
   await expect(railSlot).toHaveCSS("width", "60px");
   await expect(rail).toHaveCSS("width", "60px");
-  const research = rail.getByRole("link", { name: "Research", exact: true });
-  await research.hover();
+  const knowledge = rail.getByRole("link", { name: KNOWLEDGE });
+  await knowledge.hover();
   await expect(rail).toHaveCSS("width", "220px");
   const railBrand = rail.locator(".workspace-rail-brand");
   await expect(railBrand).toHaveCSS("opacity", "1");
@@ -54,7 +54,7 @@ test("desktop rail reveals labels above adjacent panes without shifting the layo
   for (const [property, value] of Object.entries(brandStyle)) {
     expect(await railBrand.evaluate((element, key) => getComputedStyle(element)[key as keyof CSSStyleDeclaration], property)).toBe(value);
   }
-  await expect(research.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
+  await expect(knowledge.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
   for (const label of await rail.locator(".workspace-rail-label").all()) {
     await expect(label).toHaveCSS("text-align", "left");
   }
@@ -64,14 +64,14 @@ test("desktop rail reveals labels above adjacent panes without shifting the layo
   await page.mouse.move(700, 300);
   await expect(rail).toHaveCSS("width", "60px");
   // A pointer click retains DOM focus, but must not pin the overlay open.
-  await research.click();
+  await knowledge.click();
   await page.mouse.move(700, 300);
   await expect(rail).toHaveCSS("width", "60px");
   await page.getByRole("link", { name: "Skip to content", exact: true }).focus();
-  for (let i = 0; i < 4; i++) await page.keyboard.press("Tab");
-  await expect(research).toBeFocused();
+  for (let i = 0; i < 3; i++) await page.keyboard.press("Tab");
+  await expect(knowledge).toBeFocused();
   await expect(rail).toHaveCSS("width", "220px");
-  await expect(research.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
+  await expect(knowledge.locator(".workspace-rail-label")).toHaveCSS("opacity", "1");
   await main.focus();
   await expect(rail).toHaveCSS("width", "60px");
   await page.screenshot({ path: testInfo.outputPath("rail-collapsed.png") });
@@ -80,13 +80,13 @@ test("desktop rail reveals labels above adjacent panes without shifting the layo
 
 test("mobile rail stays compact on hover and keyboard focus", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile", "Mobile compact rail coverage");
-  await page.goto(`${root}/research`);
+  await page.goto(`${root}/knowledge`);
   const rail = page.locator(RAIL);
-  const research = rail.getByRole("link", { name: "Research", exact: true });
-  await research.hover();
-  await research.focus();
+  const knowledge = rail.getByRole("link", { name: KNOWLEDGE });
+  await knowledge.hover();
+  await knowledge.focus();
   await expect(rail).toHaveCSS("width", "58px");
-  await expect(research.locator(".workspace-rail-label")).toHaveCSS("opacity", "0");
+  await expect(knowledge.locator(".workspace-rail-label")).toHaveCSS("opacity", "0");
   await page.screenshot({ path: testInfo.outputPath("rail-mobile.png") });
 });
 
@@ -173,7 +173,7 @@ test("sidebar tabs preserve session lifecycle and collapsed New stays blank", as
   await expect(page.getByRole("searchbox")).toHaveValue("");
   expect(reloads).toBeLessThanOrEqual(1);
   await page.setViewportSize({ width: 1280, height: 600 });
-  for (const name of [/^Project Knowledge/, "Research", "Run history", "Settings"]) {
+  for (const name of [/^Project Knowledge/, "Run history", "Settings"]) {
     const box = await page.getByRole("link", { name }).or(page.getByRole("button", { name })).first().boundingBox();
     expect(box).not.toBeNull();
     expect(box!.y + box!.height).toBeLessThanOrEqual(600);
@@ -204,7 +204,7 @@ test("rail navigation highlights only exact primary routes", async ({ page }, te
   await page.getByRole("button", { name: "New conversation", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${root}$`));
   await expect(conversations).toHaveAttribute("aria-current", "page");
-  for (const [path, label] of [["knowledge", KNOWLEDGE], ["research", "Research"], ["runs", "Run history"]] as const) {
+  for (const [path, label] of [["knowledge", KNOWLEDGE], ["runs", "Run history"]] as const) {
     const item = rail.getByRole("link", { name: label });
     await item.click();
     await expect(page).toHaveURL(new RegExp(`${root}/${path}$`));
@@ -222,22 +222,22 @@ test("rail navigation highlights only exact primary routes", async ({ page }, te
   await expect(page.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 
-test("research with files and runs with conversations stay simultaneously current", async ({ page }, testInfo) => {
+test("knowledge with files and runs with conversations stay simultaneously current", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "desktop-light", "Desktop selection coverage");
-  await page.goto(`${root}/research`);
-  await page.getByRole("tab", { name: "Files", exact: true }).click();
-  await expect(page.locator(RAIL).getByRole("link", { name: "Research", exact: true })).toHaveAttribute("aria-current", "page");
-  await expect(page.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true");
-  await expect(page).toHaveURL(new RegExp(`${root}/research$`));
+  await page.goto(`${root}/knowledge`);
+  await page.locator(PANEL).getByRole("tab", { name: "Files", exact: true }).click();
+  await expect(page.locator(RAIL).getByRole("link", { name: KNOWLEDGE })).toHaveAttribute("aria-current", "page");
+  await expect(page.locator(PANEL).getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page).toHaveURL(new RegExp(`${root}/knowledge$`));
   // Routing away through the Rail must not reset the context tab. A reload
   // would, because the tab is session-only by design, so drive the app.
   await page.locator(RAIL).getByRole("link", { name: "Run history", exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${root}/runs$`));
-  await expect(page.getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.locator(PANEL).getByRole("tab", { name: "Files", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(RAIL).getByRole("link", { name: "Run history", exact: true })).toHaveAttribute("aria-current", "page");
   await page.mouse.move(700, 300);
-  await page.getByRole("tab", { name: "Conversations", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "Conversations", exact: true })).toHaveAttribute("aria-selected", "true");
+  await page.locator(PANEL).getByRole("tab", { name: "Conversations", exact: true }).click();
+  await expect(page.locator(PANEL).getByRole("tab", { name: "Conversations", exact: true })).toHaveAttribute("aria-selected", "true");
   await expect(page.locator(RAIL).getByRole("link", { name: "Run history", exact: true })).toHaveAttribute("aria-current", "page");
   await expect(page).toHaveURL(new RegExp(`${root}/runs$`));
 });
@@ -433,7 +433,7 @@ test("panel and rail controls fit narrow panel widths and short light/dark windo
     await expect(page.getByRole("searchbox")).toBeVisible();
     const railBox = (await page.locator(RAIL).boundingBox())!;
     // Every primary entry stays inside the rail column.
-    for (const [role, name] of [["button", "New conversation"], ["link", /^Project Knowledge/], ["link", "Research"], ["link", "Run history"], ["button", "Settings"]] as const) {
+    for (const [role, name] of [["button", "New conversation"], ["link", /^Project Knowledge/], ["link", "Run history"], ["button", "Settings"]] as const) {
       const box = await page.getByRole(role, { name }).boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x).toBeGreaterThanOrEqual(railBox.x - 1);

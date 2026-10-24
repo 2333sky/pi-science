@@ -1,3 +1,5 @@
+import { modelConfigSnapshotSchema } from "@pi-science/contracts";
+import { ModelConfigService, modelConfigBackend, isAllowedModelEnvRef } from "../../model-config/model-config-service.js";
 import { fork, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
@@ -20,8 +22,12 @@ type WorkerRequest =
   | ({ type: "notification" } & RuntimeNotification);
 
 const DEFAULT_TIMEOUT_MS = 30_000;
-const SYSTEM_ENV_KEYS = ["PATH", "HOME", "USER", "TMPDIR", "TEMP", "TMP", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "PI_SCIENCE_HOME", "PI_SCIENCE_STATE_ROOT",
-  // Trusted launch configuration for model networking; never accept workspace overrides.
+// Preserve PowerShell module lookup in the minimal Windows worker environment.
+const WINDOWS_DIRECTORY_KEYS = ["USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)", "SystemDrive", "PSModulePath"] as const;
+const windowsDirectoryKeys = new Set(WINDOWS_DIRECTORY_KEYS.map((name) => name.toLowerCase()));
+const SYSTEM_ENV_KEYS = ["PATH", "HOME", "USER", ...WINDOWS_DIRECTORY_KEYS, "TMPDIR", "TEMP", "TMP", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT", "PI_SCIENCE_HOME", "PI_SCIENCE_STATE_ROOT",
+  // Trusted launch configuration; never accept workspace overrides.
+  "PI_SCIENCE_EXECUTION_MODE", "PI_SCIENCE_SANDBOX_PROFILES", "PI_SCIENCE_SANDBOX_READ_POLICY", "PI_SCIENCE_SANDBOX_RUNTIME_PATHS", "PI_SCIENCE_SANDBOX_PYTHON", "PI_SCIENCE_SANDBOX_PYTHON_ROOT", "PI_SCIENCE_SANDBOX_SOCAT", "PI_SCIENCE_SANDBOX_RIPGREP", "PI_SCIENCE_SANDBOX_BWRAP",
   "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "all_proxy", "no_proxy",
   "NODE_USE_ENV_PROXY", "NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
 ] as const;
@@ -47,8 +53,8 @@ export function workerEnvironment(overrides: Record<string, string> = {}, creden
     return value === undefined ? [] : [[name, value]];
   }));
   const allowed = new Set([...WORKSPACE_ENV_KEYS, ...credentialEnvNames]);
-  const workspace = Object.fromEntries(Object.entries(overrides).filter(([name]) => allowed.has(name)));
-  return { ...system, ...workspace };
+  const workspace = Object.fromEntries(Object.entries(overrides).filter(([name]) => allowed.has(name) && !windowsDirectoryKeys.has(name.toLowerCase()) && name !== "PI_SCIENCE_EXECUTION_MODE" && !name.startsWith("PI_SCIENCE_SANDBOX_")));
+  return { ...system, ...workspace, PI_SCIENCE_MCP_EXECUTABLE_PATH: process.env.PI_SCIENCE_MCP_EXECUTABLE_PATH ?? process.env.PATH ?? "" };
 }
 
 /** One IPC connection and one OS child for an AgentHarness session. */
@@ -77,8 +83,22 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
   }
 
   static async start(options: AgentRuntimeStartOptions, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<AgentCoreRuntimeClient> {
+    // Bind all Worker callers (sessions, titles, research and subagents) at one
+    // trusted boundary. Parent tasks may retain their already validated revision.
+    const backend = modelConfigBackend();
+    const service = new ModelConfigService();
+    const snapshot = options.settings?.modelConfigSnapshot
+      ? modelConfigSnapshotSchema.parse(options.settings.modelConfigSnapshot) : service.readSync();
+    const modelEnvironment: Record<string, string> = {};
+    for (const ref of Object.values(snapshot?.credential_refs ?? {})) {
+      const metadata = await service.credentials.metadata(ref);
+      const name = metadata?.backend === "environment" ? metadata.environment_variable : undefined;
+      if (isAllowedModelEnvRef(name) && process.env[name] !== undefined) modelEnvironment[name] = process.env[name]!;
+    }
+    const launch = { ...options, settings: { ...options.settings, modelConfigBackend: backend, modelConfigSnapshot: snapshot,
+      modelConfigAllowPrivate: options.settings?.modelConfigAllowPrivate !== false && process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0" } };
     const entry = workerEntry();
-    const env = workerEnvironment(options.env, options.credentialEnvNames);
+    const env = workerEnvironment({ ...options.env, ...modelEnvironment }, [...(options.credentialEnvNames ?? []), ...Object.keys(modelEnvironment)]);
     const child = fork(entry.path, [], {
       cwd: options.cwd,
       env,
@@ -87,7 +107,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
     });
     const client = new AgentCoreRuntimeClient(child, options.cwd, timeoutMs);
     try {
-      const result = await client.request({ type: "initialize", options: { ...options, env: env as Record<string, string> } }, "initialize");
+      const result = await client.request({ type: "initialize", options: { ...launch, env: env as Record<string, string> } }, "initialize");
       if (!result.success) throw new Error(result.error ?? "agent runtime initialization failed");
       const sessionId = result.data && typeof result.data === "object" ? (result.data as { sessionId?: unknown }).sessionId : undefined;
       if (typeof sessionId !== "string" || !sessionId) throw new Error("agent runtime returned no session ID");

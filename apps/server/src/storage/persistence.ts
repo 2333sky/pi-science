@@ -270,7 +270,7 @@ export function configRoot(): string {
   for (const candidate of candidates) {
     const probe = join(candidate, `.write-probe-${process.pid}`);
     try {
-      mkdirSync(candidate, { recursive: true });
+      mkdirSync(candidate, { recursive: true, mode: 0o700 });
       writeFileSync(probe, "", "utf8");
       unlinkSync(probe);
       return candidate;

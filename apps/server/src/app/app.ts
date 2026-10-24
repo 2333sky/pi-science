@@ -1,3 +1,4 @@
+import { ModelConfigService } from "../model-config/model-config-service.js";
 import cors from "@fastify/cors";
 import rateLimit from "@fastify/rate-limit";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
@@ -13,12 +14,11 @@ import { registerJobRoutes } from "../http/routes/job-routes.js";
 import { registerArtifactRoutes } from "../http/routes/artifact-routes.js";
 import { registerTurnArtifactRoutes } from "../http/routes/turn-artifact-routes.js";
 import { registerSettingsRoutes } from "../http/routes/settings-routes.js";
-import { registerModelEndpointRoutes } from "../http/routes/model-endpoint-routes.js";
 import { registerModelResourceRoutes } from "../http/routes/model-resource-routes.js";
 import { registerExecutionRoutes } from "../http/routes/execution-routes.js";
 import { registerKernelExecutionRoutes } from "../http/routes/kernel-execution-routes.js";
 import { registerNotebookRoutes } from "../http/routes/notebook-routes.js";
-import { knownWorkspacePaths, registerCatalogRoutes, rootDir } from "../http/routes/catalog-routes.js";
+import { registerCatalogRoutes, rootDir } from "../http/routes/catalog-routes.js";
 import { registerProjectRoutes } from "../http/routes/project-routes.js";
 import { registerMcpRoutes } from "../http/routes/mcp-routes.js";
 import { createServerModules, type ServerModules } from "./server-modules.js";
@@ -31,7 +31,7 @@ import { importLegacyState } from "../storage/sqlite/legacy-state.js";
 import { internalAuthCookie, requestInternalToken, tokensMatch } from "../security/internal-auth.js";
 
 export function buildApp(config: ServerConfig, modules: ServerModules = createServerModules(config)): FastifyInstance {
-  const { sessions: nodeSessionService, events, sessionRepository, runtimeCatalog, settings, modelResources, mcp, jobs, research, projectReview, environments, kernels, notebooks, stateStore, workspaces, environmentRepository, jobRepository, sqliteEnabled } = modules;
+  const { sessions: nodeSessionService, events, sessionRepository, runtimeCatalog, settings, modelResources, mcp, jobs, projectReview, environments, kernels, notebooks, stateStore, workspaces, environmentRepository, jobRepository, sqliteEnabled } = modules;
   let stateReady = !sqliteEnabled;
   let stateError: unknown;
   const app = Fastify({
@@ -118,7 +118,7 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
   app.get("/api/health", async () => gatewayHealthSchema.parse({
     status: "ok",
     active_agent_workers: nodeSessionService.processCount,
-    active_kernels: kernels.status().active_count,
+    active_kernels: kernels.activeCount,
     service: "pi-science-server",
     control_plane: "node",
   }));
@@ -131,20 +131,22 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
     return { status: "ready", service: "pi-science-server", control_plane: "node", sqlite: sqliteEnabled ? diagnostics : { status: "disabled", schema_version: null, journal_mode: null, pending_requests: 0 } };
   });
 
-  app.get("/internal/diagnostics", async () => {
-    const modelState = await modelResources.repository.read();
-    return {
-      sqlite: sqliteEnabled ? stateStore.diagnostics() : { status: "disabled" },
-      model_resources: {
-        schema_version: modelState.schema_version,
-        migration: modelState.migration ?? null,
-        provider_count: modelState.providers.length,
-        model_count: modelState.models.length,
-        endpoint_count: modelState.endpoints.length,
-        binding_count: modelState.bindings.length,
-        credential_ref_count: Object.keys(modelState.credential_refs).length,
-      },
-    };
+  // Isolate filesystem-backed diagnostics from unthrottled health probes.
+  void app.register(async (diagnosticsScope) => {
+    await diagnosticsScope.register(rateLimit, { global: false });
+    diagnosticsScope.get("/internal/diagnostics", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async () => {
+      const modelState = new ModelConfigService().readSync();
+      return {
+        sqlite: sqliteEnabled ? stateStore.diagnostics() : { status: "disabled" },
+        model_resources: {
+          schema_version: modelState.schema_version,
+          revision: modelState.revision,
+          provider_count: Object.keys(modelState.config.providers).length,
+          model_count: Object.values(modelState.config.providers).reduce((count, provider) => count + (provider.models?.length ?? 0), 0),
+          credential_ref_count: Object.keys(modelState.credential_refs).length,
+        },
+      };
+    });
   });
 
   if (config.nodeSessions || config.nodePiManager) registerSessionReadRoutes(app, sessionRepository, nodeSessionService);
@@ -169,13 +171,12 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
   if (config.nodeSettings !== false && sqliteEnabled) registerMcpRoutes(app, mcp);
   if (config.nodeSettings !== false) {
     registerModelResourceRoutes(app, modelResources, nodeSessionService);
-    registerModelEndpointRoutes(app, { service: modelResources, nodeSessionService });
   }
   if (config.nodeExecutions !== false) registerExecutionRoutes(app, jobs);
   if (config.nodeExecutions !== false) registerKernelExecutionRoutes(app, config, environments, kernels);
-  registerNotebookRoutes(app, notebooks);
-  if (config.nodeCatalog !== false) registerCatalogRoutes(app, jobs, research, sqliteEnabled ? workspaces : undefined, sqliteEnabled ? mcp : undefined);
-  if (config.nodeProject !== false) registerProjectRoutes(app, research, projectReview);
+  registerNotebookRoutes(app, notebooks, config.internalToken);
+  if (config.nodeCatalog !== false) registerCatalogRoutes(app, jobs, sqliteEnabled ? workspaces : undefined, sqliteEnabled ? mcp : undefined, nodeSessionService);
+  if (config.nodeProject !== false) registerProjectRoutes(app, projectReview);
   app.addHook("onReady", async () => {
     if (sqliteEnabled) {
       try {
@@ -188,13 +189,10 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
         app.log.error({ err: error }, "SQLite state initialization failed");
       }
     }
-    const recoveryRepository = sqliteEnabled && stateReady ? workspaces : undefined;
-    const results = await Promise.allSettled((await knownWorkspacePaths(recoveryRepository)).map((cwd) => research.reconcile(cwd)));
-    for (const result of results) if (result.status === "rejected") app.log.error({ err: result.reason }, "research loop recovery failed");
+
   });
   app.addHook("onClose", async () => nodeSessionService.shutdownAll());
   app.addHook("onClose", async () => titleRuntimes.shutdownAll());
-  app.addHook("onClose", async () => research.shutdown());
   app.addHook("onClose", async () => projectReview.shutdown());
   app.addHook("onClose", async () => kernels.shutdownAll());
   app.addHook("onClose", async () => notebooks.shutdown());
@@ -216,7 +214,7 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
     if (config.requireInternalToken !== false && config.internalToken && served.type.startsWith("text/html")) {
       reply.header("set-cookie", internalAuthCookie(config.internalToken));
     }
-    return reply.type(served.type).send(served.stream);
+    return reply.type(served.type).header("cache-control", served.cacheControl).send(served.stream);
   });
 
   return app;

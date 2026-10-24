@@ -22,8 +22,12 @@ export const productInputSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("tool.completed"), ...tool, result: z.unknown(), isError: z.boolean() }).passthrough(),
   z.object({ type: z.enum(["compaction.start", "compaction.end", "compaction.error", "retry.start", "retry.end", "retry.update", "model.turn.started"]), ...identity }).passthrough(),
   z.object({ type: z.literal("runtime.error"), message: z.string() }).passthrough(),
-  z.object({ type: z.literal("interaction.requested"), id: z.string().min(1), method: z.enum(["input", "confirm"]), title: z.string() }).passthrough(),
+  z.object({ type: z.literal("interaction.requested"), id: z.string().min(1), method: z.enum(["input", "confirm", "select"]), title: z.string() }).passthrough(),
   z.object({ type: z.literal("subagent.requested"), id: z.string().min(1), params: z.record(z.string(), z.unknown()), operationId: z.string(), invocationId: z.string() }).passthrough(),
+  z.object({ type: z.literal("capability.requested"), id: z.string().min(1), tool: z.string().min(1) }).passthrough(),
+  z.object({ type: z.literal("subagent.control"), id: z.string().min(1), params: z.record(z.string(), z.unknown()) }).passthrough(),
+  z.object({ type: z.literal("subagent.cancel_all"), id: z.string().min(1) }).passthrough(),
+  z.object({ type: z.literal("subagent.wait_cancelled"), id: z.string().min(1) }).passthrough(),
   z.object({ type: z.literal("subagent.cancelled"), id: z.string().min(1) }).passthrough(),
 ]);
 type Identity = { runId: string; turnId?: string };
@@ -36,5 +40,5 @@ export type ProductInput = (
   | ({ type: "tool.started" | "tool.updated" | "tool.completed"; toolCallId: string; toolName: string } & Identity)
   | ({ type: "compaction.start" | "compaction.end" | "compaction.error" | "retry.start" | "retry.end" | "retry.update" | "model.turn.started" } & Identity)
   | { type: "runtime.error"; message: string; runId?: string }
-  | { type: "interaction.requested" | "subagent.requested" | "subagent.cancelled"; id: string }
+  | { type: "interaction.requested" | "subagent.requested" | "subagent.cancelled" | "subagent.wait_cancelled" | "subagent.control" | "subagent.cancel_all" | "capability.requested"; id: string }
 ) & { [key: string]: unknown };

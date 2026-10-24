@@ -1,15 +1,20 @@
+import { redactMcpError } from "../../../mcp/diagnostics.js";
+import { readSessionApproval, sessionMode } from "../../sandbox/session-approval.js";
+import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import type { AgentHarnessTool, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { TSchema } from "typebox";
-import { loadProjectedServers } from "../../shared/extensions/pi-science-mcp.js";
+import { loadProjectedServers, loadProjectedSnapshot } from "../../shared/extensions/pi-science-mcp.js";
 import { builtinNetworkEnvironment } from "../../../mcp/bindings.js";
 import { createMcpFetch } from "../../../mcp/runtime-fetch.js";
 import { UnixSocketClientTransport } from "../../../mcp/connector-probe.js";
 import type { InteractionBridge } from "./interaction-bridge.js";
 import { toolEnvironment } from "../agent-runtime-environment.js";
+import { localMcpTransport } from "../../../mcp/sandbox-transport.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 
 type ServerDefinition = {
   command?: string;
@@ -65,36 +70,43 @@ function visible(server: ServerDefinition, toolName: string): boolean {
 /** Official MCP SDK clients owned by one session worker. Managed snapshot policy stays authoritative. */
 export class AgentMcpTools {
   private readonly clients: Client[] = [];
+  approvalBoundProcesses = 0;
   readonly tools: AgentHarnessTool<{ env: NodeExecutionEnv }>[] = [];
   readonly diagnostics: string[] = [];
 
   static async open(cwd: string, bridge: InteractionBridge, environment: Record<string, string>, budgetMs = DISCOVERY_BUDGET_MS,
-    allowedTools?: readonly string[]): Promise<AgentMcpTools> {
+    allowedTools?: readonly string[], preauthorizedOnly = false, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string): Promise<AgentMcpTools> {
     const result = new AgentMcpTools();
     const capabilities = allowedTools === undefined ? undefined : new Set(allowedTools);
+    const rawSnapshot = loadProjectedSnapshot(cwd);
     const servers = loadProjectedServers(cwd, (name, error) => {
-      result.diagnostics.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
-    }, (name) => capabilities === undefined || [...capabilities].some((tool) => tool.startsWith(`mcp__${name}__`))) as Record<string, ServerDefinition>;
+      result.diagnostics.push((redactMcpError(`${name}: ${error instanceof Error ? error.message : String(error)}`) ?? "MCP discovery failed").slice(0, 2048));
+    }, (name) => capabilities === undefined || [...capabilities].some((tool) => tool.split("__").length === 3 && tool.split("__")[1] === name)) as Record<string, ServerDefinition>;
     const deadline = Date.now() + budgetMs;
     await Promise.all(Object.entries(servers).map(async ([name, server]) => {
-      try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities); }
-      catch (error) { result.diagnostics.push(`${name}: ${error instanceof Error ? error.message : String(error)}${typeof (error as { code?: unknown }).code === "number" ? ` (HTTP ${(error as { code: number }).code})` : ""}`); }
+      try { await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, rawSnapshot.mcpServers[name], authorize, sessionId); }
+      catch (error) {
+        const code = (error as { code?: unknown }).code;
+        const status = typeof code === "number" && code >= 400 && code <= 599 ? ` (HTTP ${code})` : "";
+        result.diagnostics.push((redactMcpError(`${name}: ${error instanceof Error ? error.message : String(error)}${status}`) ?? "MCP discovery failed").slice(0, 2048));
+      }
     }));
     return result;
   }
 
   private async connect(name: string, server: ServerDefinition, cwd: string, bridge: InteractionBridge, environment: Record<string, string>, deadline: number,
-    capabilities?: ReadonlySet<string>): Promise<void> {
+    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string): Promise<void> {
     if (server.auth === "oauth" && !Object.keys(server.headers ?? {}).some((key) => key.toLowerCase() === "authorization")) {
       throw new Error("OAuth MCP connector requires an authorized credential binding");
     }
     if (!server.__piScienceConnectorId) throw new Error("managed MCP connector id is missing");
-    let transport: StdioClientTransport | StreamableHTTPClientTransport | SSEClientTransport | UnixSocketClientTransport;
+    let transport: Transport;
     if (server.transport === "socket" && server.socket) {
       transport = new UnixSocketClientTransport(server.socket);
     } else if ((server.transport === "stdio" || !server.transport) && server.command) {
-      transport = new StdioClientTransport({ command: server.command, args: server.args ?? [], cwd: server.cwd ?? cwd,
-        env: { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, stderr: "pipe" });
+      if (!server.__piScienceBuiltin) this.approvalBoundProcesses++;
+      transport = await localMcpTransport(cwd, server.command, server.args ?? [], server.cwd ?? cwd,
+        { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, server.__piScienceBuiltin ? name : undefined, sessionId);
     } else if ((server.transport === "sse" || server.transport === "streamable_http" || !server.transport) && server.url) {
       const connectorId = server.__piScienceConnectorId;
       const checkedFetch = createMcpFetch({ connectorId, projectId: server.__piScienceProjectId,
@@ -104,6 +116,21 @@ export class AgentMcpTools {
         ? new SSEClientTransport(new URL(server.url), { fetch: checkedFetch, requestInit })
         : new StreamableHTTPClientTransport(new URL(server.url), { fetch: checkedFetch, requestInit });
     } else throw new Error("unsupported MCP transport");
+    const connectionIdentity = (value: Record<string, unknown> | undefined) => {
+      if (!value) return "";
+      const { approveTools, includeTools, excludeTools, __piScienceAllowedTools, ...connection } = value;
+      return JSON.stringify(connection);
+    };
+    const initialIdentity = connectionIdentity(initial);
+    const currentPolicy = (toolName: string): ServerDefinition => {
+      const snapshot = loadProjectedSnapshot(cwd);
+      const current = snapshot.mcpServers[name] as ServerDefinition | undefined;
+      if (!current || snapshot.project_id !== server.__piScienceProjectId || connectionIdentity(current) !== initialIdentity || !visible(current, toolName)) {
+        throw new Error(`MCP tool disabled or connector changed: ${name}: ${toolName}; refresh the worker`);
+      }
+      return current;
+    };
+    if (connectionIdentity(loadProjectedSnapshot(cwd).mcpServers[name]) !== initialIdentity) throw new Error("MCP connector changed during discovery");
     const client = new Client({ name: "pi-science-agent-core", version: "0.1.0" });
     try {
       await beforeDeadline(client.connect(transport, { timeout: Math.min(server.requestTimeoutMs ?? 15_000, Math.max(1, deadline - Date.now())) }), deadline, client);
@@ -119,11 +146,36 @@ export class AgentMcpTools {
           description: tool.description ?? `${name} MCP tool ${tool.name}`,
           parameters: tool.inputSchema as TSchema,
           async execute(_toolCallId, params, _onUpdate, _toolContext, _invocation, context) {
-            if (permissionRequired(server, tool.name)) {
+            let policy = currentPolicy(tool.name);
+            const approvalRevision = sessionId && !preauthorizedOnly ? (await readSessionApproval(cwd, sessionId)).revision : undefined;
+            const mode = sessionId && !preauthorizedOnly ? await sessionMode(cwd, sessionId) : "ask";
+            const safe = tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint !== true && (tool.annotations?.idempotentHint === true || server.__piScienceBuiltin === true);
+            let approvedByUser = mode === "full" || mode === "auto" && safe;
+            let approvalMs = 0;
+            if (permissionRequired(policy, tool.name) && !approvedByUser) {
+              if (preauthorizedOnly) throw new Error(`Delegated MCP tool requires explicit preauthorization in MCP settings: ${name}: ${tool.name}`);
+              const approvalStarted = Date.now();
+              _onUpdate({ content: [], details: { approval: "waiting" } });
               const approved = await bridge.confirmPermission(`Allow ${name}: ${tool.name}?`,
-                `Arguments: ${JSON.stringify(params).slice(0, 4_000)}`, context.abortSignal);
-              if (!approved) return { content: [{ type: "text", text: "MCP tool call was declined by the user" }], details: { declined: true }, isError: true };
+                `Arguments: ${JSON.stringify(params).slice(0, 4_000)}`, context.abortSignal, _toolCallId);
+              approvalMs = Date.now() - approvalStarted;
+              _onUpdate({ content: [], details: { approval: "resolved" } });
+              approvedByUser = approved;
+              if (!approved) return { content: [{ type: "text", text: "MCP tool call was declined by the user" }], details: { declined: true, scheduling: { approval_ms: approvalMs } }, isError: true };
             }
+            // Approval may race with connector disable/revocation. Recheck before dispatch.
+            policy = currentPolicy(tool.name);
+            if (permissionRequired(policy, tool.name) && !approvedByUser) throw new Error("MCP authorization revoked before dispatch");
+            if (context.abortSignal?.aborted) throw context.abortSignal.reason;
+            const slot = await acquireMcpCall(cwd, JSON.stringify([server.__piScienceProjectId, server.__piScienceConnectorId]), context.abortSignal);
+            const started = Date.now();
+            try {
+            // Queued calls must observe revocations made while they waited.
+            await authorize?.(`mcp__${name}__${tool.name}`, context.abortSignal);
+            context.abortSignal?.throwIfAborted();
+            policy = currentPolicy(tool.name);
+            if (permissionRequired(policy, tool.name) && !approvedByUser) throw new Error("MCP authorization revoked before dispatch");
+            if (approvalRevision !== undefined && sessionId && (await readSessionApproval(cwd, sessionId)).revision !== approvalRevision) throw new Error("MCP approval revision changed while queued; request fresh authorization");
             const response = await client.callTool({ name: tool.name, arguments: params as Record<string, unknown> }, undefined,
               { signal: context.abortSignal, timeout: server.requestTimeoutMs ?? 60_000 });
             const parts = Array.isArray(response.content) ? response.content as Array<Record<string, unknown>> : [];
@@ -134,7 +186,8 @@ export class AgentMcpTools {
                 content.push({ type: "image", data: part.data, mimeType: part.mimeType });
               }
             }
-            return { content, details: response.structuredContent, isError: response.isError === true };
+            return { content, details: { result: response.structuredContent, scheduling: { approval_ms: approvalMs, queued_ms: slot.queuedMs, execution_ms: Date.now() - started } }, isError: response.isError === true };
+            } finally { await slot.release(); }
           },
         });
       }

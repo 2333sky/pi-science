@@ -24,12 +24,18 @@ export function isPrivateOrReservedAddress(address: string): boolean {
   return family === 4 ? ipv4IsBlocked(address) : family === 6 ? ipv6IsBlocked(address) : true;
 }
 
-export async function validateOutboundHttpUrl(raw: string, options: { allowPrivate?: boolean } = {}): Promise<URL> {
+/** URL syntax validation without requiring DNS in a network-isolated process. */
+export function parseOutboundHttpUrl(raw: string): URL {
   let url: URL;
   try { url = new URL(raw); } catch { throw new Error("base_url must be a valid absolute URL"); }
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new Error("only http(s) URLs are allowed");
   if (url.username || url.password) throw new Error("URL credentials are not allowed");
   if (!url.hostname) throw new Error("URL hostname is required");
+  return url;
+}
+
+export async function validateOutboundHttpUrl(raw: string, options: { allowPrivate?: boolean } = {}): Promise<URL> {
+  const url = parseOutboundHttpUrl(raw);
   const allowPrivate = options.allowPrivate ?? process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0";
   // URL.hostname keeps the brackets for IPv6 literals ("[::1]"); strip them
   // so isIP can classify the address without a DNS round-trip.
@@ -67,6 +73,7 @@ export type ConnectorFetchOptions = {
   allowedContentTypes?: readonly string[];
   /** Total request timeout including redirect hops. Default 30s. */
   timeoutMs?: number;
+  signal?: AbortSignal;
   method?: string;
   headers?: Record<string, string>;
   body?: BodyInit | null;
@@ -104,6 +111,7 @@ export async function safeConnectorFetch(raw: string, options: ConnectorFetchOpt
   const initialOrigin = current.origin;
   let redirects = 0;
   const controller = new AbortController();
+  const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
   const timeoutError = new Error(`connector fetch timed out after ${timeoutMs}ms`);
   const timer = setTimeout(() => controller.abort(timeoutError), timeoutMs);
   let timerOwnedByStream = false;
@@ -115,7 +123,8 @@ export async function safeConnectorFetch(raw: string, options: ConnectorFetchOpt
       // Every URL reaches this sink only after DNS-aware validation above, and
       // every redirect is independently revalidated before the next request.
       // lgtm[js/request-forgery]
-      const response = await fetch(current, { method: options.method ?? "GET", headers: hopHeaders, body: options.body, redirect: "manual", signal: controller.signal });
+      signal.throwIfAborted();
+      const response = await fetch(current, { method: options.method ?? "GET", headers: hopHeaders, body: options.body, redirect: "manual", signal });
       const location = response.headers.get("location");
       if (response.status >= 300 && response.status < 400 && location) {
         response.body?.cancel();

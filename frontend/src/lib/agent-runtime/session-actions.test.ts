@@ -342,7 +342,7 @@ describe("runtime session actions", () => {
           content: [{ type: "text", text: "hello" }],
         }] });
       }
-      if (url.includes("/state")) return jsonResponse(state("session-a", { is_streaming: true }));
+      if (url.includes("/state")) return jsonResponse(state("session-a", { is_streaming: true, mcp_diagnostics: ["paper-search: connection closed"] }));
       if (url.startsWith("/api/sessions?")) return jsonResponse([]);
       throw new Error(`Unexpected request: ${url}`);
     }));
@@ -357,6 +357,7 @@ describe("runtime session actions", () => {
     expect(current.model).toBe("custom-custom-api/gpt-5.6-luna");
     expect(current.thinking).toBe("max");
     expect(current.contextTokens).toBe(24000);
+    expect(current.mcpDiagnostics).toEqual(["paper-search: connection closed"]);
     expect(current.contextWindow).toBe(128000);
     expect(current.contextPercent).toBe(18.75);
     expect(current.compactionThresholdPercent).toBe(85);
@@ -1025,4 +1026,31 @@ describe("runtime session actions", () => {
     expect(useRuntimeStore.getState().draftModelSelection).toBe(draft);
   });
 
+});
+
+it("passes a confirmed draft at creation, preserves it on failure and consumes it only once", async () => {
+  let fail = true;
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init: RequestInit = {}) => fail
+    ? jsonResponse({ error: "retry" }, 503) : jsonResponse({ id: "draft-approved", cwd: "/workspace" }));
+  vi.stubGlobal("fetch", fetchMock);
+  const draft = { cwd: "/workspace", approval: { mode: "full" as const, acknowledgeFullAccess: true } };
+  useRuntimeStore.setState({ cwd: "/workspace", activeSessionId: null, draftApproval: draft });
+  await expect(useRuntimeStore.getState().createNewSession()).rejects.toThrow();
+  expect(useRuntimeStore.getState().draftApproval).toBe(draft);
+  fail = false;
+  await useRuntimeStore.getState().createNewSession();
+  expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).toMatchObject({ initialApproval: draft.approval });
+  expect(useRuntimeStore.getState().draftApproval).toBeNull();
+  await useRuntimeStore.getState().createNewSession();
+  expect(JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body))).not.toHaveProperty("initialApproval");
+});
+
+it("ignores and retains approval drafts from another workspace", async () => {
+  const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init: RequestInit = {}) => jsonResponse({ id: "other-draft", cwd: "/workspace" }));
+  vi.stubGlobal("fetch", fetchMock);
+  const draft = { cwd: "/other", approval: { mode: "full" as const, acknowledgeFullAccess: true } };
+  useRuntimeStore.setState({ cwd: "/workspace", activeSessionId: null, draftApproval: draft });
+  await useRuntimeStore.getState().createNewSession();
+  expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).not.toHaveProperty("initialApproval");
+  expect(useRuntimeStore.getState().draftApproval).toBe(draft);
 });

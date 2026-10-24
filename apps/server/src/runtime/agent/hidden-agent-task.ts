@@ -1,18 +1,24 @@
+import { withWorkspaceAdmission } from "../workspace/workspace-lifecycle.js";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { metadataRoot, readJson, withFileWriteLock, writeJsonAtomic, workspaceFile } from "../../storage/persistence.js";
 import { AgentSessionRegistry } from "./agent-session-registry.js";
-import { AgentSessionRepository } from "./agent-session-repository.js";
 import type { AgentRuntimeManager } from "./agent-runtime-manager.js";
 import type { AgentRuntimeStartOptions } from "./worker/protocol.js";
 import type { AgentCoreRuntimeClient } from "./agent-runtime-client.js";
 import type { RuntimeEvent } from "./agent-runtime-types.js";
+import { retrySessionDirectory } from "./workspace-session-identity.js";
 import { promptOperationId } from "./agent-message.js";
 
 /** Persist child ownership before any activation/admission; reopening uses the same v4 file. */
 export async function openHiddenTask(manager: AgentRuntimeManager, key: string, options: AgentRuntimeStartOptions, parent: string,
   purpose: "subagent" | "research" | "review" = "subagent"): Promise<AgentCoreRuntimeClient> {
+  return withWorkspaceAdmission(options.cwd, () => openHiddenTaskAdmitted(manager, key, options, parent, purpose));
+}
+
+async function openHiddenTaskAdmitted(manager: AgentRuntimeManager, key: string, options: AgentRuntimeStartOptions, parent: string,
+  purpose: "subagent" | "research" | "review"): Promise<AgentCoreRuntimeClient> {
   const path = workspaceFile(options.cwd, `agent-task-links/${createHash("sha256").update(key).digest("hex")}.json`);
   const sessionId = await withFileWriteLock(path, async () => {
     const saved = await readJson<{ sessionId?: string }>(path, {});
@@ -20,10 +26,12 @@ export async function openHiddenTask(manager: AgentRuntimeManager, key: string, 
     const env = new NodeExecutionEnv({ cwd: options.cwd });
     const repo = new JsonlSessionRepo({ fileSystem: env, sessionsRoot: options.sessionsRoot });
     try {
-      const session = await repo.create({ cwd: options.cwd, parentSessionId: parent }, BACKGROUND_CONTEXT);
+      const session = await retrySessionDirectory(() => repo.create({ cwd: options.cwd, parentSessionId: parent }, BACKGROUND_CONTEXT));
       const id = session.metadata.id;
       await session.close(BACKGROUND_CONTEXT);
-      const target = await new AgentSessionRepository().findPath(options.cwd, id);
+      // The newly committed session already owns its path. Scanning the whole
+      // directory here races with another parallel child's atomic .tmp rename.
+      const target = session.metadata.path;
       if (!target) throw new Error("Hidden agent session has no transcript");
       await new AgentSessionRegistry().register(options.cwd, id, target, undefined, { purpose, parentSessionId: parent });
       await writeJsonAtomic(path, { sessionId: id, parent, key });
@@ -38,16 +46,26 @@ export function hiddenSessionsRoot(cwd: string): string { return join(metadataRo
 /** Listener registration precedes activation, including recovery of an already accepted child prompt. */
 export async function runHiddenPrompt(runtime: AgentCoreRuntimeClient, message: string, clientId: string, deadline: number,
   observe?: (event: RuntimeEvent) => void): Promise<string> {
+  return withWorkspaceAdmission(runtime.cwd, () => runHiddenPromptAdmitted(runtime, message, clientId, deadline, observe));
+}
+
+async function runHiddenPromptAdmitted(runtime: AgentCoreRuntimeClient, message: string, clientId: string, deadline: number,
+  observe?: (event: RuntimeEvent) => void): Promise<string> {
+  const assertDeadline = () => { if (deadline <= Date.now()) throw new Error("Hidden agent execution deadline exceeded"); };
+  assertDeadline();
   const expected = promptOperationId(runtime.sessionId, clientId);
   let cleanup = () => {};
   let finish!: (error?: Error) => void;
   const completed = new Promise<void>((resolve, reject) => {
     const event = (value: RuntimeEvent) => {
       observe?.(value);
-      if (value.type === "operation.settled" && value.runId === expected) finish(value.status === "completed" ? undefined : new Error(`Child operation ${value.status}`));
+      if (value.type === "operation.settled" && value.runId === expected) finish(value.status === "completed" ? undefined : new Error(deadline <= Date.now() ? "Hidden agent execution deadline exceeded" : `Child operation ${value.status}`));
     };
     const exit = () => finish(new Error("Hidden agent worker exited"));
-    const timer = setTimeout(() => finish(new Error("Hidden agent timed out")), Math.max(1, deadline - Date.now()));
+    const timer = setTimeout(() => {
+      finish(new Error("Hidden agent execution deadline exceeded"));
+      void runtime.sendCommand("abort").catch(() => undefined);
+    }, Math.max(1, deadline - Date.now()));
     cleanup = () => { clearTimeout(timer); runtime.off("event", event); runtime.off("exit", exit); };
     finish = (error) => { cleanup(); error ? reject(error) : resolve(); };
     runtime.on("event", event); runtime.once("exit", exit);
@@ -56,6 +74,7 @@ export async function runHiddenPrompt(runtime: AgentCoreRuntimeClient, message: 
   void completed.catch(() => undefined);
   try {
     const state = await runtime.sendCommand("get_state");
+    assertDeadline();
     if (!state.success) throw new Error(state.error ?? "Unable to read child state");
     const data = state.data;
     if (!data) throw new Error("Child returned no state");
@@ -63,6 +82,7 @@ export async function runHiddenPrompt(runtime: AgentCoreRuntimeClient, message: 
     else {
       if (data.busy && data.operation?.id !== expected) throw new Error("Child is executing another operation");
       const activation = await runtime.sendCommand("activate");
+      assertDeadline();
       if (!activation.success) throw new Error(activation.error ?? "Unable to activate child");
       if (!data.busy) {
         const admitted = await runtime.sendCommand("prompt", { message, client_message_id: clientId });

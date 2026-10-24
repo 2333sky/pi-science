@@ -1,7 +1,7 @@
 /** Public state shape of the agent runtime store. */
 
 import type { PiScienceClient, SessionInfo, SessionStats } from "../client/pi-science-client";
-import type { ModelSelection } from "@pi-science/contracts";
+import type { ModelSelection, CreateSessionRequest } from "@pi-science/contracts";
 import type { TransportStatus } from "./transport-status";
 import type { Thread } from "./event-fold";
 
@@ -80,6 +80,7 @@ export interface RuntimeState {
   sessionsHasMore: boolean;
   sessionsLoading: boolean;
   activeSessionId: string | null;
+  draftApproval?: { cwd: string; approval: NonNullable<CreateSessionRequest["initialApproval"]> } | null;
   draftModelSelection?: { cwd: string; selection: ModelSelection } | null;
   cwd: string;
 
@@ -96,6 +97,7 @@ export interface RuntimeState {
   turnLifecycle: "queued" | "active" | "waiting" | "recovering" | "stopping" | "settled" | "aborted" | "failed";
   model: string | null;
   thinking: string | null;
+  mcpDiagnostics: string[];
   contextTokens: number | null;
   contextWindow: number | null;
   contextPercent: number | null;
@@ -105,6 +107,8 @@ export interface RuntimeState {
    *  refreshed via `session.stats` SSE events and the stats REST endpoint. */
   sessionStats: SessionStats | null;
   pendingInteraction: PendingInteraction | null;
+  /** Requests waiting behind the visible interaction, in arrival order. */
+  pendingInteractionQueue: PendingInteraction[];
   pendingQuestionnaire: PendingQuestionnaire | null;
   /** Increments after a turn settles so workspace file views can reload. */
   fileRevision: number;

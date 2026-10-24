@@ -1,0 +1,114 @@
+{
+  "baseline_commit": "1b9b051cc12bd0b3c76eaa7b0c0c7e5a6c5dbef9",
+  "method": "One warmup, five sequential warm-cache samples per operation; setup excluded; same Linux container. Local measurements, not an SLA or cross-platform result.",
+  "before": {
+    "node": "v24.19.0",
+    "platform": "linux",
+    "warmup": 1,
+    "rows": [
+      {
+        "unrelatedFiles": 0,
+        "grantFiles": 1,
+        "operation": "authorization",
+        "samples": 5,
+        "p50_ms": 4.8,
+        "p95_ms": 8.08
+      },
+      {
+        "unrelatedFiles": 0,
+        "grantFiles": 1,
+        "operation": "delegated_read",
+        "samples": 5,
+        "p50_ms": 9.53,
+        "p95_ms": 12.5
+      },
+      {
+        "unrelatedFiles": 5000,
+        "grantFiles": 1,
+        "operation": "authorization",
+        "samples": 5,
+        "p50_ms": 87.66,
+        "p95_ms": 109.9
+      },
+      {
+        "unrelatedFiles": 5000,
+        "grantFiles": 1,
+        "operation": "delegated_read",
+        "samples": 5,
+        "p50_ms": 317.11,
+        "p95_ms": 353.4
+      },
+      {
+        "unrelatedFiles": 20000,
+        "grantFiles": 1,
+        "operation": "authorization",
+        "samples": 5,
+        "p50_ms": 350.46,
+        "p95_ms": 390.46
+      },
+      {
+        "unrelatedFiles": 20000,
+        "grantFiles": 1,
+        "operation": "delegated_read",
+        "samples": 5,
+        "p50_ms": 1136.85,
+        "p95_ms": 1166.48
+      }
+    ]
+  },
+  "after": {
+    "node": "v24.19.0",
+    "platform": "linux",
+    "warmup": 1,
+    "rows": [
+      {
+        "unrelatedFiles": 0,
+        "grantFiles": 1,
+        "operation": "authorization",
+        "samples": 5,
+        "p50_ms": 3.25,
+        "p95_ms": 7.04
+      },
+      {
+        "unrelatedFiles": 0,
+        "grantFiles": 1,
+        "operation": "delegated_read",
+        "samples": 5,
+        "p50_ms": 10.6,
+        "p95_ms": 14.24
+      },
+      {
+        "unrelatedFiles": 5000,
+        "grantFiles": 1,
+        "operation": "authorization",
+        "samples": 5,
+        "p50_ms": 2.1,
+        "p95_ms": 2.8
+      },
+      {
+        "unrelatedFiles": 5000,
+        "grantFiles": 1,
+        "operation": "delegated_read",
+        "samples": 5,
+        "p50_ms": 7.11,
+        "p95_ms": 9.01
+      },
+      {
+        "unrelatedFiles": 20000,
+        "grantFiles": 1,
+        "operation": "authorization",
+        "samples": 5,
+        "p50_ms": 1.4,
+        "p95_ms": 2.78
+      },
+      {
+        "unrelatedFiles": 20000,
+        "grantFiles": 1,
+        "operation": "delegated_read",
+        "samples": 5,
+        "p50_ms": 4.68,
+        "p95_ms": 6.6
+      }
+    ]
+  }
+}

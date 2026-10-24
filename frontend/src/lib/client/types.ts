@@ -125,6 +125,7 @@ export interface SessionState {
   is_streaming: boolean;
   is_compacting: boolean;
   pending_message_count: number;
+  mcp_diagnostics?: string[];
   model?: string;
   thinking?: string;
   context_tokens?: number | null;

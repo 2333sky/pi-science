@@ -14,7 +14,7 @@ export interface JobRequirement {
 }
 
 export type JobProcessIdentity = { kind: "linux-proc-start-ticks"; value: string };
-export type JobOwnerProcessIdentity = { kind: "linux-proc-start-ticks" | "ps-lstart-utc"; platform: NodeJS.Platform; value: string };
+export type JobOwnerProcessIdentity = { kind: "linux-proc-start-ticks" | "ps-lstart-utc" | "windows-start-ticks"; platform: NodeJS.Platform; value: string };
 
 export interface JobChildIdentity {
   pid: number;

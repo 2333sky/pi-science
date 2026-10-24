@@ -12,7 +12,9 @@ jobs:
   verify:
     name: verify (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    # Native Windows test files are serialized; the previous 20-minute job
+    # limit cancelled successful test progress before verification completed.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 45 || 20 }}
     strategy:
       fail-fast: false
       matrix:
@@ -30,14 +32,26 @@ jobs:
           node-version: 24.16.0
           cache: pnpm
 
+      - name: Install required Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # Dedicated ephemeral runner: Bubblewrap requires user namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Test native Windows file read boundary
+        if: runner.os == 'Windows'
+        run: pnpm --filter @pi-science/server exec vitest run src/runtime/sandbox/file-read.test.ts src/runtime/agent/worker/workspace-file-tool.test.ts
 
       - name: Lint frontend
         run: pnpm --filter frontend lint
 
       - name: Test environment diagnostics
-        run: node --test scripts/doctor.test.mjs scripts/check-http-health.test.mjs
+        run: node --test scripts/doctor.test.mjs scripts/check-http-health.test.mjs scripts/check-linux-sandbox.test.mjs scripts/process-state.test.mjs
 
       - name: Test Windows process ownership
         if: runner.os == 'Windows'
@@ -53,6 +67,10 @@ jobs:
       - name: Test contracts, control plane, frontend and skills
         if: runner.os != 'Windows'
         run: pnpm test
+
+      - name: Check Windows worker startup before the full IPC suite
+        if: runner.os == 'Windows'
+        run: node scripts/check-worker-startup.mjs
 
       # Native process integration tests launch Node, bash and taskkill trees.
       # Serializing server files on the two-core Windows runner prevents unrelated
@@ -72,7 +90,7 @@ jobs:
       - name: Build all JavaScript packages
         run: pnpm build
 
-      - name: Verify published Web Access CLI from the compiled server
+      - name: Verify native web tools from the compiled server
         run: node apps/server/scripts/smoke-web-access.mjs
 
       - name: Enforce Settings backend performance budgets
@@ -156,13 +174,16 @@ jobs:
       - name: Install JavaScript dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Test native macOS file read boundary
+        run: pnpm --filter @pi-science/server exec vitest run src/runtime/sandbox/file-read.test.ts src/runtime/agent/worker/workspace-file-tool.test.ts
+
       - name: Test macOS launcher lifecycle
         run: bash scripts/test-launcher.sh
 
-      - name: Verify Web Access development and compiled entries on macOS
+      - name: Verify native web development and compiled entries on macOS
         run: |
           pnpm --filter @pi-science/contracts build
-          pnpm --filter @pi-science/server exec vitest run src/mcp/web-access.test.ts src/mcp/web-access-config.test.ts
+          pnpm --filter @pi-science/server exec vitest run src/web/tools.test.ts src/web/deepseek.test.ts src/http/routes/settings-web-access.test.ts
           pnpm --filter @pi-science/server build
           node apps/server/scripts/smoke-web-access.mjs
 
@@ -184,6 +205,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.16.0
+      - name: Install required Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap socat ripgrep
+          # Dedicated ephemeral runner: Bubblewrap requires user namespaces.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       # Intentionally omit pnpm setup: exercise the pinned bootstrap from npm.
       - name: Install and build (POSIX)
         if: runner.os != 'Windows'

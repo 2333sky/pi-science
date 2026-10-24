@@ -1,8 +1,18 @@
+import { initialSessionApprovalSchema } from "@pi-science/contracts";
+import { readSessionApproval, saveSessionApproval, sessionApprovalPath } from "../../sandbox/session-approval.js";
+import { unlink } from "node:fs/promises";
+import { assertExecutionGrantTool } from "../../sandbox/execution-grants.js";
+import { childToolAllowance } from "../agent-definitions.js";
+import { networkAccessTool } from "./network-access-tool.js";
+import { workspaceFileTool } from "./workspace-file-tool.js";
+import { executionBudgetTools, watchExecutionDeadline } from "./execution-budget.js";
+import { sandboxBashTool } from "./sandbox-bash.js";
+import { confinedReadTool, type SandboxIdentity } from "./confined-read-tool.js";
 import { randomUUID } from "node:crypto";
 import { decodeCommand, decodeNotification } from "./command-contract.js";
-import { isAbsolute, join, resolve } from "node:path";
-import { listWorkspaceSessions } from "../workspace-session-identity.js";
-import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createBashTool, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill } from "@earendil-works/pi-agent-core/node";
+import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { listWorkspaceSessions, retrySessionDirectory } from "../workspace-session-identity.js";
+import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, formatSkillsForSystemPrompt, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill } from "@earendil-works/pi-agent-core/node";
 import { agentModelCatalog, agentModels } from "./agent-models.js";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { appliedRuntimeSettings, contextUsage, resolveCompaction, type AppliedRuntimeSettings, type RuntimeSettings } from "../agent-runtime-settings.js";
@@ -10,9 +20,10 @@ import { AgentCoreEventAdapter } from "../agent-event-adapter.js";
 import { promptOperationId, userPrompt } from "../agent-message.js";
 import { notebookHarnessTools } from "./notebook-tools.js";
 import { todoHarnessTool } from "./todo-tool.js";
-import { SubagentBridge, subagentHarnessTool } from "./subagent-tool.js";
+import { SubagentBridge, subagentHarnessTool, subagentControlTool } from "./subagent-tool.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 import { questionnaireHarnessTool } from "./questionnaire-tool.js";
+import { webTools } from "../../../web/tools.js";
 import { AgentMcpTools } from "./mcp-tools.js";
 import type { RuntimeEvent, RuntimeResult, RuntimeSkillPolicy } from "../agent-runtime-types.js";
 import { metadataRoot } from "../../../storage/persistence.js";
@@ -43,6 +54,7 @@ function applySkillPolicy(skills: Skill[], policy: RuntimeSkillPolicy): Skill[] 
 
 export class SessionRuntime {
   readonly sessionId: string;
+  private approvalBarrier = false;
   private readonly lane: AgentLane;
   private readonly harness: Harness;
   private readonly repo: JsonlSessionRepo;
@@ -58,6 +70,10 @@ export class SessionRuntime {
   private promptTemplates: PromptTemplate[] = [];
   private skillPolicy: RuntimeSkillPolicy = { mode: "inherit" };
   private closed = false;
+  private stopBudgetWatch?: () => Promise<void>;
+  private budgetWatchDrains = new Set<Promise<void>>();
+  private watchedBudgetOperation?: string;
+  private budgetTools!: ReturnType<typeof executionBudgetTools>;
   private activated = false;
   private activateWatch: (() => void) | undefined;
   private mutationTail: Promise<unknown> = Promise.resolve();
@@ -101,6 +117,7 @@ export class SessionRuntime {
   }
 
   static async open(options: AgentRuntimeStartOptions, publish: (event: RuntimeEvent) => void, fatal: (error: unknown) => void): Promise<SessionRuntime> {
+    if (options.initialApproval) initialSessionApprovalSchema.parse(options.initialApproval);
     const runtimeEpoch = randomUUID();
     let eventSequence = 0;
     const emit = (event: RuntimeEvent) => publish({ ...event, runtime_epoch: runtimeEpoch, runtime_sequence: ++eventSequence });
@@ -114,6 +131,7 @@ export class SessionRuntime {
     const interactions = new InteractionBridge(emit);
     let mcp: AgentMcpTools | undefined;
     let openedLane: AgentLane | undefined;
+    let created: Session<JsonlSessionMetadata> | undefined;
     // Set when startup adopts the requested model because the durable one left the catalog. Every
     // step after that point is part of the same change, so the outer catch puts the lane back if
     // any of them fails and a failed open cannot leave a model nothing recorded.
@@ -126,7 +144,12 @@ export class SessionRuntime {
             if (!metadata) throw new Error(`agent session not found: ${options.sessionId}`);
             return repo.open(metadata, context);
           })()
-        : await repo.create({ cwd: options.cwd, ...(options.parentSessionId ? { parentSessionId: options.parentSessionId } : {}) }, context);
+        : await retrySessionDirectory(() => repo.create({ cwd: options.cwd, ...(options.parentSessionId ? { parentSessionId: options.parentSessionId } : {}) }, context));
+      if (!options.sessionId) {
+        created = session;
+        // Persist authority before constructing tools, MCP or any execution environment.
+        if (options.initialApproval) await saveSessionApproval(options.cwd, session.metadata.id, options.initialApproval.mode, 0);
+      } else if (options.initialApproval) throw new Error("Initial approval cannot overwrite an existing session");
       const saved = (await session.getValue(appliedRuntimeSettings, context))?.value;
       const recovering = (await session.getValue(laneState("main"), context))?.value.currentOperationId;
       // A requested model can be gone from the catalog while the session still has a usable
@@ -145,28 +168,50 @@ export class SessionRuntime {
       if (recovering && saved?.model === `${model.provider}/${model.id}`) model.contextWindow = saved.contextWindow;
       const discovered = await loadSkills(executionEnv, skillPaths, context);
       const templates = await loadPromptTemplates(executionEnv, join(options.cwd, ".pi", "prompts"), context);
+      const subagents = new SubagentBridge(emit);
+      const candidateScoped = !!options.executionGrantId || !!options.sandboxCandidateId || options.executionScope === "candidate" || options.executionScope === "confined";
+      const sandboxIdentity: SandboxIdentity = { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId, delegatedAgent: options.delegatedAgent, executionScope: options.executionScope ?? (candidateScoped ? "confined" : "workspace") };
       // Capability checks precede discovery: a tool-free worker must not spawn
       // connectors, open connections, or materialize their credentials.
-      if (options.allowedTools === undefined || options.allowedTools.some((name) => name.startsWith("mcp__"))) {
-        mcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools);
+      if (!candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name.startsWith("mcp__")))) {
+        mcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools, options.delegatedAgent !== undefined, options.delegatedAgent ? async (tool, signal) => {
+          const permission = await subagents.request({ tool }, signal, "capability.requested");
+          if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
+        } : undefined, options.delegatedAgent ? undefined : session.metadata.id);
       }
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
-      const subagents = new SubagentBridge(emit);
+      const nativeWebTools = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name === "web_search" || name === "web_fetch")) ? await webTools() : [];
+      const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
+      const basePrompt = options.systemPrompt ?? "You are a helpful scientific research assistant.";
+      // Resolve per invocation so policy changes and refreshes affect Bash too.
+      // A standalone .md skill does not authorize its shared parent directory.
+      const currentSkillDirectories = async (): Promise<string[]> => {
+        const { skills = [] } = await harness.getResources(context);
+        return skills.filter((skill) => basename(skill.filePath) === "SKILL.md").map((skill) => dirname(skill.filePath));
+      };
       const { harness, open } = await AgentHarness.create({
         session,
         models,
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [createReadTool(), createBashTool({ prepare: (execution) => {
-          execution.env = environment;
-          execution.inheritEnv = false;
-        } }), createEditTool(), createWriteTool(),
-          todoHarnessTool(session), subagentHarnessTool(subagents), ...notebookHarnessTools(options.cwd, session.metadata.id), questionnaireHarnessTool(interactions), ...(mcp?.tools ?? [])]
-          .filter((tool) => !options.allowedTools || options.allowedTools.includes(tool.name)),
+        tools: [...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions, options.cwd, session.metadata.id)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
+          todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...nativeWebTools, ...(mcp?.tools ?? []).map(budgets.wrap)]
+          .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
+          .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
+            if (options.executionGrantId) await assertExecutionGrantTool(sandboxIdentity, tool.name);
+            const permission = await subagents.request({ tool: tool.name }, context.abortSignal, "capability.requested");
+            if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
+            return tool.execute(id, params, update, ctx, invocation, context);
+          } }),
         toolContext: { env: executionEnv },
         resources: { skills: applySkillPolicy(discovered.skills, skillPolicy), promptTemplates: templates.promptTemplates },
-        systemPrompt: options.systemPrompt ?? "You are a helpful scientific research assistant.",
+        // Read the same committed resources used by explicit skill invocation. This keeps
+        // every generation current after policy changes and refreshes without a second cache.
+        systemPrompt: async (_toolContext, requestContext): Promise<string> => {
+          const { skills = [] } = await harness.getResources(requestContext);
+          return [basePrompt, formatSkillsForSystemPrompt(skills)].filter(Boolean).join("\n\n");
+        },
         steeringMode: "one-at-a-time",
         followUpMode: "one-at-a-time",
       }, context);
@@ -174,6 +219,7 @@ export class SessionRuntime {
       openedLane = lane;
       const watch = await lane.watch(context);
       const runtime = new SessionRuntime(session.metadata.id, lane, harness, repo, executionEnv, session.metadata, session, watch, interactions, mcp, skillPaths, discovered.skills, skillPolicy, fatal);
+      runtime.budgetTools = budgets;
       runtime.settings = options.settings ?? {};
       runtime.promptTemplates = templates.promptTemplates;
       runtime.subagents = subagents;
@@ -181,6 +227,14 @@ export class SessionRuntime {
       runtime.runtimeEpoch = runtimeEpoch;
       runtime.eventSequence = () => eventSequence;
       const snapshot = await watch.resnapshot(context);
+      // Durable tool selection is a preference, never a capability grant. Strip
+      // revoked tools before recovery; add supervision for existing delegates.
+      const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
+      const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
+      if (available.has("request_network_access") && !activeTools.includes("request_network_access")) activeTools.push("request_network_access");
+      for (const name of ["web_search", "web_fetch"]) if (available.has(name) && !activeTools.includes(name)) activeTools.push(name);
+      if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
+      if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
       // A restored lane keeps its durable model, and the seed only applies to a lane that has
       // none. That is deliberate: an explicit configure owns the durable model, so a request
       // the worker will reject must not have committed it already. When the restored model is
@@ -218,14 +272,17 @@ export class SessionRuntime {
       const adapter = new AgentCoreEventAdapter();
       runtime.activateWatch = () => {
         watch.start((event) => {
-          for (const mapped of adapter.adapt(event)) emit(mapped);
+          for (const mapped of adapter.adapt(event)) {
+            if (mapped.type === "operation.settled" && mapped.runId === runtime.watchedBudgetOperation) { runtime.drainBudgetWatch(); }
+            emit(mapped);
+          }
         });
         const recovered = open.find((operation) => operation.lane === "main");
         if (recovered) {
           // A just-accepted run resumes from "starting" without run_resume.
           // Seed its lifecycle from the durable snapshot after binding.
           if (recovered.kind === "run") emit(adapter.beginRecovery(recovered.operationId));
-          void lane.resume(context).catch(fatal);
+          void runtime.guardBudget(recovered.operationId).then(() => lane.resume(context)).catch(fatal);
         }
       };
       return runtime;
@@ -243,6 +300,11 @@ export class SessionRuntime {
       }
       interactions.close();
       await mcp?.close().catch(() => undefined);
+      if (created) {
+        await created.close(context);
+        await repo.delete(created.metadata, context);
+        await unlink(await sessionApprovalPath(options.cwd, created.metadata.id)).catch((failure: NodeJS.ErrnoException) => { if (failure.code !== "ENOENT") throw failure; });
+      }
       await repo.close(context).catch(() => undefined);
       await executionEnv.cleanup(context).catch(() => undefined);
       throw error;
@@ -263,8 +325,26 @@ export class SessionRuntime {
 
   private async execute(type: string, params: Record<string, unknown>): Promise<RuntimeResult> {
     if (this.closed) return { success: false, code: "closed", error: "agent runtime is closed" };
+    if (this.approvalBarrier && ["prompt", "steer", "follow_up", "compact", "activate", "fork", "clone", "configure", "set_model", "set_thinking_level"].includes(type)) return { success: false, code: "session_busy", error: "Approval transition is in progress" };
     try {
       switch (type) {
+        case "begin_approval_change": {
+          const previous = this.approvalBarrier;
+          this.approvalBarrier = true;
+          let admitted = false;
+          try {
+            const snapshot = await this.watch.resnapshot(context);
+            if (snapshot.operation || snapshot.queues.length || snapshot.faulted || this.interactions.hasPending) return { success: false, code: "session_busy", error: "Worker is not quiescent" };
+            if ((await readSessionApproval(this.metadata.cwd, this.sessionId)).revision !== params.revision) return { success: false, code: "approval_revision_conflict", error: "Approval changed before transition" };
+            admitted = true;
+            return { success: true };
+          } finally { if (!admitted) this.approvalBarrier = previous; }
+        }
+        case "end_approval_change": {
+          if ((await readSessionApproval(this.metadata.cwd, this.sessionId)).revision !== params.revision) return { success: false, code: "approval_revision_conflict", error: "Approval changed before transition release" };
+          this.approvalBarrier = false;
+          return { success: true };
+        }
         case "activate": {
           if (!this.activated) {
             this.activated = true;
@@ -280,6 +360,8 @@ export class SessionRuntime {
             model: snapshot.configuration.model,
             thinkingLevel: snapshot.configuration.thinkingLevel,
             activeTools: snapshot.configuration.activeToolNames,
+            mcpDiagnostics: this.mcp?.diagnostics ?? [],
+            approvalBoundProcesses: this.mcp?.approvalBoundProcesses ?? 0,
             operation: snapshot.operation,
             queues: snapshot.queues,
             faulted: snapshot.faulted,
@@ -325,6 +407,7 @@ export class SessionRuntime {
           const admitted = await this.lane.accept({ kind: "prompt", operationId, prompt: userPrompt(message, clientMessageId) }, context);
           if (!admitted.ok) return resultValue(admitted);
           const acceptedId = admitted.value.operationId;
+          await this.guardBudget(acceptedId);
           void this.lane.drive({ operationId: acceptedId, waitForRetry: true, pollDeferred: true }, context)
             .catch(this.fatal); // A fresh worker resumes the durable operation.
           return { success: true, operationId: acceptedId };
@@ -337,7 +420,17 @@ export class SessionRuntime {
             ? await this.lane.steer(message, undefined, context)
             : await this.lane.followUp(message, undefined, context));
         }
-        case "abort": return resultValue(await this.lane.abort(context));
+        case "abort": {
+          const watchedOperation = this.watchedBudgetOperation;
+          this.subagents?.cancelAll();
+          const aborted = await this.lane.abort(context);
+          // Watch events may lag durable settlement. Cancel only the operation
+          // Core actually aborted, never an idle lane's stale watcher identity.
+          if (aborted.ok && aborted.value.operationId === watchedOperation) {
+            await this.budgetTools.ledger(watchedOperation).cancelOperation();
+          }
+          return resultValue(aborted);
+        }
         case "compact": {
           if (!this.activated) return { success: false, code: "not_ready", error: "agent runtime has not been activated" };
           const customInstructions = typeof params.customInstructions === "string" ? params.customInstructions : undefined;
@@ -369,14 +462,16 @@ export class SessionRuntime {
             || ((policy.mode === "allowlist" || policy.mode === "denylist") && !Array.isArray(policy.skills))) {
             return { success: false, code: "invalid_skill_policy", error: "invalid skill policy" };
           }
+          await this.harness.setResources({ skills: applySkillPolicy(this.allSkills, policy), promptTemplates: this.promptTemplates }, context);
           this.skillPolicy = policy;
-          await this.harness.setResources({ skills: this.enabledSkills(), promptTemplates: this.promptTemplates }, context);
           return { success: true, data: { skills: this.skillStatus(), policy } };
         }
         case "refresh_skills": {
-          this.allSkills = (await loadSkills(this.executionEnv, this.skillPaths, context)).skills;
-          this.promptTemplates = (await loadPromptTemplates(this.executionEnv, join(this.executionEnv.cwd, ".pi", "prompts"), context)).promptTemplates;
-          await this.harness.setResources({ skills: this.enabledSkills(), promptTemplates: this.promptTemplates }, context);
+          const allSkills = (await loadSkills(this.executionEnv, this.skillPaths, context)).skills;
+          const { promptTemplates } = await loadPromptTemplates(this.executionEnv, join(this.executionEnv.cwd, ".pi", "prompts"), context);
+          await this.harness.setResources({ skills: applySkillPolicy(allSkills, this.skillPolicy), promptTemplates }, context);
+          this.allSkills = allSkills;
+          this.promptTemplates = promptTemplates;
           return { success: true, data: { skills: this.skillStatus(), policy: this.skillPolicy } };
         }
         case "get_entries": return { success: true, data: { entries: await this.lane.findEntries(undefined, context) } };
@@ -482,7 +577,29 @@ export class SessionRuntime {
       enabled: enabled.has(skill.name) }));
   }
 
+  private drainBudgetWatch(): void {
+    this.watchedBudgetOperation = undefined;
+    const pending = this.stopBudgetWatch?.(); this.stopBudgetWatch = undefined;
+    if (pending) { this.budgetWatchDrains.add(pending); void pending.finally(() => this.budgetWatchDrains.delete(pending)); }
+  }
+
+  private async guardBudget(operationId: string): Promise<void> {
+    this.drainBudgetWatch();
+    this.watchedBudgetOperation = operationId;
+    const ledger = this.budgetTools.ledger(operationId);
+    try {
+      const budget = await ledger.status();
+      if (budget.cancelled || budget.deadline <= Date.now()) throw new Error(budget.cancelled ? "Execution task cancelled" : "Execution time budget exhausted");
+    } catch (error) { await this.lane.abort(context); throw error; }
+    this.stopBudgetWatch = watchExecutionDeadline(ledger, () => {
+      this.subagents?.cancelAll();
+      void this.lane.abort(context).catch(this.fatal);
+    });
+  }
+
   async close(): Promise<void> {
+    this.drainBudgetWatch();
+    await Promise.all([...this.budgetWatchDrains]);
     this.subagents?.close();
     if (this.closed) return;
     this.closed = true;

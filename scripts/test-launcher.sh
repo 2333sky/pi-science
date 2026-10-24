@@ -12,8 +12,10 @@ INSTALL_SCRIPT="$PROJECT_DIR/scripts/install.sh"
 WRITER_SCRIPT="$PROJECT_DIR/scripts/write-launcher.sh"
 TEMP_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/pi science launcher.XXXXXX")"
 START_PID=""
-export PI_SCIENCE_HOME="$TEMP_ROOT/data"
+export PI_SCIENCE_HOME="$TEMP_ROOT/state-parent/new/deep/state"
 export PI_SCIENCE_WORKSPACES="$TEMP_ROOT/workspaces"
+mkdir -p "$TEMP_ROOT/state-parent"
+chmod 750 "$TEMP_ROOT/state-parent"
 cleanup() { [ -z "$START_PID" ] || kill "$START_PID" 2>/dev/null || true; rm -rf "$TEMP_ROOT"; }
 trap cleanup EXIT
 
@@ -25,7 +27,7 @@ port_available() { python3 -c 'import socket,sys; s=socket.socket(); s.setsockop
 wait_url() { local url="$1" attempts=100; while [ "$attempts" -gt 0 ]; do node "$PROJECT_DIR/scripts/check-http-health.mjs" "$url" >/dev/null 2>&1 && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
 wait_port_available() { local port="$1" attempts=100; while [ "$attempts" -gt 0 ]; do port_available "$port" >/dev/null 2>&1 && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
 wait_file() { local file="$1" attempts=200; while [ "$attempts" -gt 0 ]; do [ -f "$file" ] && return 0; sleep 0.05; attempts=$((attempts - 1)); done; return 1; }
-wait_pid_gone() { local pid="$1" attempts=100; while [ "$attempts" -gt 0 ]; do ! kill -0 "$pid" 2>/dev/null && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
+wait_pid_gone() { local pid="$1" attempts=100; while [ "$attempts" -gt 0 ]; do { ! kill -0 "$pid" 2>/dev/null || [[ "$(ps -o stat= -p "$pid" 2>/dev/null)" =~ ^[[:space:]]*Z ]]; } && return 0; sleep 0.1; attempts=$((attempts - 1)); done; return 1; }
 
 if node "$NODE_CHECK_SCRIPT" 24.15.0; then fail "Node 24.15 was accepted"; fi
 node "$NODE_CHECK_SCRIPT" 24.16.0 || fail "Node 24.16 was rejected"
@@ -147,6 +149,18 @@ cp "$COMMAND_SCRIPT" "$FIXTURE/scripts/pi-science.sh"
 cp "$NODE_CHECK_SCRIPT" "$FIXTURE/scripts/check-node-version.mjs"
 cp "$NODE_RUNTIME_SCRIPT" "$FIXTURE/scripts/node-runtime.sh"
 cp "$PROJECT_DIR/scripts/check-http-health.mjs" "$FIXTURE/scripts/check-http-health.mjs"
+cp "$PROJECT_DIR/scripts/sandbox-prerequisites.sh" "$FIXTURE/scripts/sandbox-prerequisites.sh"
+cp "$PROJECT_DIR/scripts/check-linux-sandbox.mjs" "$FIXTURE/scripts/check-linux-sandbox.mjs"
+# Launcher lifecycle fixtures use fake services and helpers; these are not
+# sandbox isolation evidence. Real preflight failure cases have their own suite.
+mkdir -p "$TEMP_ROOT/sandbox-helpers"
+for helper in rg socat bwrap; do
+  printf '#!/bin/sh\nexit 0\n' > "$TEMP_ROOT/sandbox-helpers/$helper"
+  chmod +x "$TEMP_ROOT/sandbox-helpers/$helper"
+done
+export PI_SCIENCE_SANDBOX_RIPGREP="$TEMP_ROOT/sandbox-helpers/rg"
+export PI_SCIENCE_SANDBOX_SOCAT="$TEMP_ROOT/sandbox-helpers/socat"
+export PI_SCIENCE_SANDBOX_BWRAP="$TEMP_ROOT/sandbox-helpers/bwrap"
 # Any accidental curl dependency fails the lifecycle suite.
 mkdir -p "$TEMP_ROOT/no-curl"
 printf '#!/usr/bin/env bash\necho unexpected-curl >&2\nexit 97\n' > "$TEMP_ROOT/no-curl/curl"
@@ -209,10 +223,22 @@ CONTROL_PORT="$(free_port)"
 RUNTIME_PORT="$(free_port)"
 FRONTEND_PORT="$(free_port)"
 LOG="$TEMP_ROOT/start.log"
+LAUNCH_UMASK="$(umask)"
+umask 002
 PI_SCIENCE_PYTHON="$(command -v python3)" PI_SCIENCE_CONTROL_PLANE_PORT="$CONTROL_PORT" PI_SCIENCE_RUNTIME_PORT="$RUNTIME_PORT" PI_SCIENCE_FRONTEND_PORT="$FRONTEND_PORT" PI_SCIENCE_STARTUP_TIMEOUT_SECONDS=10 bash "$FIXTURE/scripts/start.sh" >"$LOG" 2>&1 &
 START_PID=$!
+umask "$LAUNCH_UMASK"
 wait_url "http://127.0.0.1:$CONTROL_PORT/internal/ready" || { cat "$LOG" >&2; fail "control plane did not become ready"; }
 wait_url "http://127.0.0.1:$FRONTEND_PORT" || { cat "$LOG" >&2; fail "frontend did not become ready"; }
+node - "$TEMP_ROOT/state-parent" <<'EOF' || fail "nested application state permissions changed under umask 002"
+const fs = require("node:fs");
+const path = require("node:path");
+const existing = process.argv[2];
+if ((fs.statSync(existing).mode & 0o777) !== 0o750) process.exit(1);
+for (let directory = process.env.PI_SCIENCE_HOME; directory !== existing; directory = path.dirname(directory)) {
+  if ((fs.statSync(directory).mode & 0o777) !== 0o700) throw new Error(`State directory is not private: ${directory}`);
+}
+EOF
 FIXTURE_CANONICAL="$(cd "$FIXTURE" && pwd -P)"
 [ "$(cat "$FIXTURE/control.cwd")" = "$FIXTURE_CANONICAL/apps/server" ] || fail "control plane CWD changed"
 [ "$(cat "$FIXTURE/frontend.cwd")" = "$FIXTURE_CANONICAL/frontend" ] || fail "frontend CWD changed"
