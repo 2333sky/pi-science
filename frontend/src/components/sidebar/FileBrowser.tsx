@@ -8,6 +8,7 @@ import { SIDEBAR_FILE_LIMIT, sortFileEntries, workspaceFiles } from "../../lib/w
 import { baseName, createDraft, editErrorFor, parentDir, planCommit, projectEditRows, renameDraft, type FileKind, type InlineEditDraft } from "../../lib/workspace/inline-file-edit";
 import { useFeedback } from "../feedback/feedback-context";
 import { InlineNameInput } from "../files/InlineNameInput";
+import { refreshInspectorAfterRename } from "../files/refresh-inspector-after-rename";
 import { FileContextMenu, type ContextPoint, type FileListEntry } from "./FileContextMenu";
 import { useRuntimeStore } from "../../lib/agent-runtime";
 import { Icon } from "../ui/Icon";
@@ -468,7 +469,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
       else if (mutation.kind === "create-folder") await workspaceFiles.mkdir(cwd, mutation.target, { exclusive: true });
       else await workspaceFiles.rename(cwd, mutation.source, mutation.target);
       updateDraft(null);
-      if (mutation.kind === "rename") forgetSubtree(mutation.source);
+      if (mutation.kind === "rename") { forgetSubtree(mutation.source); refreshInspectorAfterRename(mutation.source, mutation.target, cwd); }
       // The root listing is capped, so pin the new path to keep it on screen.
       if (parentDir(mutation.target) === "") recentRootPathsRef.current = [...recentRootPathsRef.current.filter((path) => path !== mutation.target), mutation.target].slice(-SIDEBAR_FILE_LIMIT);
       await loadFiles();

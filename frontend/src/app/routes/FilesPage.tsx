@@ -8,6 +8,7 @@ import { workspaceFiles, type Breadcrumb } from "../../lib/workspace";
 import { baseName, createDraft, editErrorFor, planCommit, projectEditRows, renameDraft, type FileKind, type InlineEditDraft } from "../../lib/workspace/inline-file-edit";
 import { FileContextMenu, type ContextPoint, type FileListEntry } from "../../components/sidebar/FileContextMenu";
 import { InlineNameInput } from "../../components/files/InlineNameInput";
+import { refreshInspectorAfterRename } from "../../components/files/refresh-inspector-after-rename";
 import { useFeedback } from "../../components/feedback/feedback-context";
 import { WorkspacePage, WorkspacePageHeader, WorkspacePageRefreshButton } from "../../components/layout/WorkspacePage";
 import { useRuntimeStore } from "../../lib/agent-runtime";
@@ -106,6 +107,7 @@ export function FilesPage() {
       else if (mutation.kind === "create-folder") await workspaceFiles.mkdir(workspaceCwd, mutation.target, { exclusive: true });
       else await workspaceFiles.rename(workspaceCwd, mutation.source, mutation.target);
       updateDraft(null);
+      if (mutation.kind === "rename") refreshInspectorAfterRename(mutation.source, mutation.target, workspaceCwd);
       await loadFiles(subdir);
       if (mutation.kind === "create-file") {
         toast(t("files.fileCreated", { name: baseName(mutation.target) }), "success");
