@@ -72,7 +72,7 @@ describe("citationVerifyService.verify", () => {
     const deps: CitationDeps = {
       fetch: vi.fn(async (input: string | URL | Request) => {
         const url = String(input);
-        if (url.includes("api.crossref.org")) {
+        if (new URL(url).host === "api.crossref.org") {
           return jsonResponse({
             status: "ok",
             message: {
@@ -100,7 +100,7 @@ describe("citationVerifyService.verify", () => {
     const cwd = await makeWorkspace();
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
-      if (url.includes("api.crossref.org")) {
+      if (new URL(url).host === "api.crossref.org") {
         return jsonResponse({ status: "ok", message: { title: ["One Paper"], author: [], issued: { "date-parts": [[2020]] } } });
       }
       return jsonResponse({}, 404);
@@ -144,7 +144,7 @@ describe("citationVerifyService.lookup", () => {
     const cwd = await makeWorkspace();
     const deps: CitationDeps = {
       fetch: vi.fn(async (input: string | URL | Request) => {
-        if (String(input).includes("api.crossref.org")) return jsonResponse({ status: "ok", message: { title: ["Cached Paper"], author: [], issued: { "date-parts": [[2021]] } } });
+        if (new URL(String(input)).host === "api.crossref.org") return jsonResponse({ status: "ok", message: { title: ["Cached Paper"], author: [], issued: { "date-parts": [[2021]] } } });
         return jsonResponse({}, 404);
       }),
     };
