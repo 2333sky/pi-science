@@ -34,4 +34,12 @@ describe("extractCitations", () => {
     expect(extractCitations("No identifiers here, just 10 items and pi.")).toEqual([]);
     expect(extractCitations("Broken ref 10.1234/. end")).toEqual([]);
   });
+
+  it("terminates DOI matches at CJK text and fullwidth punctuation", () => {
+    const text = "AlphaFold 蛋白结构预测方法见 10.1038/s41586-020-2649-2，另见 arXiv:1706.03762。";
+    expect(extractCitations(text)).toEqual([
+      { kind: "doi", id: "10.1038/s41586-020-2649-2", url: "https://doi.org/10.1038/s41586-020-2649-2" },
+      { kind: "arxiv", id: "1706.03762", url: "https://arxiv.org/abs/1706.03762" },
+    ]);
+  });
 });
