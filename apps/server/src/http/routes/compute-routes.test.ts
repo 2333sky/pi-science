@@ -1,11 +1,11 @@
 import Fastify from "fastify";
 import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
-import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { registerComputeRoutes } from "./compute-routes.js";
 import { RemoteComputeError, type RemoteExecuteResult, type SlurmCheckResult, type SlurmSubmitResult } from "../../runtime/compute/remote-compute-service.js";
+import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 
 const apps: Array<{ close(): Promise<unknown> }> = [];
 const workspaces: string[] = [];
@@ -59,8 +59,10 @@ describe("compute routes", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ exitCode: 0, execution_id: "exec_test" });
-    // validateWorkspaceCwd returns the realpath; compare against that form.
-    expect(service.execute).toHaveBeenCalledWith(realpathSync(cwd), expect.objectContaining({ machine_label: "gpu-box", command: "hostname", timeout_seconds: 60, session_id: "sess-1", signal: expect.any(AbortSignal) }));
+    // Canonicalize with the same function the route uses: on Windows the temp
+    // dir can be an 8.3 short path that only fs/promises realpath expands.
+    const canonicalCwd = await validateWorkspaceCwd(cwd);
+    expect(service.execute).toHaveBeenCalledWith(canonicalCwd, expect.objectContaining({ machine_label: "gpu-box", command: "hostname", timeout_seconds: 60, session_id: "sess-1", signal: expect.any(AbortSignal) }));
 
     const provenance = await readFile(join(cwd, ".pi-science", "provenance.jsonl"), "utf8");
     expect(provenance).toContain("\"tool\":\"remote_execute\"");
