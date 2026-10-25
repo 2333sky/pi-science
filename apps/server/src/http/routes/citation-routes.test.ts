@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { realpathSync } from "node:fs";
 import { registerCitationRoutes } from "./citation-routes.js";
 import type { CitationEvidence, VerifyCitationsResult } from "../../runtime/citations/citation-verify-service.js";
+import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 
 const apps: Array<{ close(): Promise<unknown> }> = [];
 const workspaces: string[] = [];
@@ -53,7 +53,10 @@ describe("citation routes", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ citations: [{ id: "10.1/x", cached: false }] });
-    expect(service.verify).toHaveBeenCalledWith(realpathSync(cwd), { text: "Cites 10.1/x here." });
+    // Canonicalize with the same function the route uses: on Windows the temp
+    // dir can be an 8.3 short path that only fs/promises realpath expands.
+    const canonicalCwd = await validateWorkspaceCwd(cwd);
+    expect(service.verify).toHaveBeenCalledWith(canonicalCwd, { text: "Cites 10.1/x here." });
   });
 
   it("rejects empty and oversized texts", async () => {
