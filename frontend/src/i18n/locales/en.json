@@ -1785,6 +1785,7 @@
   "settings.native.error.revision_conflict": "Configuration changed. Reload before trying again; no stale write was retried.",
   "files.newFolder": "New folder",
   "files.newFolderName": "Folder name",
+  "files.newSubfolderHere": "New subfolder here",
   "files.folderCreated": "Folder \"{{name}}\" created",
   "files.folderCreateError": "Could not create the folder",
   "files.deleteFolderConfirm": "Delete \"{{name}}\" and everything inside it? This cannot be undone.",

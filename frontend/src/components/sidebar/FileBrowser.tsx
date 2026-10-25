@@ -39,6 +39,9 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
   const { confirm, toast } = useFeedback();
   const [entries, setEntries] = useState<FileListEntry[]>([]);
   const [newFolderName, setNewFolderName] = useState<string | null>(null);
+  // Directory the inline create input targets; null means the workspace root
+  // (the header button), a path means it renders under that folder's row.
+  const [subfolderBase, setSubfolderBase] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const visible = embedded || expanded;
@@ -421,17 +424,28 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
     setContextMenu(null);
   };
 
-  const createFolder = async (name: string) => {
+  const createFolder = async (name: string, baseDir: string | null = null) => {
     const trimmed = name.trim();
     setNewFolderName(null);
+    setSubfolderBase(null);
     if (!trimmed) return;
+    const target = baseDir ? `${baseDir}/${trimmed}` : trimmed;
     try {
-      await workspaceFiles.mkdir(cwd, trimmed);
+      await workspaceFiles.mkdir(cwd, target);
       await loadFiles();
-      toast(t("files.folderCreated", { name: trimmed }), "success");
+      toast(t("files.folderCreated", { name: target }), "success");
     } catch (error) {
       toast(error instanceof Error ? error.message : t("files.folderCreateError"), "error");
     }
+  };
+
+  const startSubfolderCreation = (entry: FileListEntry) => {
+    setContextMenu(null);
+    setSubfolderBase(entry.path);
+    setNewFolderName("");
+    // The new row renders under the folder, so show it inside an expanded
+    // parent; loadFiles() after creation refreshes the open listing.
+    if (!openFoldersRef.current.has(entry.path)) void toggleFolder(entry.path);
   };
 
   const revealEntry = async (entry: FileListEntry) => {
@@ -509,7 +523,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
             aria-label={t("files.newFolder")}
             title={t("files.newFolder")}
             disabled={newFolderName !== null}
-            onClick={() => setNewFolderName("")}
+            onClick={() => { setSubfolderBase(null); setNewFolderName(""); }}
             className="flex h-tool w-tool shrink-0 items-center justify-center rounded-input text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Icon icon={FolderPlus} size="xs" />
@@ -532,10 +546,10 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
               value={newFolderName}
               onChange={(event) => setNewFolderName(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") { event.preventDefault(); void createFolder(newFolderName); }
-                if (event.key === "Escape") { event.preventDefault(); setNewFolderName(null); }
+                if (event.key === "Enter") { event.preventDefault(); void createFolder(newFolderName, subfolderBase); }
+                if (event.key === "Escape") { event.preventDefault(); setNewFolderName(null); setSubfolderBase(null); }
               }}
-              onBlur={() => { if (newFolderName !== null) void createFolder(newFolderName); }}
+              onBlur={() => { if (newFolderName !== null) void createFolder(newFolderName, subfolderBase); }}
               placeholder={t("files.newFolderName")}
               aria-label={t("files.newFolderName")}
               className="h-tool w-full min-w-0 rounded-input border border-border bg-surface px-2 text-ui-body text-text outline-none focus:border-accent"
@@ -596,6 +610,24 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
                       {isLoading && <Icon icon={Loader2} size="xs" className="ml-auto shrink-0 animate-spin text-muted" />}
                     </button>
                     {error && <p className="px-2 text-ui-micro italic text-error-text" style={{ paddingLeft: `${20 + e.depth * 12}px` }}>{error}</p>}
+                    {subfolderBase === e.path && newFolderName !== null && (
+                      <div className="flex items-center gap-1 pb-1" style={{ paddingLeft: `${20 + (e.depth + 1) * 12}px` }}>
+                        <Icon icon={Folder} size="xs" className="shrink-0 text-muted" />
+                        <input
+                          autoFocus
+                          value={newFolderName}
+                          onChange={(event) => setNewFolderName(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") { event.preventDefault(); void createFolder(newFolderName, subfolderBase); }
+                            if (event.key === "Escape") { event.preventDefault(); setNewFolderName(null); setSubfolderBase(null); }
+                          }}
+                          onBlur={() => { if (newFolderName !== null) void createFolder(newFolderName, subfolderBase); }}
+                          placeholder={t("files.newFolderName")}
+                          aria-label={t("files.newSubfolderHere")}
+                          className="h-tool w-full min-w-0 rounded-input border border-border bg-surface px-2 text-ui-body text-text outline-none focus:border-accent"
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -609,7 +641,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
       </div>
 
       {/* Context menu */}
-      {contextMenu && <FileContextMenu entry={contextMenu.entry} point={contextMenu.point} onClose={() => setContextMenu(null)} onReference={() => referenceEntry(contextMenu.entry)} onCopy={(text) => void copyToClipboard(text)} onCopyAbsolutePath={() => void copyToClipboard(absoluteWorkspacePath(cwd, contextMenu.entry.path))} onReveal={() => void revealEntry(contextMenu.entry)} onDelete={() => void deleteEntry(contextMenu.entry)} />}
+      {contextMenu && <FileContextMenu entry={contextMenu.entry} point={contextMenu.point} onClose={() => setContextMenu(null)} onReference={() => referenceEntry(contextMenu.entry)} onCopy={(text) => void copyToClipboard(text)} onCopyAbsolutePath={() => void copyToClipboard(absoluteWorkspacePath(cwd, contextMenu.entry.path))} onReveal={() => void revealEntry(contextMenu.entry)} onNewSubfolder={contextMenu.entry.isDir ? () => startSubfolderCreation(contextMenu.entry) : undefined} onDelete={() => void deleteEntry(contextMenu.entry)} />}
     </div>
   );
 }

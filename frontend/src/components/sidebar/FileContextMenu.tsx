@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Copy, ExternalLink, Link2, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, FolderPlus, Link2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export interface FileListEntry {
@@ -12,7 +12,7 @@ export interface FileListEntry {
 
 export interface ContextPoint { x: number; y: number }
 
-export function FileContextMenu({ entry, point, onClose, onReference, onCopy, onCopyAbsolutePath, onReveal, onDelete }: {
+export function FileContextMenu({ entry, point, onClose, onReference, onCopy, onCopyAbsolutePath, onReveal, onNewSubfolder, onDelete }: {
   entry: FileListEntry;
   point: ContextPoint;
   onClose: () => void;
@@ -23,6 +23,8 @@ export function FileContextMenu({ entry, point, onClose, onReference, onCopy, on
   onCopyAbsolutePath?: () => void;
   /** Open the entry in the OS file manager. Omitted by callers without a cwd. */
   onReveal?: () => void;
+  /** Inline-create a folder inside this directory. Directories only. */
+  onNewSubfolder?: () => void;
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
@@ -57,6 +59,7 @@ export function FileContextMenu({ entry, point, onClose, onReference, onCopy, on
       {onCopyAbsolutePath && <MenuButton icon={<Copy size={12} />} label={t("files.copyAbsolutePath")} onClick={onCopyAbsolutePath} />}
       <MenuButton icon={<Copy size={12} />} label={t("files.copyName")} onClick={() => onCopy(entry.name)} />
       {onReveal && <MenuButton icon={<ExternalLink size={12} />} label={t("files.revealInFileManager")} onClick={onReveal} />}
+      {entry.isDir && onNewSubfolder && <MenuButton icon={<FolderPlus size={12} />} label={t("files.newSubfolderHere")} onClick={onNewSubfolder} />}
       <MenuButton danger icon={<Trash2 size={12} />} label={t("common.delete")} onClick={onDelete} />
     </div>
   );

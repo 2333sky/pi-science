@@ -1785,6 +1785,7 @@
   "settings.native.error.revision_conflict": "配置已变化，请重新加载后再操作，旧配置未被自动重试。",
   "files.newFolder": "新建文件夹",
   "files.newFolderName": "文件夹名称",
+  "files.newSubfolderHere": "在此处新建子文件夹",
   "files.folderCreated": "已创建文件夹「{{name}}」",
   "files.folderCreateError": "文件夹创建失败",
   "files.deleteFolderConfirm": "删除「{{name}}」及其全部内容？此操作不可撤销。",
