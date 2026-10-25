@@ -5,7 +5,7 @@ import { useUiStore } from "../../lib/ui";
 import { useRuntimeStore } from "../../lib/agent-runtime";
 import type { AgentMessageBlock, StatusLineBlock, ThreadBlock, UserMessageBlock } from "../../types/thread";
 import { MarkdownViewer, type CodeRunner } from "../markdown-viewer/MarkdownViewer";
-import { fileInspectorFromBlock, refToArtifactBlock } from "../../lib/artifacts";
+import { pinnedFileInspector } from "../../lib/artifacts";
 import { ReferencedArtifactStrip, TurnArtifactStrip } from "./TurnArtifactStrip";
 import { referencesFromMessage, visibleUserMessage } from "../../lib/files";
 import { agentActionTextByBlock } from "../../lib/conversation";
@@ -97,8 +97,10 @@ function StatusLine({ block }: { block: StatusLineBlock }) {
   const cwd = useRuntimeStore((state) => state.cwd);
   const tone = block.level === "error" ? "text-error-text" : block.level === "done" ? "text-ok-text" : "text-muted";
   if (block.path) {
-    const artifact = refToArtifactBlock(block.path);
-    return <button type="button" onClick={() => openInspector({ ...fileInspectorFromBlock(artifact as any), cwd } as any)} className={cn("flex items-center gap-2 text-xs hover:underline", tone)}>{block.text}</button>;
+    // Published references pin to the version that exists when clicked; the
+    // live file only shows for paths that were never published.
+    const open = () => { void pinnedFileInspector(block.path!, undefined, "workspace", cwd).then((inspector) => openInspector(inspector)); };
+    return <button type="button" onClick={open} className={cn("flex items-center gap-2 text-xs hover:underline", tone)}>{block.text}</button>;
   }
   return <div className={cn("flex items-center gap-2 text-xs", tone)}>{block.level === "info" && <Loader2 size={14} className="animate-spin text-accent" />}{block.text}</div>;
 }
