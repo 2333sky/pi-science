@@ -79,8 +79,19 @@ export const workspaceFiles = {
     this.invalidate();
   },
 
-  async mkdir(cwd: string, path: string): Promise<void> {
-    await apiRequest(`/api/files/mkdir?${new URLSearchParams({ cwd })}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+  async mkdir(cwd: string, path: string, options: { exclusive?: boolean } = {}): Promise<void> {
+    await apiRequest(`/api/files/mkdir?${new URLSearchParams({ cwd })}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path, ...(options.exclusive ? { exclusive: true } : {}) }) });
+    this.invalidate();
+  },
+
+  /** Create an empty file. A duplicate name answers 409 rather than truncating. */
+  async createFile(cwd: string, path: string): Promise<void> {
+    await apiRequest(`/api/files/create?${new URLSearchParams({ cwd })}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ path }) });
+    this.invalidate();
+  },
+
+  async rename(cwd: string, source: string, target: string): Promise<void> {
+    await apiRequest(`/api/files/rename?${new URLSearchParams({ cwd })}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source, target }) });
     this.invalidate();
   },
 

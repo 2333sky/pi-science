@@ -41,9 +41,9 @@ export function InlineNameInput({ draft, indent, onValueChange, onCommit, onCanc
             // the extension. Selection happens once; a later click places the caret.
             if (!renaming || selectedRef.current) return;
             selectedRef.current = true;
-            const { value, setSelectionRange } = event.currentTarget;
+            const { value } = event.currentTarget;
             const dot = value.lastIndexOf(".");
-            setSelectionRange(0, dot > 0 ? dot : value.length);
+            event.currentTarget.setSelectionRange(0, dot > 0 ? dot : value.length);
           }}
           onKeyDown={(event) => {
             // Enter during IME composition accepts a candidate, not the name.

@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Folder, FolderOpen, File, FileSpreadsheet, FileText, Image, BookOpen, ChevronRight, ChevronDown, RefreshCw, FolderPlus, Loader2, type LucideIcon } from "lucide-react";
+import { Folder, FolderOpen, File, FileSpreadsheet, FileText, Image, BookOpen, ChevronRight, ChevronDown, RefreshCw, FolderPlus, FilePlus, Loader2, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn, copyTextToClipboard, useUiStore } from "../../lib/ui";
 import { pinnedFileInspector } from "../../lib/artifacts";
 import { absoluteWorkspacePath } from "../../lib/files/workspace-path";
 import { SIDEBAR_FILE_LIMIT, sortFileEntries, workspaceFiles } from "../../lib/workspace";
+import { baseName, createDraft, editErrorFor, parentDir, planCommit, projectEditRows, renameDraft, type FileKind, type InlineEditDraft } from "../../lib/workspace/inline-file-edit";
 import { useFeedback } from "../feedback/feedback-context";
+import { InlineNameInput } from "../files/InlineNameInput";
 import { FileContextMenu, type ContextPoint, type FileListEntry } from "./FileContextMenu";
 import { useRuntimeStore } from "../../lib/agent-runtime";
 import { Icon } from "../ui/Icon";
@@ -38,10 +40,12 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
   const { t } = useTranslation();
   const { confirm, toast } = useFeedback();
   const [entries, setEntries] = useState<FileListEntry[]>([]);
-  const [newFolderName, setNewFolderName] = useState<string | null>(null);
-  // Directory the inline create input targets; null means the workspace root
-  // (the header button), a path means it renders under that folder's row.
-  const [subfolderBase, setSubfolderBase] = useState<string | null>(null);
+  // One inline name editor at a time, so no combination of state can render two inputs.
+  const [draft, setDraft] = useState<InlineEditDraft | null>(null);
+  // Mirrored synchronously: Escape must beat the unmount blur, and Enter plus
+  // blur must not submit the same draft twice.
+  const draftRef = useRef<InlineEditDraft | null>(null);
+  const updateDraft = (next: InlineEditDraft | null) => { draftRef.current = next; setDraft(next); };
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const visible = embedded || expanded;
@@ -74,13 +78,13 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
   const [uploadStatus, setUploadStatus] = useState("");
   const [uploading, setUploading] = useState(false);
   const uploadRef = useRef<AbortController | null>(null);
-  const recentRootUploadsRef = useRef<string[]>([]);
+  const recentRootPathsRef = useRef<string[]>([]);
 
   useEffect(() => {
     setDropTarget(null);
     setUploadStatus("");
     setUploading(false);
-    recentRootUploadsRef.current = [];
+    recentRootPathsRef.current = [];
     return () => {
       uploadRef.current?.abort();
       uploadRef.current = null;
@@ -147,7 +151,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
       setLoading(true);
     }
     try {
-      const rootEntries = await workspaceFiles.sidebar(cwd, signal, recentRootUploadsRef.current);
+      const rootEntries = await workspaceFiles.sidebar(cwd, signal, recentRootPathsRef.current);
       if (token !== requestTokenRef.current || signal?.aborted) return;
       setEntries(rootEntries);
 
@@ -216,6 +220,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
     openFoldersRef.current = new Set();
     setOpenFolders(new Set());
     setFolderStates(new Map());
+    updateDraft(null);
   }, [cwd]);
 
   useEffect(() => {
@@ -301,6 +306,8 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
     return build(entries, 0);
   }, [entries, openFolders, folderStates]);
 
+  const rows = useMemo(() => projectEditRows(folderEntries, draft), [folderEntries, draft]);
+
   const refreshFiles = () => {
     workspaceFiles.invalidate();
     void loadFiles();
@@ -346,8 +353,8 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
           setOpenFolders(new Set(openFoldersRef.current));
         } else {
           const uploaded = new Set(succeeded);
-          recentRootUploadsRef.current = [
-            ...recentRootUploadsRef.current.filter((path) => !uploaded.has(path)), ...uploaded,
+          recentRootPathsRef.current = [
+            ...recentRootPathsRef.current.filter((path) => !uploaded.has(path)), ...uploaded,
           ].slice(-SIDEBAR_FILE_LIMIT);
         }
         await loadFiles(controller.signal, true);
@@ -424,28 +431,58 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
     setContextMenu(null);
   };
 
-  const createFolder = async (name: string, baseDir: string | null = null) => {
-    const trimmed = name.trim();
-    setNewFolderName(null);
-    setSubfolderBase(null);
-    if (!trimmed) return;
-    const target = baseDir ? `${baseDir}/${trimmed}` : trimmed;
-    try {
-      await workspaceFiles.mkdir(cwd, target);
-      await loadFiles();
-      toast(t("files.folderCreated", { name: target }), "success");
-    } catch (error) {
-      toast(error instanceof Error ? error.message : t("files.folderCreateError"), "error");
-    }
+  const startCreate = (kind: FileKind, entry: FileListEntry | null) => {
+    setContextMenu(null);
+    const dir = entry ? (entry.isDir ? entry.path : parentDir(entry.path)) : "";
+    // A collapsed target hides its own first child, so open it before rendering the input.
+    if (entry?.isDir && !openFoldersRef.current.has(entry.path)) void toggleFolder(entry.path);
+    updateDraft(createDraft(kind, dir, entry?.path ?? null));
   };
 
-  const startSubfolderCreation = (entry: FileListEntry) => {
+  const startRename = (entry: FileListEntry) => {
     setContextMenu(null);
-    setSubfolderBase(entry.path);
-    setNewFolderName("");
-    // The new row renders under the folder, so show it inside an expanded
-    // parent; loadFiles() after creation refreshes the open listing.
-    if (!openFoldersRef.current.has(entry.path)) void toggleFolder(entry.path);
+    updateDraft(renameDraft(entry));
+  };
+
+  const cancelDraft = () => updateDraft(null);
+
+  // A renamed folder must not keep its old open key. Descendants are dropped
+  // rather than remapped, so the renamed folder reads as a fresh collapsed entry.
+  const forgetSubtree = (root: string) => {
+    const within = (path: string) => path === root || path.startsWith(`${root}/`);
+    openFoldersRef.current = new Set([...openFoldersRef.current].filter((path) => !within(path)));
+    setOpenFolders(new Set(openFoldersRef.current));
+    setFolderStates((prev) => new Map([...prev].filter(([path]) => !within(path))));
+  };
+
+  const commitDraft = async () => {
+    const current = draftRef.current;
+    if (!current || current.saving) return;
+    const plan = planCommit(current);
+    if (plan.kind === "cancel" || plan.kind === "unchanged") { updateDraft(null); return; }
+    if (plan.kind === "invalid") { updateDraft({ ...current, error: "invalid" }); return; }
+    const { mutation } = plan;
+    updateDraft({ ...current, saving: true, error: null });
+    try {
+      if (mutation.kind === "create-file") await workspaceFiles.createFile(cwd, mutation.target);
+      else if (mutation.kind === "create-folder") await workspaceFiles.mkdir(cwd, mutation.target, { exclusive: true });
+      else await workspaceFiles.rename(cwd, mutation.source, mutation.target);
+      updateDraft(null);
+      if (mutation.kind === "rename") forgetSubtree(mutation.source);
+      // The root listing is capped, so pin the new path to keep it on screen.
+      if (parentDir(mutation.target) === "") recentRootPathsRef.current = [...recentRootPathsRef.current.filter((path) => path !== mutation.target), mutation.target].slice(-SIDEBAR_FILE_LIMIT);
+      await loadFiles();
+      if (mutation.kind === "create-file") {
+        toast(t("files.fileCreated", { name: baseName(mutation.target) }), "success");
+        void pinnedFileInspector(mutation.target, baseName(mutation.target), undefined, cwd).then((inspector) => openInspector(inspector));
+      } else if (mutation.kind === "create-folder") toast(t("files.folderCreated", { name: mutation.target }), "success");
+      else toast(t("files.renamed", { name: baseName(mutation.target) }), "success");
+    } catch (error) {
+      const errorKind = editErrorFor(error);
+      // A cancel during the request already cleared the draft; do not resurrect it.
+      if (draftRef.current) updateDraft({ ...current, saving: false, error: errorKind });
+      if (errorKind === "request") toast(error instanceof Error ? error.message : String(error), "error");
+    }
   };
 
   const revealEntry = async (entry: FileListEntry) => {
@@ -520,10 +557,18 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
           </button>}
           <button
             type="button"
+            aria-label={t("files.newFile")}
+            title={t("files.newFile")}
+            onClick={() => startCreate("file", null)}
+            className="flex h-tool w-tool shrink-0 items-center justify-center rounded-input text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <Icon icon={FilePlus} size="xs" />
+          </button>
+          <button
+            type="button"
             aria-label={t("files.newFolder")}
             title={t("files.newFolder")}
-            disabled={newFolderName !== null}
-            onClick={() => { setSubfolderBase(null); setNewFolderName(""); }}
+            onClick={() => startCreate("dir", null)}
             className="flex h-tool w-tool shrink-0 items-center justify-center rounded-input text-muted transition-colors hover:bg-surface-hover hover:text-text"
           >
             <Icon icon={FolderPlus} size="xs" />
@@ -538,24 +583,6 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
             <Icon icon={RefreshCw} size="xs" className={loading ? "animate-spin" : ""} />
           </button>
         </div>
-        {visible && newFolderName !== null && (
-          <div className="flex items-center gap-1 px-2 pb-1 pt-2">
-            <Icon icon={Folder} size="xs" className="shrink-0 text-muted" />
-            <input
-              autoFocus
-              value={newFolderName}
-              onChange={(event) => setNewFolderName(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") { event.preventDefault(); void createFolder(newFolderName, subfolderBase); }
-                if (event.key === "Escape") { event.preventDefault(); setNewFolderName(null); setSubfolderBase(null); }
-              }}
-              onBlur={() => { if (newFolderName !== null) void createFolder(newFolderName, subfolderBase); }}
-              placeholder={t("files.newFolderName")}
-              aria-label={t("files.newFolderName")}
-              className="h-tool w-full min-w-0 rounded-input border border-border bg-surface px-2 text-ui-body text-text outline-none focus:border-accent"
-            />
-          </div>
-        )}
         {visible && (
           <div
             aria-label={t("files.dropRoot")}
@@ -578,12 +605,21 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
             }}
             className={cn("mt-1 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto rounded-input", dropTarget?.path === "" && dropTarget.valid && "bg-accent/10 ring-2 ring-inset ring-accent/60")}
           >
-            {loading && entries.length === 0 ? (
-              <p className="px-2 text-ui-meta italic text-muted/60">{t("common.loading")}</p>
-            ) : entries.length === 0 ? (
-              <p className="px-2 text-ui-meta italic text-muted/60">{t("files.empty")}</p>
+            {!draft && folderEntries.length === 0 ? (
+              <p className="px-2 text-ui-meta italic text-muted/60">{loading ? t("common.loading") : t("files.empty")}</p>
             ) : (
-              folderEntries.map((e) => {
+              rows.map((item) => {
+                if (item.kind === "editor") return draft ? (
+                  <InlineNameInput
+                    key="inline-editor"
+                    draft={draft}
+                    indent={item.indent}
+                    onValueChange={(value) => updateDraft({ ...draft, value, error: null })}
+                    onCommit={() => void commitDraft()}
+                    onCancel={cancelDraft}
+                  />
+                ) : null;
+                const e = item.row;
                 const state = folderStates.get(e.path);
                 const isLoading = state?.loading;
                 const error = state?.error;
@@ -610,24 +646,6 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
                       {isLoading && <Icon icon={Loader2} size="xs" className="ml-auto shrink-0 animate-spin text-muted" />}
                     </button>
                     {error && <p className="px-2 text-ui-micro italic text-error-text" style={{ paddingLeft: `${20 + e.depth * 12}px` }}>{error}</p>}
-                    {subfolderBase === e.path && newFolderName !== null && (
-                      <div className="flex items-center gap-1 pb-1" style={{ paddingLeft: `${20 + (e.depth + 1) * 12}px` }}>
-                        <Icon icon={Folder} size="xs" className="shrink-0 text-muted" />
-                        <input
-                          autoFocus
-                          value={newFolderName}
-                          onChange={(event) => setNewFolderName(event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") { event.preventDefault(); void createFolder(newFolderName, subfolderBase); }
-                            if (event.key === "Escape") { event.preventDefault(); setNewFolderName(null); setSubfolderBase(null); }
-                          }}
-                          onBlur={() => { if (newFolderName !== null) void createFolder(newFolderName, subfolderBase); }}
-                          placeholder={t("files.newFolderName")}
-                          aria-label={t("files.newSubfolderHere")}
-                          className="h-tool w-full min-w-0 rounded-input border border-border bg-surface px-2 text-ui-body text-text outline-none focus:border-accent"
-                        />
-                      </div>
-                    )}
                   </div>
                 );
               })
@@ -641,7 +659,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
       </div>
 
       {/* Context menu */}
-      {contextMenu && <FileContextMenu entry={contextMenu.entry} point={contextMenu.point} onClose={() => setContextMenu(null)} onReference={() => referenceEntry(contextMenu.entry)} onCopy={(text) => void copyToClipboard(text)} onCopyAbsolutePath={() => void copyToClipboard(absoluteWorkspacePath(cwd, contextMenu.entry.path))} onReveal={() => void revealEntry(contextMenu.entry)} onNewSubfolder={contextMenu.entry.isDir ? () => startSubfolderCreation(contextMenu.entry) : undefined} onDelete={() => void deleteEntry(contextMenu.entry)} />}
+      {contextMenu && <FileContextMenu entry={contextMenu.entry} point={contextMenu.point} onClose={() => setContextMenu(null)} onReference={() => referenceEntry(contextMenu.entry)} onCopy={(text) => void copyToClipboard(text)} onCopyAbsolutePath={() => void copyToClipboard(absoluteWorkspacePath(cwd, contextMenu.entry.path))} onReveal={() => void revealEntry(contextMenu.entry)} onCreateFile={() => startCreate("file", contextMenu.entry)} onCreateFolder={() => startCreate("dir", contextMenu.entry)} onRename={() => startRename(contextMenu.entry)} onDelete={() => void deleteEntry(contextMenu.entry)} />}
     </div>
   );
 }
