@@ -1778,5 +1778,12 @@
   "settings.native.error.discovery_empty": "未返回模型，可手动填写模型 ID。",
   "settings.native.error.discovery_incomplete": "模型列表不完整或超出发现限制，未保存部分结果。",
   "settings.native.error.discovery_failed": "模型发现失败，请检查连接或手动填写模型 ID。",
-  "settings.native.error.revision_conflict": "配置已变化，请重新加载后再操作，旧配置未被自动重试。"
+  "settings.native.error.revision_conflict": "配置已变化，请重新加载后再操作，旧配置未被自动重试。",
+  "files.newFolder": "新建文件夹",
+  "files.newFolderName": "文件夹名称",
+  "files.folderCreated": "已创建文件夹「{{name}}」",
+  "files.folderCreateError": "文件夹创建失败",
+  "files.deleteFolderConfirm": "删除「{{name}}」及其全部内容？此操作不可撤销。",
+  "files.revealInFileManager": "在文件管理器中打开",
+  "files.revealError": "无法打开文件管理器"
 }

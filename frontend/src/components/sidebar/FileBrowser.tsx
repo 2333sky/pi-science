@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Folder, FolderOpen, File, FileSpreadsheet, FileText, Image, BookOpen, ChevronRight, ChevronDown, RefreshCw, Loader2, type LucideIcon } from "lucide-react";
+import { Folder, FolderOpen, File, FileSpreadsheet, FileText, Image, BookOpen, ChevronRight, ChevronDown, RefreshCw, FolderPlus, Loader2, type LucideIcon } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn, copyTextToClipboard, useUiStore } from "../../lib/ui";
 import { fileInspectorForPath } from "../../lib/artifacts";
@@ -38,6 +38,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
   const { t } = useTranslation();
   const { confirm, toast } = useFeedback();
   const [entries, setEntries] = useState<FileListEntry[]>([]);
+  const [newFolderName, setNewFolderName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(false);
   const visible = embedded || expanded;
@@ -418,12 +419,35 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
     setContextMenu(null);
   };
 
+  const createFolder = async (name: string) => {
+    const trimmed = name.trim();
+    setNewFolderName(null);
+    if (!trimmed) return;
+    try {
+      await workspaceFiles.mkdir(cwd, trimmed);
+      await loadFiles();
+      toast(t("files.folderCreated", { name: trimmed }), "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : t("files.folderCreateError"), "error");
+    }
+  };
+
+  const revealEntry = async (entry: FileListEntry) => {
+    setContextMenu(null);
+    try {
+      await workspaceFiles.reveal(cwd, entry.path);
+    } catch (error) {
+      toast(error instanceof Error ? error.message : t("files.revealError"), "error");
+    }
+  };
+
   const deleteEntry = async (entry: FileListEntry) => {
     setContextMenu(null);
-    const approved = await confirm({ title: entry.isDir ? t("files.deleteFolderTitle") : t("files.deleteFileTitle"), message: t("files.deleteConfirm", { name: entry.name }), confirmLabel: t("common.delete"), destructive: true });
+    // Folder deletion removes the whole subtree; the confirmation names that.
+    const approved = await confirm({ title: entry.isDir ? t("files.deleteFolderTitle") : t("files.deleteFileTitle"), message: entry.isDir ? t("files.deleteFolderConfirm", { name: entry.name }) : t("files.deleteConfirm", { name: entry.name }), confirmLabel: t("common.delete"), destructive: true });
     if (!approved) return;
     try {
-      await workspaceFiles.remove(cwd, entry.path);
+      await workspaceFiles.remove(cwd, entry.path, { recursive: entry.isDir });
       await loadFiles();
       toast(t("files.deleted", { name: entry.name }), "success");
     } catch (error) {
@@ -480,6 +504,16 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
           </button>}
           <button
             type="button"
+            aria-label={t("files.newFolder")}
+            title={t("files.newFolder")}
+            disabled={newFolderName !== null}
+            onClick={() => setNewFolderName("")}
+            className="flex h-tool w-tool shrink-0 items-center justify-center rounded-input text-muted transition-colors hover:bg-surface-hover hover:text-text"
+          >
+            <Icon icon={FolderPlus} size="xs" />
+          </button>
+          <button
+            type="button"
             aria-label={t("files.refresh", { defaultValue: "Refresh files" })}
             title={t("files.refresh", { defaultValue: "Refresh files" })}
             onClick={refreshFiles}
@@ -488,6 +522,24 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
             <Icon icon={RefreshCw} size="xs" className={loading ? "animate-spin" : ""} />
           </button>
         </div>
+        {visible && newFolderName !== null && (
+          <div className="flex items-center gap-1 px-2 pb-1 pt-2">
+            <Icon icon={Folder} size="xs" className="shrink-0 text-muted" />
+            <input
+              autoFocus
+              value={newFolderName}
+              onChange={(event) => setNewFolderName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") { event.preventDefault(); void createFolder(newFolderName); }
+                if (event.key === "Escape") { event.preventDefault(); setNewFolderName(null); }
+              }}
+              onBlur={() => { if (newFolderName !== null) void createFolder(newFolderName); }}
+              placeholder={t("files.newFolderName")}
+              aria-label={t("files.newFolderName")}
+              className="h-tool w-full min-w-0 rounded-input border border-border bg-surface px-2 text-ui-body text-text outline-none focus:border-accent"
+            />
+          </div>
+        )}
         {visible && (
           <div
             aria-label={t("files.dropRoot")}
@@ -555,7 +607,7 @@ export function FileBrowser({ cwd, embedded = false, active = true }: { cwd: str
       </div>
 
       {/* Context menu */}
-      {contextMenu && <FileContextMenu entry={contextMenu.entry} point={contextMenu.point} onClose={() => setContextMenu(null)} onReference={() => referenceEntry(contextMenu.entry)} onCopy={(text) => void copyToClipboard(text)} onCopyAbsolutePath={() => void copyToClipboard(absoluteWorkspacePath(cwd, contextMenu.entry.path))} onDelete={() => void deleteEntry(contextMenu.entry)} />}
+      {contextMenu && <FileContextMenu entry={contextMenu.entry} point={contextMenu.point} onClose={() => setContextMenu(null)} onReference={() => referenceEntry(contextMenu.entry)} onCopy={(text) => void copyToClipboard(text)} onCopyAbsolutePath={() => void copyToClipboard(absoluteWorkspacePath(cwd, contextMenu.entry.path))} onReveal={() => void revealEntry(contextMenu.entry)} onDelete={() => void deleteEntry(contextMenu.entry)} />}
     </div>
   );
 }

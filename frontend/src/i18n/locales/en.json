@@ -1778,5 +1778,12 @@
   "settings.native.error.discovery_empty": "No models returned. You can add model IDs manually.",
   "settings.native.error.discovery_incomplete": "The model list is incomplete or exceeds discovery limits. No partial list was saved.",
   "settings.native.error.discovery_failed": "Discovery failed. Check the connection or add model IDs manually.",
-  "settings.native.error.revision_conflict": "Configuration changed. Reload before trying again; no stale write was retried."
+  "settings.native.error.revision_conflict": "Configuration changed. Reload before trying again; no stale write was retried.",
+  "files.newFolder": "New folder",
+  "files.newFolderName": "Folder name",
+  "files.folderCreated": "Folder \"{{name}}\" created",
+  "files.folderCreateError": "Could not create the folder",
+  "files.deleteFolderConfirm": "Delete \"{{name}}\" and everything inside it? This cannot be undone.",
+  "files.revealInFileManager": "Reveal in file manager",
+  "files.revealError": "Could not open the file manager"
 }

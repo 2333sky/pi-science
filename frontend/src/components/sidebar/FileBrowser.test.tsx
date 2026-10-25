@@ -386,14 +386,14 @@ describe("FileBrowser external file uploads", () => {
     fireEvent.drop(zone, { dataTransfer: transfer(["z-upload.csv"]) });
     await screen.findByRole("button", { name: "z-upload.csv" });
     expect(new URL(String(request.mock.calls[0][0]), "http://localhost").searchParams.get("path")).toBe("z-upload.csv");
-    expect(screen.getAllByRole("button")).toHaveLength(31); // 30 entries and refresh
+    expect(screen.getAllByRole("button")).toHaveLength(32); // 30 entries, refresh and new-folder
     expect(zone).not.toHaveClass("ring-accent/60");
     vi.useFakeTimers();
     view.rerender(<FileBrowser cwd="proj" embedded active={false} />);
     view.rerender(<FileBrowser cwd="proj" embedded />);
     await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
     expect(files.sidebar).toHaveBeenLastCalledWith("proj", undefined, ["z-upload.csv"]);
-    expect(screen.getAllByRole("button")).toHaveLength(31);
+    expect(screen.getAllByRole("button")).toHaveLength(32); //
     expect(screen.getByRole("button", { name: "z-upload.csv" })).toBeInTheDocument();
     view.rerender(<FileBrowser cwd="other" embedded />);
     await act(async () => {});
@@ -419,7 +419,7 @@ describe("FileBrowser external file uploads", () => {
     fireEvent.drop(rootZone(), { dataTransfer: transfer(names) });
     await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(`Uploaded: ${count}; failed/skipped: 0.`));
     const assertRoot = () => {
-      expect(screen.getAllByRole("button")).toHaveLength(31); // 3 folders, 27 uploads, refresh
+      expect(screen.getAllByRole("button")).toHaveLength(32); // 3 folders, 27 uploads, refresh, new-folder
       for (const name of ["work", "data", "reports"]) expect(screen.getByRole("button", { name })).toBeInTheDocument();
       expect(work).toHaveAttribute("aria-expanded", "true");
       expect(screen.getByRole("button", { name: names.at(-1)! })).toBeInTheDocument();

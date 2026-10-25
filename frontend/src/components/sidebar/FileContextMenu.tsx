@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Copy, Link2, Trash2 } from "lucide-react";
+import { Copy, ExternalLink, Link2, Trash2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 export interface FileListEntry {
@@ -12,7 +12,7 @@ export interface FileListEntry {
 
 export interface ContextPoint { x: number; y: number }
 
-export function FileContextMenu({ entry, point, onClose, onReference, onCopy, onCopyAbsolutePath, onDelete }: {
+export function FileContextMenu({ entry, point, onClose, onReference, onCopy, onCopyAbsolutePath, onReveal, onDelete }: {
   entry: FileListEntry;
   point: ContextPoint;
   onClose: () => void;
@@ -21,6 +21,8 @@ export function FileContextMenu({ entry, point, onClose, onReference, onCopy, on
   /** Copy the absolute path instead of the workspace-relative one. Omitted by
    *  callers that have no workspace cwd to resolve against. */
   onCopyAbsolutePath?: () => void;
+  /** Open the entry in the OS file manager. Omitted by callers without a cwd. */
+  onReveal?: () => void;
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
@@ -54,6 +56,7 @@ export function FileContextMenu({ entry, point, onClose, onReference, onCopy, on
       <MenuButton icon={<Copy size={12} />} label={t("files.copyPath")} onClick={() => onCopy(entry.path)} />
       {onCopyAbsolutePath && <MenuButton icon={<Copy size={12} />} label={t("files.copyAbsolutePath")} onClick={onCopyAbsolutePath} />}
       <MenuButton icon={<Copy size={12} />} label={t("files.copyName")} onClick={() => onCopy(entry.name)} />
+      {onReveal && <MenuButton icon={<ExternalLink size={12} />} label={t("files.revealInFileManager")} onClick={onReveal} />}
       <MenuButton danger icon={<Trash2 size={12} />} label={t("common.delete")} onClick={onDelete} />
     </div>
   );
