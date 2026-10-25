@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { mkdir, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -44,6 +44,51 @@ describe("POST /api/files/mkdir", () => {
     const { app, query } = await buildApp(cwd);
     expect((await app.inject({ method: "POST", url: `/api/files/mkdir?${query}`, payload: { path: "  " } })).statusCode).toBe(400);
     expect((await app.inject({ method: "POST", url: `/api/files/mkdir?${query}`, payload: { path: "../escape" } })).statusCode).toBe(400);
+  });
+
+  it("refuses an existing folder when exclusive is requested", async () => {
+    const cwd = await makeWorkspace();
+    const { app, query } = await buildApp(cwd);
+    await mkdir(join(cwd, "figures"), { recursive: true });
+    const response = await app.inject({ method: "POST", url: `/api/files/mkdir?${query}`, payload: { path: "figures", exclusive: true } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "Folder already exists: figures" });
+  });
+
+  it("stays idempotent without the exclusive flag", async () => {
+    const cwd = await makeWorkspace();
+    const { app, query } = await buildApp(cwd);
+    expect((await app.inject({ method: "POST", url: `/api/files/mkdir?${query}`, payload: { path: "figures/final" } })).statusCode).toBe(200);
+    expect((await app.inject({ method: "POST", url: `/api/files/mkdir?${query}`, payload: { path: "figures/final" } })).statusCode).toBe(200);
+  });
+});
+
+describe("POST /api/files/create", () => {
+  it("creates an empty file at a nested path and reports it", async () => {
+    const cwd = await makeWorkspace();
+    const { app, query } = await buildApp(cwd);
+    const response = await app.inject({ method: "POST", url: `/api/files/create?${query}`, payload: { path: "notes/empty.txt" } });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: true, path: "notes/empty.txt" });
+    expect((await stat(join(cwd, "notes", "empty.txt"))).size).toBe(0);
+  });
+
+  it("refuses to clobber an existing file", async () => {
+    const cwd = await makeWorkspace();
+    const { app, query } = await buildApp(cwd);
+    await mkdir(join(cwd, "notes"), { recursive: true });
+    await writeFile(join(cwd, "notes", "keep.txt"), "original", "utf8");
+    const response = await app.inject({ method: "POST", url: `/api/files/create?${query}`, payload: { path: "notes/keep.txt" } });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "File already exists: notes/keep.txt" });
+    expect(await readFile(join(cwd, "notes", "keep.txt"), "utf8")).toBe("original");
+  });
+
+  it("rejects empty and escaping paths", async () => {
+    const cwd = await makeWorkspace();
+    const { app, query } = await buildApp(cwd);
+    expect((await app.inject({ method: "POST", url: `/api/files/create?${query}`, payload: { path: "  " } })).statusCode).toBe(400);
+    expect((await app.inject({ method: "POST", url: `/api/files/create?${query}`, payload: { path: "../escape.txt" } })).statusCode).toBe(400);
   });
 });
 

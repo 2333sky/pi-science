@@ -252,14 +252,38 @@ export function registerFileReadRoutes(app: FastifyInstance): void {
   app.post("/api/files/mkdir", async (request, reply) => {
     let root: string;
     try { root = await safeWorkspace(request); } catch (error) { return reply.code(403).send({ error: String(error) }); }
-    const body = (request.body ?? {}) as { path?: unknown };
+    const body = (request.body ?? {}) as { path?: unknown; exclusive?: unknown };
     const requested = String(body.path ?? "");
     if (!requested.trim() || requested.includes("..")) return reply.code(400).send({ error: "A non-empty workspace-relative folder path is required" });
     try {
       const target = await resolveApiFile(root, requested);
-      await mkdir(target, { recursive: true });
       const relativePath = apiPath(root, target);
+      const exclusive = body.exclusive === true;
+      try { await mkdir(target, { recursive: !exclusive }); }
+      catch (error) {
+        if (exclusive && (error as NodeJS.ErrnoException).code === "EEXIST") return reply.code(409).send({ error: `Folder already exists: ${relativePath}` });
+        throw error;
+      }
       await appendJsonLine(workspaceFile(root, "provenance.jsonl"), { path: relativePath, version: 1, ts: Date.now() / 1000, tool: "file_mkdir", sessionId: "" });
+      return { ok: true, path: relativePath };
+    } catch (error) { return reply.code(400).send({ error: String(error) }); }
+  });
+  app.post("/api/files/create", async (request, reply) => {
+    let root: string;
+    try { root = await safeWorkspace(request); } catch (error) { return reply.code(403).send({ error: String(error) }); }
+    const body = (request.body ?? {}) as { path?: unknown };
+    const requested = String(body.path ?? "");
+    if (!requested.trim() || requested.includes("..")) return reply.code(400).send({ error: "A non-empty workspace-relative file path is required" });
+    try {
+      const target = await resolveApiFile(root, requested);
+      const relativePath = apiPath(root, target);
+      await mkdir(dirname(target), { recursive: true });
+      try { await writeFile(target, "", { flag: "wx" }); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") return reply.code(409).send({ error: `File already exists: ${relativePath}` });
+        throw error;
+      }
+      await appendJsonLine(workspaceFile(root, "provenance.jsonl"), { path: relativePath, version: 1, ts: Date.now() / 1000, tool: "file_create", sessionId: "" });
       return { ok: true, path: relativePath };
     } catch (error) { return reply.code(400).send({ error: String(error) }); }
   });
