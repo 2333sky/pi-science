@@ -41,9 +41,14 @@ export interface CitationDeps {
   now?: () => number;
 }
 
-const DOI_PATTERN = /10\.\d{4,9}\/[^\s)\]}>]+/gi;
+// DOI suffixes are ASCII per the DOI spec, but the prose around them is not.
+// The match must terminate at CJK ideographs/kana/hangul and CJK, fullwidth or
+// general punctuation, or a Chinese sentence glues its words onto the id
+// ("10.1038/xyz，另见" would otherwise be queried verbatim and fail as
+// not_found). Keep in sync with frontend/src/lib/citations/*.
+const DOI_PATTERN = /10\.\d{4,9}\/[^\s)\]}>\u2010-\u2027\u2030-\u205e\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]+/gi;
 const ARXIV_PATTERN = /arXiv:\s?(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
-const TRAILING_PUNCTUATION = /[.,;:!?*"']+$/;
+const TRAILING_PUNCTUATION = /[.,;:!?*"'\u2010-\u2027\u2030-\u205e\u3000-\u303f\uff00-\uffef]+$/;
 const MAX_CITATIONS_PER_CALL = 30;
 const MAX_ABSTRACT_CHARS = 2_000;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;

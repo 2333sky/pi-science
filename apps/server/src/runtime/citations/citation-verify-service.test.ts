@@ -35,6 +35,18 @@ describe("extractCitations", () => {
   it("keeps the rule-compatible with the frontend: trailing punctuation stripped", () => {
     expect(extractCitations("see 10.1234/abc.def.")).toEqual([{ kind: "doi", id: "10.1234/abc.def" }]);
   });
+
+  it("terminates DOI matches at CJK text and fullwidth punctuation", () => {
+    const text = "AlphaFold 蛋白结构预测方法见 10.1038/s41586-020-2649-2，另见 arXiv:1706.03762。";
+    expect(extractCitations(text)).toEqual([
+      { kind: "doi", id: "10.1038/s41586-020-2649-2" },
+      { kind: "arxiv", id: "1706.03762" },
+    ]);
+    expect(extractCitations("相关论文 10.1038/s41586-021-03819-2。后续工作见 arXiv:2112.10752。")).toEqual([
+      { kind: "doi", id: "10.1038/s41586-021-03819-2" },
+      { kind: "arxiv", id: "2112.10752" },
+    ]);
+  });
 });
 
 describe("citationVerifyService.verify", () => {
