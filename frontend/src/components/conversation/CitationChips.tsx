@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import type { Citation } from "../../lib/citations";
 import { apiRequest } from "../../lib/client/api";
 import { useRuntimeStore } from "../../lib/agent-runtime";
+import { configQuery } from "../../lib/settings/settings-api";
 import { cn } from "../../lib/ui";
 
 export interface CitationEvidence {
@@ -31,6 +33,12 @@ export interface CitationEvidence {
 
 type VerifyState = "mismatch" | "retracted" | "error" | "found" | "not_found" | "unverified";
 
+/** Automatic verification runs after the turn settles, so the first snapshot can
+ *  predate the evidence. Poll until it lands, but stop: a switch turned off
+ *  mid-turn, or a server that never answers, must not poll forever. */
+const SNAPSHOT_POLL_MS = 3_000;
+const MAX_SNAPSHOT_POLLS = 60;
+
 /** Chat source chips with source state from the citation snapshots. A found
  *  record means the queried source lists this identifier; it does not mean the
  *  paper supports the sentence citing it. The snapshot answers carry the
@@ -39,12 +47,25 @@ type VerifyState = "mismatch" | "retracted" | "error" | "found" | "not_found" | 
 export function CitationChips({ citations, text, streaming = false }: { citations: Citation[]; text: string; streaming?: boolean }) {
   const { t } = useTranslation();
   const cwd = useRuntimeStore((state) => state.cwd);
+  const { data: config } = useQuery(configQuery<{ citation_auto_verify?: boolean }>(cwd));
+  const polls = useRef(0);
+  useEffect(() => { polls.current = 0; }, [text]);
   const { data } = useQuery({
     queryKey: ["citations", cwd, text],
-    queryFn: () => apiRequest<{ citations: CitationEvidence[] }>("/api/citations/snapshot", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) }),
+    // The workspace travels with the request: the server scopes the snapshot to
+    // it, and without it the read falls back to the server's own directory and
+    // either fails the workspace check or answers from another project's cache.
+    queryFn: () => {
+      polls.current += 1;
+      return apiRequest<{ citations: CitationEvidence[] }>(`/api/citations/snapshot?cwd=${encodeURIComponent(cwd)}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text }) });
+    },
     // Streaming rewrites the answer text on every token, and the text is the
     // query key: wait for the final text instead of posting each partial one.
     enabled: Boolean(cwd) && citations.length > 0 && !streaming,
+    refetchInterval: (query) => {
+      const pending = (query.state.data?.citations ?? []).some((row) => row.status === "unchecked");
+      return config?.citation_auto_verify === true && pending && polls.current < MAX_SNAPSHOT_POLLS ? SNAPSHOT_POLL_MS : false;
+    },
     staleTime: 60_000,
     retry: false,
   });
