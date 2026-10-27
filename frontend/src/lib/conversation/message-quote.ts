@@ -58,6 +58,7 @@ export function selectedTextWithin(element: HTMLElement): string | null {
 export interface MessageQuoteState {
   quotes: Record<string, MessageQuote>;
   setQuote: (quote: MessageQuote) => void;
+  migrateSession: (scope: MessageQuoteScope, newSessionId: string) => void;
 }
 
 /** One pending quote per conversation. The key comes from the quote itself, so a
@@ -65,6 +66,19 @@ export interface MessageQuoteState {
 export const useMessageQuoteStore = create<MessageQuoteState>((set) => ({
   quotes: {},
   setQuote: (quote) => set((state) => ({ quotes: { ...state.quotes, [quoteKey(quote.source)]: quote } })),
+  // A runtime restart re-issues the session id for a conversation the user never
+  // left. Without this the key misses and the pending quote disappears as if
+  // they had walked away, which the isolation rule does not ask for.
+  migrateSession: (scope, newSessionId) => set((state) => {
+    const from = quoteKey(scope);
+    const quote = state.quotes[from];
+    if (scope.sessionId === newSessionId || !quote) return state;
+    const quotes = { ...state.quotes };
+    delete quotes[from];
+    const moved: MessageQuote = { ...quote, source: { ...quote.source, sessionId: newSessionId } };
+    quotes[quoteKey(moved.source)] = moved;
+    return { quotes };
+  }),
 }));
 
 /** The active quote is whatever is filed under the conversation the runtime shows.

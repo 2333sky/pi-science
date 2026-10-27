@@ -125,4 +125,29 @@ describe("useActiveMessageQuote", () => {
     act(() => useRuntimeStore.setState({ cwd: "proj", activeSessionId: "s1" }));
     expect(result.current).toEqual(quote);
   });
+
+  it("still shows a pending quote after the backend re-issues the session id", () => {
+    const quote = buildMessageQuote({ source, messageText: "Read the log" });
+    if (!quote) throw new Error("expected a whole-message quote");
+    const { result } = renderHook(() => useActiveMessageQuote());
+
+    act(() => useMessageQuoteStore.getState().setQuote(quote));
+    act(() => useMessageQuoteStore.getState().migrateSession({ workspaceCwd: "proj", sessionId: "s1" }, "s2"));
+    act(() => useRuntimeStore.setState({ activeSessionId: "s2" }));
+
+    expect(result.current?.text).toBe("Read the log");
+    expect(result.current?.source.sessionId).toBe("s2");
+    expect(Object.keys(useMessageQuoteStore.getState().quotes)).toEqual(["proj\u0000s2"]);
+  });
+
+  it("leaves the store alone when the id is unchanged or no quote is filed", () => {
+    const quote = buildMessageQuote({ source, messageText: "Read the log" });
+    if (!quote) throw new Error("expected a whole-message quote");
+
+    act(() => useMessageQuoteStore.getState().setQuote(quote));
+    act(() => useMessageQuoteStore.getState().migrateSession({ workspaceCwd: "proj", sessionId: "s1" }, "s1"));
+    act(() => useMessageQuoteStore.getState().migrateSession({ workspaceCwd: "proj", sessionId: "absent" }, "s9"));
+
+    expect(Object.keys(useMessageQuoteStore.getState().quotes)).toEqual(["proj\u0000s1"]);
+  });
 });
