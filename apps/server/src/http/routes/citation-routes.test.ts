@@ -26,10 +26,10 @@ async function makeWorkspace(): Promise<string> {
 const evidence = (id: string): CitationEvidence => ({
   schema: 2, kind: "doi", id, status: "found", title: `Paper ${id}`, authors: ["A. Author"], journal: "Nature", year: "2024",
   abstract: "An abstract.", oa_url: null, retraction: "clear", retraction_note: null, retraction_url: null,
-  checked_providers: ["crossref"], error: null, record_version: null, verified_at: new Date().toISOString(),
+  checked_providers: ["crossref"], error: null, record_version: null, status_note: null, verified_at: new Date().toISOString(),
 });
 
-const view = (id: string) => ({ ...evidence(id), requested_id: id, requested_version: null, version: "not_applicable" as const, cached: false });
+const view = (id: string) => ({ ...evidence(id), requested_id: id, requested_version: null, version: "not_applicable" as const, bibliographic: "not_compared" as const, bibliographic_note: null, cached: false });
 
 function fakeService() {
   return {
@@ -150,6 +150,27 @@ describe("citation routes", () => {
     const response = await app.inject({ method: "GET", url: `/api/citations?cwd=${encodeURIComponent(cwd)}&ids=doi:10.1/x` });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ citations: [{ id: "10.1/x", title: "Paper 10.1/x" }] });
+  });
+
+  it("answers the source chips from the snapshot without a provider request", async () => {
+    const cwd = await makeWorkspace();
+    const service = fakeService();
+    const app = Fastify({ logger: false });
+    registerCitationRoutes(app, service as never);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/citations/snapshot?cwd=${encodeURIComponent(cwd)}`,
+      payload: { text: "Cites 10.1/x here." },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ citations: [{ id: "10.1/x", status: "unchecked" }] });
+    expect(service.lookupText).toHaveBeenCalledOnce();
+    expect(service.verify).not.toHaveBeenCalled();
+
+    const empty = await app.inject({ method: "POST", url: `/api/citations/snapshot?cwd=${encodeURIComponent(cwd)}`, payload: { text: " " } });
+    expect(empty.statusCode).toBe(400);
   });
 
   it("rejects unregistered workspaces", async () => {

@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { citationVerifyService, extractCitations, MAX_CITATIONS_PER_CALL, type CitationDeps } from "./citation-verify-service.js";
 
 const workspaces: string[] = [];
-const FAST: CitationDeps["minimumInterval"] = { "api.crossref.org": 0, "api.unpaywall.org": 0, "export.arxiv.org": 0 };
+const FAST: CitationDeps["minimumInterval"] = { "api.crossref.org": 0, "api.unpaywall.org": 0, "export.arxiv.org": 0, "doi.org": 0 };
 
 afterEach(async () => {
   vi.unstubAllEnvs();
@@ -119,10 +119,56 @@ describe("citationVerifyService.verify", () => {
 
   it("names the source that answered when a DOI is not in Crossref", async () => {
     const cwd = await makeWorkspace();
-    const deps: CitationDeps = { minimumInterval: FAST, fetch: vi.fn(async () => jsonResponse({ status: "resource not found" }, 404)) };
+    // Live shape of doi.org/doiRA/<doi> for an identifier no agency registered.
+    const deps: CitationDeps = {
+      minimumInterval: FAST,
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        if (url.host === "doi.org") return jsonResponse([{ DOI: "10.9999/nothing", status: "DOI does not exist" }]);
+        return jsonResponse({ status: "resource not found" }, 404);
+      }) as unknown as typeof fetch,
+    };
     const result = await citationVerifyService.verify(cwd, { text: "Ghost cite 10.9999/nothing." }, deps);
-    // Crossref does not register every DOI, so the state says which source missed.
-    expect(result.citations[0]).toMatchObject({ status: "not_found", checked_providers: ["crossref"], retraction: "unknown", title: null });
+    // Crossref does not register every DOI, so the state says which source missed
+    // and whether any registration agency claims the identifier.
+    expect(result.citations[0]).toMatchObject({ status: "not_found", checked_providers: ["crossref", "doi.org"], retraction: "unknown", title: null });
+    expect(result.citations[0]!.status_note).toBe("No DOI registration agency claims this DOI");
+  });
+
+  it("names the registration agency that holds a DOI Crossref does not", async () => {
+    // Live shape for 10.5061/dryad.8515: Crossref has no record, doi.org names DataCite.
+    const cwd = await makeWorkspace();
+    const deps: CitationDeps = {
+      minimumInterval: FAST,
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        const url = new URL(String(input));
+        if (url.host === "doi.org") return jsonResponse([{ DOI: "10.5061/dryad.8515", RA: "DataCite" }]);
+        return jsonResponse({ status: "resource not found" }, 404);
+      }) as unknown as typeof fetch,
+    };
+    const first = await citationVerifyService.verify(cwd, { text: "10.5061/dryad.8515" }, deps);
+    expect(first.citations[0]).toMatchObject({ status: "not_found", checked_providers: ["crossref", "doi.org (DataCite)"] });
+    expect(first.citations[0]!.status_note).toContain("DataCite registers it");
+    expect(first.citations[0]!.status_note).toContain("not read yet");
+
+    const offline: CitationDeps = { minimumInterval: FAST, fetch: vi.fn(async () => { throw new Error("offline"); }) as unknown as typeof fetch };
+    const cached = await citationVerifyService.verify(cwd, { text: "10.5061/dryad.8515" }, offline);
+    expect(cached.citations[0]).toMatchObject({ cached: true, checked_providers: ["crossref", "doi.org (DataCite)"] });
+    expect(cached.citations[0]!.status_note).toContain("DataCite registers it");
+  });
+
+  it("keeps a failed agency check from claiming the DOI does not exist", async () => {
+    const cwd = await makeWorkspace();
+    const deps: CitationDeps = {
+      minimumInterval: FAST,
+      fetch: vi.fn(async (input: string | URL | Request) => {
+        if (new URL(String(input)).host === "doi.org") throw new Error("doi.org unreachable");
+        return jsonResponse({ status: "resource not found" }, 404);
+      }) as unknown as typeof fetch,
+    };
+    const result = await citationVerifyService.verify(cwd, { text: "10.1038/unchecked" }, deps);
+    expect(result.citations[0]).toMatchObject({ status: "not_found", checked_providers: ["crossref"] });
+    expect(result.citations[0]!.status_note).toBe("Crossref does not hold this DOI; the registration agency could not be checked");
   });
 
   it("reports a rate limit as a failed lookup and does not cache it as a missing paper", async () => {
@@ -240,6 +286,46 @@ describe("citationVerifyService.verify", () => {
     expect(result.processed).toBe(MAX_CITATIONS_PER_CALL);
     expect(result.citations).toHaveLength(MAX_CITATIONS_PER_CALL);
     expect(result.unprocessed.map((ref) => ref.id)).toEqual(["10.1038/paper-30", "10.1038/paper-31"]);
+  });
+});
+
+describe("bibliographic check", () => {
+  const transformerRecord = {
+    title: ["Attention Is All You Need"],
+    author: [{ given: "Ashish", family: "Vaswani" }],
+    issued: { "date-parts": [[2017]] },
+  };
+
+  it("flags a reference entry whose title belongs to another paper", async () => {
+    const cwd = await makeWorkspace();
+    const deps: CitationDeps = { minimumInterval: FAST, fetch: crossrefFetch(transformerRecord) as unknown as typeof fetch };
+    const text = "References\n\n1. He, K., Zhang, X. (2016). Deep residual learning for image recognition. CVPR. 10.1038/x";
+    const result = await citationVerifyService.verify(cwd, { text }, deps);
+    expect(result.citations[0]).toMatchObject({ status: "found", bibliographic: "mismatch" });
+    expect(result.citations[0]!.bibliographic_note).toContain("Deep residual learning");
+  });
+
+  it("confirms a reference entry that states the record title", async () => {
+    const cwd = await makeWorkspace();
+    const deps: CitationDeps = { minimumInterval: FAST, fetch: crossrefFetch(transformerRecord) as unknown as typeof fetch };
+    const text = "References\n\n[1] Vaswani, A. (2017). Attention is all you need. NeurIPS. 10.1038/x";
+    const result = await citationVerifyService.verify(cwd, { text }, deps);
+    expect(result.citations[0]).toMatchObject({ bibliographic: "match", bibliographic_note: null });
+  });
+
+  it("does not treat prose that only mentions a DOI as a title match or a mismatch", async () => {
+    const cwd = await makeWorkspace();
+    const deps: CitationDeps = { minimumInterval: FAST, fetch: crossrefFetch(transformerRecord) as unknown as typeof fetch };
+    const result = await citationVerifyService.verify(cwd, { text: "The Transformer paper (10.1038/x) changed everything in 2017." }, deps);
+    expect(result.citations[0]).toMatchObject({ status: "found", bibliographic: "not_compared", bibliographic_note: null });
+  });
+
+  it("leaves a non-Latin title uncompared instead of calling it a mismatch", async () => {
+    const cwd = await makeWorkspace();
+    const deps: CitationDeps = { minimumInterval: FAST, fetch: crossrefFetch({ title: ["蛋白质结构预测"], author: [], issued: { "date-parts": [[2021]] } }) as unknown as typeof fetch };
+    const text = "1. 张三 (2021). 蛋白质结构预测. 生物学报. 10.1038/x";
+    const result = await citationVerifyService.verify(cwd, { text }, deps);
+    expect(result.citations[0]).toMatchObject({ kind: "doi", bibliographic: "not_compared" });
   });
 });
 

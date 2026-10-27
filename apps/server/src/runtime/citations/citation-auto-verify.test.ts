@@ -35,8 +35,8 @@ function message(text: string, extra: Partial<SessionMessageRecord> = {}): Sessi
 
 const view = (id: string, status: CitationView["status"] = "found"): CitationView => ({
   schema: 2, kind: "doi", id, status, title: "A Paper", authors: [], journal: null, year: "2024", abstract: null, oa_url: null,
-  retraction: "clear", retraction_note: null, retraction_url: null, checked_providers: ["crossref"], error: null, record_version: null,
-  verified_at: new Date().toISOString(), requested_id: id, requested_version: null, version: "not_applicable", cached: false,
+  retraction: "clear", retraction_note: null, retraction_url: null, checked_providers: ["crossref"], error: null, record_version: null, status_note: null,
+  verified_at: new Date().toISOString(), requested_id: id, requested_version: null, version: "not_applicable", bibliographic: "not_compared", bibliographic_note: null, cached: false,
 });
 
 const verifyResult = (citations: CitationView[]): VerifyCitationsResult => ({

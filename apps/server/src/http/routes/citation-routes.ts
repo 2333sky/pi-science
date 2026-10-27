@@ -19,13 +19,18 @@ async function ws(request: { query: unknown }, reply: { code: (status: number) =
   catch (error) { reply.code(403).send({ error: String(error) }); return null; }
 }
 
+function bodyText(body: Record<string, unknown>, reply: { code: (status: number) => { send: (body: unknown) => unknown } }): string | null {
+  const text = String(body.text ?? "");
+  if (!text.trim()) { reply.code(400).send({ error: "text is required" }); return null; }
+  if (text.length > 500_000) { reply.code(413).send({ error: "text is too large to verify" }); return null; }
+  return text;
+}
+
 export function registerCitationRoutes(app: FastifyInstance, service = citationVerifyService): void {
   app.post("/api/citations/verify", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const cwd = await ws(request, reply); if (!cwd) return;
     const body = (request.body ?? {}) as Record<string, unknown>;
-    const text = String(body.text ?? "");
-    if (!text.trim()) return reply.code(400).send({ error: "text is required" });
-    if (text.length > 500_000) return reply.code(413).send({ error: "text is too large to verify" });
+    const text = bodyText(body, reply); if (text === null) return;
     // `refresh` is the manual retry path: it re-queries providers instead of
     // replaying a snapshot taken before a rate limit or an outage. The trigger
     // is decided by server code, not by the model: with automatic verification
@@ -34,6 +39,14 @@ export function registerCitationRoutes(app: FastifyInstance, service = citationV
       ? await service.lookupText(cwd, { text })
       : await service.verify(cwd, { text, refresh: body.refresh === true });
     return result;
+  });
+
+  // The source chips read the same answer text the agent saw, so a reference
+  // entry that contradicts the record is visible without a provider request.
+  app.post("/api/citations/snapshot", async (request, reply) => {
+    const cwd = await ws(request, reply); if (!cwd) return;
+    const text = bodyText((request.body ?? {}) as Record<string, unknown>, reply); if (text === null) return;
+    return await service.lookupText(cwd, { text });
   });
 
   app.get("/api/citations", async (request, reply) => {

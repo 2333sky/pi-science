@@ -20,7 +20,7 @@ export function citationVerifyTool(cwd: string): Tool {
   return {
     name: "verify_citations",
     label: "Verify citations",
-    description: "Look up the DOI and arXiv citations in a text in public scholarly APIs (Crossref, Unpaywall, arXiv). Returns per-citation evidence: title, authors, journal, year, abstract, open-access link, retraction state and a `version` state for arXiv. A found record means the source lists this identifier; it does NOT mean the paper supports the sentence that cites it. Only DOI and arXiv identifiers are checked: PMIDs, bare titles and attachment-only citations are not checked, so never report an answer as fully verified. For each citation, compare the returned evidence with the claim it supports and say plainly whether the source supports the claim, does not support it, or could not be checked.",
+    description: "Look up the DOI and arXiv citations in a text in public scholarly APIs (Crossref, Unpaywall, arXiv). Returns per-citation evidence: title, authors, journal, year, abstract, open-access link, retraction state and a `version` state for arXiv. A found record means the source lists this identifier; it does NOT mean the paper supports the sentence that cites it. A `bibliographic` state compares the reference entry the text printed with the record: MISMATCH means the title in the text belongs to another paper, and `not_compared` means the text states no title for that identifier. Only DOI and arXiv identifiers are checked: PMIDs, bare titles and attachment-only citations are not checked, so never report an answer as fully verified. For each citation, compare the returned evidence with the claim it supports and say plainly whether the source supports the claim, does not support it, or could not be checked.",
     parameters: Type.Object({
       text: Type.String({ description: "The text whose citations should be verified (typically your draft report or a section of it)" }),
     }),
@@ -45,7 +45,11 @@ export function citationVerifyTool(cwd: string): Tool {
         const status = citation.status === "found" ? "SOURCE METADATA FOUND"
           : citation.status === "error" ? `LOOKUP FAILED (${String(citation.error ?? "provider error")})`
             : citation.status === "unchecked" ? "NOT CHECKED (automatic citation verification is off)"
-              : `NOT IN ${(Array.isArray(citation.checked_providers) ? (citation.checked_providers as string[]) : []).join(", ") || "queried source"}`;
+              : `NOT IN ${(Array.isArray(citation.checked_providers) ? (citation.checked_providers as string[]) : []).join(", ") || "queried source"}${citation.status_note ? ` — ${String(citation.status_note)}` : ""}`;
+        const bibliographic = citation.status !== "found" ? null
+          : citation.bibliographic === "mismatch" ? `bibliographic check: MISMATCH — the reference entry in the answer does not match this record: "${String(citation.bibliographic_note ?? "")}"`
+            : citation.bibliographic === "match" ? "bibliographic check: the reference entry in the answer matches this record"
+              : "bibliographic check: not compared (the answer states no title for this identifier)";
         const retraction = citation.retraction === "retracted"
           ? ` ⚠ RETRACTION NOTICE (${String(citation.retraction_note ?? "linked")})${citation.retraction_url ? ` ${String(citation.retraction_url)}` : ""}`
           : citation.retraction === "unknown" ? ` retraction: unknown${citation.retraction_note ? ` (${String(citation.retraction_note)})` : ""}` : " retraction: no notice in queried sources";
@@ -62,6 +66,7 @@ export function citationVerifyTool(cwd: string): Tool {
           citation.oa_url ? `open access: ${String(citation.oa_url)}` : null,
           citation.abstract ? `abstract: ${String(citation.abstract).slice(0, 1_200)}` : "abstract: unavailable",
           version || null,
+          bibliographic,
         ].filter((line): line is string => line !== null);
         return parts.join("\n");
       });
@@ -76,6 +81,7 @@ export function citationVerifyTool(cwd: string): Tool {
         unchecked ? `${unchecked} citation${unchecked === 1 ? " was" : "s were"} not checked. Ask the user to enable automatic citation verification, or check them yourself from the returned snapshot. Do not report them as verified.` : null,
         "Only DOI and arXiv identifiers are checked. PMIDs, bare titles and citations that only appear in attachments are not checked.",
         "A found record only means the source lists this identifier. It does not mean the paper supports the claim it is attached to.",
+        "The bibliographic check compares the reference entry the answer printed with the record. 'Not compared' means the answer stated no title for that identifier, which is not a match.",
         "For each citation above, judge whether its evidence supports the claim it is attached to:",
         "- supports: the abstract/metadata clearly backs the claim",
         "- does not support: the claim goes beyond or contradicts the evidence",

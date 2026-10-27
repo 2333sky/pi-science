@@ -10,7 +10,10 @@
  * The snapshot answers "what does the queried source hold for this id". It
  * never claims that the paper supports the sentence citing it: that judgement
  * belongs to the conversation model. A provider answer, a provider failure and
- * a version mismatch are three different states and are reported as such.
+ * a version mismatch are three different states and are reported as such. The
+ * bibliographic check is the opposite direction, an answer-side judgement: it
+ * compares the reference entry the answer printed with the record, and stays
+ * out of the snapshot because one DOI can be cited with different titles.
  */
 import { createHash } from "node:crypto";
 import { appendJsonLine, configPath, readJson, readJsonLines, workspaceFile } from "../../storage/persistence.js";
@@ -26,6 +29,10 @@ export type RetractionState = "retracted" | "clear" | "unknown";
 /** arXiv answers with the current version only, so a versioned citation is
  *  confirmed only when the cited version is still the current one. */
 export type CitationVersionState = "confirmed" | "unconfirmed" | "not_applicable";
+/** Does the answer's own reference entry agree with the record? Judged per
+ *  answer, so it never enters the source snapshot: two answers citing one DOI
+ *  can print different titles. */
+export type BibliographicState = "match" | "mismatch" | "not_compared";
 
 export interface CitationRef {
   kind: CitationKind;
@@ -58,6 +65,9 @@ export interface CitationEvidence {
   error: string | null;
   /** Version the provider record carries now (arXiv only). */
   record_version: string | null;
+  /** Why the provider answered as it did, e.g. which agency registers a DOI
+   *  that Crossref does not hold. Not a judgement about the source. */
+  status_note: string | null;
   verified_at: string;
 }
 
@@ -67,6 +77,9 @@ export interface CitationView extends CitationEvidence {
   requested_id: string;
   requested_version: string | null;
   version: CitationVersionState;
+  bibliographic: BibliographicState;
+  /** The answer's reference entry, so a mismatch shows both sides. */
+  bibliographic_note: string | null;
   cached: boolean;
 }
 
@@ -176,6 +189,7 @@ async function readCache(cwd: string): Promise<Map<string, CitationEvidence>> {
       checked_providers: Array.isArray(row.checked_providers) ? (row.checked_providers as string[]) : [],
       error: null,
       record_version: typeof row.record_version === "string" ? row.record_version : null,
+      status_note: typeof row.status_note === "string" ? row.status_note : null,
       verified_at: row.verified_at,
     });
   }
@@ -205,7 +219,7 @@ async function fetchJson(url: URL, deps: CitationDeps, domain: string): Promise<
 }
 
 function emptyEvidence(kind: CitationKind, id: string, status: CitationStatus, providers: string[]): CitationEvidence {
-  return { schema: 2, kind, id, status, title: null, authors: [], journal: null, year: null, abstract: null, oa_url: null, retraction: "unknown", retraction_note: null, retraction_url: null, checked_providers: providers, error: null, record_version: null, verified_at: new Date().toISOString() };
+  return { schema: 2, kind, id, status, title: null, authors: [], journal: null, year: null, abstract: null, oa_url: null, retraction: "unknown", retraction_note: null, retraction_url: null, checked_providers: providers, error: null, record_version: null, status_note: null, verified_at: new Date().toISOString() };
 }
 
 /** Crossref registers an update relation on both records: the notice carries
@@ -252,11 +266,34 @@ function crossrefEvidence(doi: string, works: Record<string, unknown>): Citation
   };
 }
 
+/** Crossref is one registration agency among several. When it does not hold a
+ *  DOI, ask the DOI Foundation which agency does, so the answer names what was
+ *  checked instead of claiming the paper does not exist. */
+async function doiRegistrar(doi: string, deps: CitationDeps): Promise<{ agency: string | null; checked: boolean }> {
+  try {
+    const answer = await fetchJson(new URL(`https://doi.org/doiRA/${encodeURIComponent(doi)}`), deps, "doi.org");
+    const agency = Array.isArray(answer) ? String((answer[0] as Record<string, unknown> | undefined)?.RA ?? "").trim() : "";
+    return { agency: agency || null, checked: true };
+  } catch {
+    return { agency: null, checked: false };
+  }
+}
+
 async function verifyDoi(doi: string, deps: CitationDeps): Promise<CitationEvidence> {
   const works = await fetchJson(new URL(`https://api.crossref.org/works/${encodeURIComponent(doi)}`), deps, "api.crossref.org") as { message?: Record<string, unknown> } | null;
   // Crossref is one registration agency among several, so a miss here means
   // "not in Crossref", not "this DOI does not exist".
-  if (!works?.message) return emptyEvidence("doi", doi, "not_found", ["crossref"]);
+  if (!works?.message) {
+    const registrar = await doiRegistrar(doi, deps);
+    const providers = registrar.checked ? ["crossref", registrar.agency ? `doi.org (${registrar.agency})` : "doi.org"] : ["crossref"];
+    const evidence = emptyEvidence("doi", doi, "not_found", providers);
+    evidence.status_note = registrar.agency
+      ? `Crossref does not hold this DOI; ${registrar.agency} registers it, and that agency's metadata is not read yet`
+      : registrar.checked
+        ? "No DOI registration agency claims this DOI"
+        : "Crossref does not hold this DOI; the registration agency could not be checked";
+    return evidence;
+  }
   const evidence = crossrefEvidence(doi, works);
   // Unpaywall needs a configured contact email; without one we degrade to
   // Crossref metadata only instead of sending a placeholder address.
@@ -323,8 +360,58 @@ function versionState(evidence: CitationEvidence, requestedVersion: string | nul
   return requestedVersion === evidence.record_version ? "confirmed" : "unconfirmed";
 }
 
-function citationView(evidence: CitationEvidence, ref: CitationRef, cached: boolean): CitationView {
-  return { ...evidence, requested_id: ref.requested_id, requested_version: ref.requested_version, version: versionState(evidence, ref.requested_version), cached };
+const NOT_COMPARED: { state: BibliographicState; note: string | null } = { state: "not_compared", note: null };
+
+function citationView(evidence: CitationEvidence, ref: CitationRef, cached: boolean, bibliographic = NOT_COMPARED): CitationView {
+  return { ...evidence, requested_id: ref.requested_id, requested_version: ref.requested_version, version: versionState(evidence, ref.requested_version), bibliographic: bibliographic.state, bibliographic_note: bibliographic.note, cached };
+}
+
+/** A reference list is the one place an answer states a title for an
+ *  identifier. Prose that only mentions a DOI states no title, so it stays
+ *  `not_compared` instead of being judged against the record. */
+const REFERENCE_ENTRY = /(?:^|\n)[ \t]*(?:\[\d{1,3}\]|\d{1,3}[.)、]|[-*•])[ \t]+/g;
+const NUMBERED_ENTRY = /^(?:\[\d{1,3}\]|\d{1,3}[.)、])/;
+const YEAR_PATTERN = /\b(?:19|20)\d{2}\b/;
+const LATIN_TOKEN = /[a-z0-9\u00c0-\u024f]+/g;
+const STOPWORDS = new Set(["the", "and", "for", "with", "from", "that", "this", "are", "was", "were", "has", "have", "not", "its", "their", "into", "over", "under", "between", "using", "via", "can", "may", "who", "which", "what", "when", "where", "how", "why", "been", "being", "than", "then", "also", "such", "more", "most", "less", "new", "one", "two", "all", "about", "after", "before"]);
+
+/** Latin words only: a Chinese title has no whitespace tokens, so comparing it
+ *  here would read as a mismatch on every citation. Non-Latin records stay
+ *  `not_compared`. */
+function latinTokens(value: string): string[] {
+  return (value.toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/10\.\d{4,9}\/\S+/g, " ").match(LATIN_TOKEN) ?? []).filter((token) => token.length >= 3 && !STOPWORDS.has(token));
+}
+
+function referenceEntry(text: string, ref: CitationRef): { text: string; numbered: boolean } | null {
+  const needle = ref.requested_id.toLowerCase();
+  const starts = [...text.matchAll(REFERENCE_ENTRY)];
+  for (const [index, match] of starts.entries()) {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = starts[index + 1]?.index ?? text.length;
+    const entry = text.slice(start, end);
+    if (!entry.toLowerCase().includes(needle)) continue;
+    return { text: entry.replace(/\s+/g, " ").trim(), numbered: NUMBERED_ENTRY.test(match[0].trim()) };
+  }
+  return null;
+}
+
+/** Compare the title and authors the answer printed with the record. The year
+ *  only qualifies an entry as bibliographic, and `mismatch` needs a numbered
+ *  reference entry that carries its own year and several words but none of the
+ *  record's words: a bullet that merely mentions a DOI alongside prose is not
+ *  evidence of a wrong title. */
+function bibliographicCheck(text: string, ref: CitationRef, evidence: CitationEvidence): { state: BibliographicState; note: string | null } {
+  const titleTokens = evidence.title ? latinTokens(evidence.title) : [];
+  if (titleTokens.length < 2) return NOT_COMPARED;
+  const entry = referenceEntry(text, ref);
+  if (!entry) return NOT_COMPARED;
+  const entryTokens = new Set(latinTokens(entry.text));
+  const hits = titleTokens.filter((token) => entryTokens.has(token)).length;
+  const overlap = hits / titleTokens.length;
+  const surnames = evidence.authors.flatMap((author) => latinTokens(author).slice(-1));
+  if (overlap >= 0.6 || surnames.some((surname) => entryTokens.has(surname))) return { state: "match", note: null };
+  if (entry.numbered && overlap < 0.2 && YEAR_PATTERN.test(entry.text) && entryTokens.size >= 4) return { state: "mismatch", note: entry.text.slice(0, 200) };
+  return NOT_COMPARED;
 }
 
 function refreshRequested(value: unknown): boolean {
@@ -337,14 +424,15 @@ export const citationVerifyService = {
    *  after a rate limit or a provider outage. */
   async verify(cwd: string, input: { text: string; refresh?: boolean }, deps: CitationDeps = {}): Promise<VerifyCitationsResult> {
     const now = deps.now ?? Date.now;
-    const refs = extractCitations(String(input.text ?? ""));
+    const text = String(input.text ?? "");
+    const refs = extractCitations(text);
     const batch = refs.slice(0, MAX_CITATIONS_PER_CALL);
     const cache = refreshRequested(input.refresh) ? new Map<string, CitationEvidence>() : await readCache(cwd);
     const results: CitationView[] = [];
     for (const ref of batch) {
       const cached = cache.get(`${ref.kind}:${ref.id}`);
       if (cached && now() - Date.parse(cached.verified_at) < CACHE_TTL_MS) {
-        results.push(citationView(cached, ref, true));
+        results.push(citationView(cached, ref, true, bibliographicCheck(text, ref, cached)));
         continue;
       }
       let evidence: CitationEvidence;
@@ -356,7 +444,7 @@ export const citationVerifyService = {
         evidence = failedEvidence(ref, error);
       }
       if (evidence.status !== "error") await appendJsonLine(citationCacheFile(cwd), evidence);
-      results.push(citationView(evidence, ref, false));
+      results.push(citationView(evidence, ref, false, bibliographicCheck(text, ref, evidence)));
     }
     return {
       text_sha256: createHash("sha256").update(String(input.text ?? "")).digest("hex"),
@@ -371,12 +459,13 @@ export const citationVerifyService = {
    *  what the agent tool falls back to when automatic verification is off: a
    *  disabled switch must not become a network request. */
   async lookupText(cwd: string, input: { text: string }): Promise<VerifyCitationsResult> {
-    const refs = extractCitations(String(input.text ?? ""));
+    const text = String(input.text ?? "");
+    const refs = extractCitations(text);
     const batch = refs.slice(0, MAX_CITATIONS_PER_CALL);
     const cache = await readCache(cwd);
     const citations = batch.map((ref) => {
       const hit = cache.get(`${ref.kind}:${ref.id}`);
-      if (hit) return citationView(hit, ref, true);
+      if (hit) return citationView(hit, ref, true, bibliographicCheck(text, ref, hit));
       const unchecked = { ...emptyEvidence(ref.kind, ref.id, "unchecked", []), verified_at: "" };
       return citationView(unchecked, ref, false);
     });
