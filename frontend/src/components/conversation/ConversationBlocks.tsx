@@ -12,7 +12,7 @@ import { referencesFromMessage, visibleUserMessage } from "../../lib/files";
 import { agentActionTextByBlock } from "../../lib/conversation";
 import { extractCitations } from "../../lib/citations";
 import { parseSuggestions } from "../../lib/conversation";
-import { MessageActions, MessageSelectionQuoteMenu } from "./MessageActions";
+import { MessageActions, MessageSelectionQuoteMenu, type MessageSelectionAnchor } from "./MessageActions";
 import { buildMessageQuote, selectedTextWithin, useMessageQuoteStore, type MessageQuoteScope, type MessageQuoteSource } from "../../lib/conversation/message-quote";
 import { buildTurnPresentations, turnBlockIds, type TurnPresentation } from "../../lib/conversation/turn-presentation";
 import { AgentActivity } from "./AgentActivity";
@@ -65,7 +65,7 @@ function UserMessage({ block, scope }: { block: UserMessageBlock; scope: Message
         {block.images.map((image, index) => <img key={`${image.mimeType}-${index}`} src={`data:${image.mimeType};base64,${image.data}`} alt={`Attachment ${index + 1}`} className="max-h-64 max-w-full rounded-input border border-border object-contain" />)}
       </div>}
       {visibleText && <div ref={selection.ref} className="ui-user-message rounded-bubble px-4 py-2.5 text-sm leading-relaxed text-text whitespace-pre-wrap">{visibleText}</div>}
-      {selection.selection && <MessageSelectionQuoteMenu at={selection.selection} onQuote={selection.quote} />}
+      {selection.selection && <MessageSelectionQuoteMenu selection={selection.selection} onQuote={selection.quote} />}
       {references.length > 0 && <div className="flex flex-wrap justify-end gap-1.5" aria-label={t("conversation.referencedContext")}>
         {references.map((reference) => <span key={`${reference.isDir ? "folder" : "file"}-${reference.path}`} className="flex max-w-full items-center gap-1 rounded-input border border-accent/20 bg-accent/5 px-2 py-1 font-mono text-[10px] text-muted" title={reference.path}>
           {reference.isDir ? <FolderOpen size={10} /> : <File size={10} />}
@@ -88,7 +88,7 @@ function AgentMessage({ block, actionText, codeRunner, scope }: { block: AgentMe
   const citations = extractCitations(text);
   return <div className="group/message">
     <div ref={selection.ref}><MarkdownViewer variant="chat" codeRunner={codeRunner} mode={block.partial ? "streaming" : "final"}>{text}</MarkdownViewer></div>
-    {selection.selection && <MessageSelectionQuoteMenu at={selection.selection} onQuote={selection.quote} />}
+    {selection.selection && <MessageSelectionQuoteMenu selection={selection.selection} onQuote={selection.quote} />}
     {citations.length > 0 && <div className="mt-2 flex flex-wrap items-center gap-1.5">
       <span className="text-[10px] text-muted">{t("conversation.sources")} ({citations.length})</span>
       {citations.map((citation, index) => <a key={`${citation.kind}:${citation.id}`} href={citation.url} target="_blank" rel="noreferrer" title={citation.id} className="rounded-full border border-border bg-surface-2 px-2 py-0.5 font-mono text-[10px] text-muted hover:text-text">{index + 1} · {shortCitationId(citation.id)}</a>)}
@@ -97,30 +97,63 @@ function AgentMessage({ block, actionText, codeRunner, scope }: { block: AgentMe
   </div>;
 }
 
+/** Viewport anchor for the live selection. Kept inside the window so the action
+ *  never lands half off screen; jsdom reports a zero rect, and a fixed fallback
+ *  keeps the menu mountable in tests. */
+function selectionAnchor(): { top: number; left: number } {
+  const live = window.getSelection();
+  const range = live && live.rangeCount > 0 ? live.getRangeAt(0) : null;
+  const rect = range && typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : null;
+  // Anchor above the selection and keep the action inside the viewport.
+  const top = Math.max((rect?.top ?? 40) - 6, 34);
+  const left = Math.min(Math.max(rect ? rect.left + rect.width / 2 : 56, 56), Math.max(window.innerWidth - 56, 56));
+  return { top, left };
+}
+
 /** Selected text inside one message, plus the quote action for it. The menu is
  *  rendered by the caller, so a click can never reach the composer. */
 function useMessageSelection(source: MessageQuoteSource, messageText: string) {
   const ref = useRef<HTMLDivElement>(null);
-  const [selection, setSelection] = useState<{ text: string; top: number; left: number } | null>(null);
+  const [selection, setSelection] = useState<MessageSelectionAnchor | null>(null);
+  const serial = useRef(0);
+  const selectedText = useRef<string | null>(null);
   const setQuote = useMessageQuoteStore((state) => state.setQuote);
   useEffect(() => {
     const onChange = () => {
       const element = ref.current;
       const selected = element ? selectedTextWithin(element) : null;
       if (!selected) {
+        selectedText.current = null;
         setSelection((previous) => previous === null ? previous : null);
         return;
       }
-      // jsdom has no range geometry; the fallback keeps the menu mountable in tests.
-      const range = window.getSelection()?.getRangeAt(0);
-      const rect = range && typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect() : null;
-      // Anchor above the selection and keep the action inside the viewport.
-      const top = Math.max((rect?.top ?? 40) - 6, 34);
-      const left = Math.min(Math.max(rect ? rect.left + rect.width / 2 : 56, 56), Math.max(window.innerWidth - 56, 56));
-      setSelection((previous) => previous && previous.text === selected && previous.top === top && previous.left === left ? previous : { text: selected, top, left });
+      if (selectedText.current !== selected) {
+        selectedText.current = selected;
+        serial.current += 1;
+      }
+      const at = selectionAnchor();
+      setSelection((previous) => previous && previous.serial === serial.current && previous.top === at.top && previous.left === at.left ? previous : { text: selected, serial: serial.current, ...at });
+    };
+    // Scrolling leaves the selection alone but moves its rect, so the fixed menu
+    // must re-anchor instead of drifting over whatever scrolled under it. Scroll
+    // does not bubble, hence the capture phase.
+    const onMove = () => {
+      const live = window.getSelection();
+      if (!live || live.rangeCount === 0 || live.isCollapsed) return;
+      setSelection((previous) => {
+        if (!previous) return previous;
+        const at = selectionAnchor();
+        return at.top === previous.top && at.left === previous.left ? previous : { ...previous, ...at };
+      });
     };
     document.addEventListener("selectionchange", onChange);
-    return () => document.removeEventListener("selectionchange", onChange);
+    window.addEventListener("resize", onMove);
+    document.addEventListener("scroll", onMove, true);
+    return () => {
+      document.removeEventListener("selectionchange", onChange);
+      document.removeEventListener("scroll", onMove, true);
+      window.removeEventListener("resize", onMove);
+    };
   }, []);
   const quote = () => {
     const built = buildMessageQuote({ source, messageText, selection: selection?.text });

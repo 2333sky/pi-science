@@ -6,6 +6,9 @@ import { cn } from "../../lib/ui";
 import { buildMessageQuote, useActiveMessageQuote, useMessageQuoteStore, type MessageQuoteSource } from "../../lib/conversation/message-quote";
 
 export interface MessageQuoteTarget extends MessageQuoteSource { messageText: string }
+/** A live text selection inside one message, in viewport coordinates. `serial`
+ *  names the selection, so re-anchoring it on scroll does not look like a new one. */
+export interface MessageSelectionAnchor { text: string; serial: number; top: number; left: number }
 
 export function MessageActions({ text, timestamp, align = "left", quote }: { text: string; timestamp?: string; align?: "left" | "right"; quote?: MessageQuoteTarget }) {
   const { t, i18n } = useTranslation();
@@ -79,13 +82,14 @@ export function MessageActions({ text, timestamp, align = "left", quote }: { tex
   );
 }
 
-export function MessageSelectionQuoteMenu({ at, onQuote }: { at: { top: number; left: number }; onQuote: () => void }) {
+export function MessageSelectionQuoteMenu({ selection, onQuote }: { selection: MessageSelectionAnchor; onQuote: () => void }) {
   const { t } = useTranslation();
   const ref = useRef<HTMLButtonElement>(null);
-  const key = `${at.top}:${at.left}`;
+  const key = selection.serial;
   // A dismissed menu stays dismissed for this selection only, so the next drag
-  // brings it back without the parent having to track the dismissal.
-  const [dismissed, setDismissed] = useState<string | null>(null);
+  // brings it back without the parent having to track the dismissal. The key is
+  // the selection, not its position, or scrolling would resurrect a refusal.
+  const [dismissed, setDismissed] = useState<number | null>(null);
   useEffect(() => {
     const dismiss = (event: Event) => {
       if (event instanceof KeyboardEvent) {
@@ -110,7 +114,7 @@ export function MessageSelectionQuoteMenu({ at, onQuote }: { at: { top: number; 
       onPointerDown={(event) => event.preventDefault()}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onQuote}
-      style={{ position: "fixed", top: at.top, left: at.left, transform: "translate(-50%, -100%)" }}
+      style={{ position: "fixed", top: selection.top, left: selection.left, transform: "translate(-50%, -100%)" }}
       className="ui-popover z-10 rounded-input px-2 py-1 text-[10px] text-text"
       aria-label={t("conversation.quoteSelection")}
     >
