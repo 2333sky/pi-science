@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { useRuntimeStore } from "../agent-runtime";
-import { buildMessageQuote, useActiveMessageQuote, useMessageQuoteStore, type MessageQuoteSource } from "./message-quote";
+import { buildMessageQuote, selectedTextWithin, useActiveMessageQuote, useMessageQuoteStore, type MessageQuoteSource } from "./message-quote";
 
 const source: MessageQuoteSource = { workspaceCwd: "proj", sessionId: "s1", blockId: "u1", role: "user" };
 
@@ -52,6 +52,57 @@ describe("buildMessageQuote", () => {
       text: "    return 1",
       messageText,
     });
+  });
+});
+
+describe("selectedTextWithin", () => {
+  const message = (): HTMLElement => {
+    const element = document.createElement("div");
+    element.innerHTML = '<p>Read the log twice</p><div data-quote-exclude=""><pre>42</pre></div>';
+    document.body.append(element);
+    return element;
+  };
+  const select = (start: Node, startOffset: number, end: Node, endOffset: number) => {
+    const range = document.createRange();
+    range.setStart(start, startOffset);
+    range.setEnd(end, endOffset);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+  };
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    window.getSelection()?.removeAllRanges();
+  });
+
+  it("reads a selection that lies inside the message text", () => {
+    const element = message();
+    const prose = element.querySelector("p")!.firstChild!;
+    select(prose, 5, prose, 12);
+    expect(selectedTextWithin(element)).toBe("the log");
+  });
+
+  it("refuses code run output, which the message text never contained", () => {
+    const element = message();
+    const output = element.querySelector("pre")!.firstChild!;
+    select(output, 0, output, 2);
+    expect(selectedTextWithin(element)).toBeNull();
+  });
+
+  it("refuses a selection that starts in the message and ends in run output", () => {
+    const element = message();
+    select(element.querySelector("p")!.firstChild!, 0, element.querySelector("pre")!.firstChild!, 2);
+    expect(selectedTextWithin(element)).toBeNull();
+  });
+
+  it("refuses a selection that reaches into another message", () => {
+    const element = message();
+    const other = document.createElement("p");
+    other.textContent = "another message";
+    document.body.append(other);
+    select(element.querySelector("p")!.firstChild!, 0, other.firstChild!, 15);
+    expect(selectedTextWithin(element)).toBeNull();
   });
 });
 

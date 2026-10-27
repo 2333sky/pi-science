@@ -3,7 +3,9 @@
  *  exist only so the UI can navigate back. */
 
 import { create } from "zustand";
-import { useRuntimeStore } from "../agent-runtime";
+// The store handle, not the barrel: session replacement reads this module, and
+// reaching it through the barrel would close an import cycle.
+import { useRuntimeStore } from "../agent-runtime/store";
 
 export interface MessageQuoteScope { workspaceCwd: string; sessionId: string; }
 export type MessageQuoteRole = "user" | "agent";
@@ -38,12 +40,17 @@ export function buildMessageQuote(input: { source: MessageQuoteSource; messageTe
 }
 
 /** Rendered text is not markdown source text: a selection inside `**bold**` yields
- *  `bold`, so a selection must never be matched against the source with includes(). */
+ *  `bold`, so a selection must never be matched against the source with includes().
+ *  A range touching `data-quote-exclude` is refused, because run output is
+ *  produced after the message was written and is absent from `messageText`;
+ *  filing it would claim the message said something it never said. */
 export function selectedTextWithin(element: HTMLElement): string | null {
   const selection = typeof window === "undefined" ? null : window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
   const range = selection.getRangeAt(0);
   if (!element.contains(range.startContainer) || !element.contains(range.endContainer)) return null;
+  const touchesExcluded = Array.from(element.querySelectorAll("[data-quote-exclude]")).some((excluded) => range.intersectsNode(excluded));
+  if (touchesExcluded) return null;
   const text = range.toString();
   return text.trim() ? text : null;
 }
