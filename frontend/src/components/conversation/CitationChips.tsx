@@ -8,7 +8,7 @@ import { cn } from "../../lib/ui";
 export interface CitationEvidence {
   kind: "doi" | "arxiv";
   id: string;
-  status: "found" | "not_found" | "error";
+  status: "found" | "not_found" | "error" | "unchecked";
   title: string | null;
   authors: string[];
   journal: string | null;
@@ -46,7 +46,7 @@ export function CitationChips({ citations }: { citations: Citation[] }) {
   // stays blank because its exact version was not cached.
   const evidenceFor = (citation: Citation): CitationEvidence | undefined => evidenceBySource.get(`${citation.kind}:${citation.id}`);
   const stateFor = (evidence: CitationEvidence | undefined): VerifyState => {
-    if (!evidence) return "unverified";
+    if (!evidence || evidence.status === "unchecked") return "unverified";
     if (evidence.retraction === "retracted") return "retracted";
     if (evidence.status === "error") return "error";
     if (evidence.status === "found") return "found";
@@ -65,7 +65,7 @@ export function CitationChips({ citations }: { citations: Citation[] }) {
           state === "error" ? t("conversation.citationLookupFailed", { reason: evidence?.error ?? "" }) : null,
           state === "not_found" ? t("conversation.citationNotInSource", { providers: (evidence?.checked_providers ?? []).join(", ") || "—" }) : null,
           evidence?.version === "unconfirmed" ? t("conversation.citationVersionUnconfirmed", { requested: evidence.requested_version ?? "—", current: evidence.record_version ?? "—" }) : null,
-          evidence ? t("conversation.citationCheckedAt", { at: evidence.verified_at }) : null,
+          evidence?.verified_at ? t("conversation.citationCheckedAt", { at: evidence.verified_at }) : null,
         ].filter((part): part is string => Boolean(part));
         const marker = state === "found" ? "✓" : state === "retracted" ? "⚠" : state === "error" ? "!" : state === "not_found" ? "?" : "";
         return (
