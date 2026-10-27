@@ -25,7 +25,9 @@ export function registerCitationRoutes(app: FastifyInstance, service = citationV
     const text = String(body.text ?? "");
     if (!text.trim()) return reply.code(400).send({ error: "text is required" });
     if (text.length > 500_000) return reply.code(413).send({ error: "text is too large to verify" });
-    const result: VerifyCitationsResult = await service.verify(cwd, { text });
+    // `refresh` is the manual retry path: it re-queries providers instead of
+    // replaying a snapshot taken before a rate limit or an outage.
+    const result: VerifyCitationsResult = await service.verify(cwd, { text, refresh: body.refresh === true });
     return result;
   });
 

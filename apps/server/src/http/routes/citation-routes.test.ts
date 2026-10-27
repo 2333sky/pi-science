@@ -24,17 +24,23 @@ async function makeWorkspace(): Promise<string> {
 }
 
 const evidence = (id: string): CitationEvidence => ({
-  kind: "doi", id, status: "found", title: `Paper ${id}`, authors: ["A. Author"], journal: "Nature", year: "2024",
-  abstract: "An abstract.", oa_url: null, retracted: false, retraction_note: null, verified_at: new Date().toISOString(),
+  schema: 2, kind: "doi", id, status: "found", title: `Paper ${id}`, authors: ["A. Author"], journal: "Nature", year: "2024",
+  abstract: "An abstract.", oa_url: null, retraction: "clear", retraction_note: null, retraction_url: null,
+  checked_providers: ["crossref"], error: null, record_version: null, verified_at: new Date().toISOString(),
 });
+
+const view = (id: string) => ({ ...evidence(id), requested_id: id, requested_version: null, version: "not_applicable" as const, cached: false });
 
 function fakeService() {
   return {
     verify: vi.fn(async (): Promise<VerifyCitationsResult> => ({
       text_sha256: "abc",
-      citations: [{ ...evidence("10.1/x"), cached: false }],
+      total: 1,
+      processed: 1,
+      unprocessed: [],
+      citations: [view("10.1/x")],
     })),
-    lookup: vi.fn(async () => [evidence("10.1/x")]),
+    lookup: vi.fn(async () => [{ ...view("10.1/x"), cached: true }]),
   };
 }
 
@@ -56,7 +62,7 @@ describe("citation routes", () => {
     // Canonicalize with the same function the route uses: on Windows the temp
     // dir can be an 8.3 short path that only fs/promises realpath expands.
     const canonicalCwd = await validateWorkspaceCwd(cwd);
-    expect(service.verify).toHaveBeenCalledWith(canonicalCwd, { text: "Cites 10.1/x here." });
+    expect(service.verify).toHaveBeenCalledWith(canonicalCwd, { text: "Cites 10.1/x here.", refresh: false });
   });
 
   it("rejects empty and oversized texts", async () => {
@@ -70,6 +76,22 @@ describe("citation routes", () => {
     expect(empty.statusCode).toBe(400);
     const huge = await app.inject({ method: "POST", url: `/api/citations/verify?cwd=${encodeURIComponent(cwd)}`, payload: { text: "x".repeat(500_001) } });
     expect(huge.statusCode).toBe(413);
+  });
+
+  it("passes a manual refresh through to the service", async () => {
+    const cwd = await makeWorkspace();
+    const service = fakeService();
+    const app = Fastify({ logger: false });
+    registerCitationRoutes(app, service as never);
+    apps.push(app);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/citations/verify?cwd=${encodeURIComponent(cwd)}`,
+      payload: { text: "Cites 10.1/x here.", refresh: true },
+    });
+    const canonicalCwd = await validateWorkspaceCwd(cwd);
+    expect(service.verify).toHaveBeenCalledWith(canonicalCwd, { text: "Cites 10.1/x here.", refresh: true });
   });
 
   it("looks up cached evidence by composite ids", async () => {
