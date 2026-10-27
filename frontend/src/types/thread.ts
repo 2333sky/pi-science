@@ -298,6 +298,9 @@ export interface FilePreviewInspector {
   /** Artifact identity for version diffs; present when the inspector was
    *  opened from a published version rather than the live file. */
   artifactId?: string;
+  /** `pinned` when the reference named its version, `latest` when it fell back
+   *  to the newest published one. Absent when the version came from elsewhere. */
+  versionSource?: "pinned" | "latest";
   artifact?: ArtifactKind;
   language?: string;
   content?: string;

@@ -24,6 +24,7 @@
   "office.truncatedPrefix": "显示前 {{count}} 行",
   "filePreview.inspectWithoutLoading": "无需加载完整内容即可检查文件结构",
   "filePreview.publishedVersion": "已发布版本 {{version}}",
+  "filePreview.latestPublishedVersion": "最新已发布版本 {{version}}",
   "filePreview.pointer.format": "格式",
   "filePreview.pointer.size": "大小",
   "filePreview.pointer.rows": "行数",
@@ -1793,5 +1794,6 @@
   "diff.column": "列",
   "diff.before": "变更前",
   "diff.after": "变更后",
-  "diff.showLineDiff": "显示行级差异"
+  "diff.showLineDiff": "显示行级差异",
+  "diff.cellsUnavailable": "存在未闭合的引号字段，无法给出单元格级变更，仅显示行级差异。"
 }

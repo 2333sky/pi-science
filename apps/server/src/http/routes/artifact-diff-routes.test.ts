@@ -92,6 +92,69 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
     expect(diff.rows_removed).toBe(0);
   });
 
+  it("keeps a quoted field holding the delimiter in its own column", async () => {
+    const { cwd } = await setup();
+    await writeFile(join(cwd, "notes.csv"), 'name,note\n"A,B",old\n', "utf8");
+    await publish(cwd, "notes.csv", "");
+    await writeFile(join(cwd, "notes.csv"), 'name,note\n"A,B",new\n', "utf8");
+    const second = await publish(cwd, "notes.csv", "");
+
+    const response = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    expect(response.statusCode).toBe(200);
+    const diff = response.json() as { kind: string; cells: Array<{ row: number; column: string; from: string; to: string }> };
+    expect(diff.kind).toBe("table");
+    expect(diff.cells).toEqual([{ row: 2, column: "note", from: "old", to: "new" }]);
+  });
+
+  it("keeps a quoted field holding a line break on one row", async () => {
+    const { cwd } = await setup();
+    await writeFile(join(cwd, "multiline.csv"), 'id,note\n1,"line one\nline two"\n', "utf8");
+    await publish(cwd, "multiline.csv", "");
+    await writeFile(join(cwd, "multiline.csv"), 'id,note\n1,"line one\nline two!"\n', "utf8");
+    const second = await publish(cwd, "multiline.csv", "");
+
+    const response = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    expect(response.statusCode).toBe(200);
+    const diff = response.json() as { kind: string; cells: Array<{ row: number; column: string; from: string; to: string }>; rows_added: number; rows_removed: number };
+    expect(diff.kind).toBe("table");
+    expect(diff.cells).toEqual([{ row: 2, column: "note", from: "line one\nline two", to: "line one\nline two!" }]);
+    expect(diff.rows_added).toBe(0);
+    expect(diff.rows_removed).toBe(0);
+  });
+
+  it("reads doubled quotes as one quote and quoted tabs in tsv", async () => {
+    const { cwd } = await setup();
+    await writeFile(join(cwd, "quotes.csv"), 'id,note\n1,"say ""hi"""\n', "utf8");
+    await publish(cwd, "quotes.csv", "");
+    await writeFile(join(cwd, "quotes.csv"), 'id,note\n1,"say ""bye"""\n', "utf8");
+    const csv = await publish(cwd, "quotes.csv", "");
+    await writeFile(join(cwd, "tabbed.tsv"), 'id\tnote\n1\t"a\tb"\n', "utf8");
+    await publish(cwd, "tabbed.tsv", "");
+    await writeFile(join(cwd, "tabbed.tsv"), 'id\tnote\n1\t"a\tc"\n', "utf8");
+    const tsv = await publish(cwd, "tabbed.tsv", "");
+
+    const csvResponse = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${csv.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    expect((csvResponse.json() as { cells: unknown }).cells).toEqual([{ row: 2, column: "note", from: 'say "hi"', to: 'say "bye"' }]);
+
+    const tsvResponse = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${tsv.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    expect((tsvResponse.json() as { cells: unknown }).cells).toEqual([{ row: 2, column: "note", from: "a\tb", to: "a\tc" }]);
+  });
+
+  it("reports the line diff alone when a quote is never closed", async () => {
+    const { cwd } = await setup();
+    await writeFile(join(cwd, "broken.csv"), 'name,note\n"a,b,old\n', "utf8");
+    await publish(cwd, "broken.csv", "");
+    await writeFile(join(cwd, "broken.csv"), 'name,note\n"a,b,new\n', "utf8");
+    const second = await publish(cwd, "broken.csv", "");
+
+    const response = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    expect(response.statusCode).toBe(200);
+    const diff = response.json() as { kind: string; cells: unknown[]; cells_unavailable?: string; hunks: Array<{ lines: Array<{ type: string; text: string }> }> };
+    expect(diff.cells).toEqual([]);
+    expect(diff.cells_unavailable).toBe("unbalanced_quotes");
+    expect(diff.hunks[0]!.lines).toEqual(expect.arrayContaining([{ type: "+", text: '"a,b,new' }]));
+  });
+
   it("returns paired content hashes for images", async () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, "plot.png"), Buffer.from([1, 2, 3]), "utf8");

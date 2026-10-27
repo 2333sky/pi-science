@@ -81,7 +81,9 @@ export function ArtifactDiffPanel({
       {diff.kind === "table" && (
         <div className="space-y-3">
           <p className="text-xs text-muted">
-            {t("diff.tableSummary", { added: diff.rows_added, removed: diff.rows_removed, cells: diff.cells.length })}
+            {diff.cells_unavailable
+              ? t("diff.cellsUnavailable")
+              : t("diff.tableSummary", { added: diff.rows_added, removed: diff.rows_removed, cells: diff.cells.length })}
           </p>
           {diff.cells.length > 0 && (
             <table className="w-full text-left text-xs">
