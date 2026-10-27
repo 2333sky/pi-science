@@ -68,6 +68,12 @@ describe("finalAnswerForTurn", () => {
     expect(finalAnswerForTurn([message("   ")], "turn-1")).toBeNull();
     expect(finalAnswerForTurn([], "turn-1")).toBeNull();
   });
+
+  it("returns null when the asked turn has no stored messages, even if an earlier turn does", () => {
+    const previous = message("The previous turn's answer.", { turnId: "turn-1" });
+    expect(finalAnswerForTurn([previous], "turn-2")).toBeNull();
+    expect(finalAnswerForTurn([previous], "turn-1")).toBe("The previous turn's answer.");
+  });
 });
 
 describe("CitationAutoVerifyService", () => {
@@ -123,6 +129,45 @@ describe("CitationAutoVerifyService", () => {
     expect((await svc.run(cwd, "session-1", "turn-1")).ran).toBe(false);
     expect((await svc.run(cwd, "session-1", "turn-1")).reason).not.toContain("already checked");
     expect(failing).toHaveBeenCalledTimes(2);
+  });
+
+  it("verifies nothing when the settled turn has no stored messages", async () => {
+    const cwd = await fixture(ON);
+    const { svc, verify } = service([message("The previous turn cites 10.1038/one.")]);
+    const summary = await svc.run(cwd, "session-1", "turn-2");
+    expect(summary).toMatchObject({ ran: false, citations: 0 });
+    expect(summary.reason).toContain("no completed final answer");
+    expect(verify).not.toHaveBeenCalled();
+  });
+
+  it("releases the claim when verification throws so the answer stays retryable", async () => {
+    const cwd = await fixture(ON);
+    const failing = vi.fn(async () => { throw new Error("citations.jsonl is unwritable"); });
+    const { svc } = service([message("Cites 10.1038/one.")], failing as never);
+    expect(String(await svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error))).toContain("citations.jsonl is unwritable");
+    expect(String(await svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error))).toContain("citations.jsonl is unwritable");
+    expect(failing).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves the claim when a regenerated answer replaced it mid-run", async () => {
+    const cwd = await fixture(ON);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = () => resolve(); });
+    const verify = vi.fn(async (_cwd: string, input: { text: string }) => {
+      if (input.text.includes("old")) { await gate; throw new Error("boom"); }
+      return verifyResult([view("10.1038/new")]);
+    });
+    const stale = service([message("Cites 10.1038/old.")], verify as never);
+    const inFlight = stale.svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error);
+    await vi.waitFor(() => expect(verify).toHaveBeenCalledTimes(1));
+
+    // The answer is regenerated while the first run still holds the old claim.
+    const regenerated = service([message("Cites 10.1038/new.")], verify as never);
+    expect((await regenerated.svc.run(cwd, "session-1", "turn-1")).ran).toBe(true);
+    release();
+    expect(String(await inFlight)).toContain("boom");
+    // The failed run released only its own claim; the new answer stays checked.
+    expect((await regenerated.svc.run(cwd, "session-1", "turn-1")).reason).toContain("already checked");
   });
 
   it("queues a second settled turn instead of dropping it", async () => {
