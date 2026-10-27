@@ -262,6 +262,31 @@ describe("citationVerifyService.verify", () => {
     expect(result.citations[0]).toMatchObject({ retraction: "unknown", retraction_note: "arXiv does not publish retraction metadata" });
   });
 
+  it("treats an arXiv rate-limit feed as a failed lookup instead of a missing paper", async () => {
+    // Live shape: HTTP 200 with an entry filed under /api/errors. Caching this
+    // as not_found would report a real paper as absent for a week.
+    const cwd = await makeWorkspace();
+    const limited = `<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/api/errors#too_many_requests</id><title>API rate limit exceeded</title><summary>Retry after a delay.</summary></entry></feed>`;
+    const fetchMock = vi.fn(async () => xmlResponse(limited)) as unknown as typeof fetch;
+    const failed = await citationVerifyService.verify(cwd, { text: "arXiv:2401.12345" }, { fetch: fetchMock, minimumInterval: FAST });
+    expect(failed.citations[0]).toMatchObject({ status: "error", title: null });
+    expect(failed.citations[0]!.error).toContain("API error feed");
+    expect(failed.citations[0]!.error).toContain("API rate limit exceeded");
+    expect(await cacheRows(cwd)).not.toContain("2401.12345");
+
+    const recovered = vi.fn(async () => xmlResponse(arxivFeed({ id: "2401.12345v1", title: "Paper Title", summary: "A summary.", published: "2024-01-22" }))) as unknown as typeof fetch;
+    const retried = await citationVerifyService.verify(cwd, { text: "arXiv:2401.12345" }, { fetch: recovered, minimumInterval: FAST });
+    expect(retried.citations[0]).toMatchObject({ status: "found", title: "Paper Title", cached: false });
+  });
+
+  it("reads an empty arXiv feed as a paper the source does not hold", async () => {
+    const cwd = await makeWorkspace();
+    const fetchMock = vi.fn(async () => xmlResponse(`<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"></feed>`)) as unknown as typeof fetch;
+    const result = await citationVerifyService.verify(cwd, { text: "arXiv:2401.99999" }, { fetch: fetchMock, minimumInterval: FAST });
+    expect(result.citations[0]).toMatchObject({ status: "not_found", checked_providers: ["arxiv"] });
+    expect(await cacheRows(cwd)).toContain("2401.99999");
+  });
+
   it("keeps one failed lookup from failing the whole batch", async () => {
     const cwd = await makeWorkspace();
     const deps: CitationDeps = {

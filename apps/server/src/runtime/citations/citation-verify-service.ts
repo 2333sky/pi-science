@@ -331,7 +331,14 @@ async function verifyArxiv(id: string, requestedVersion: string | null, deps: Ci
   if (!response.ok) throw new Error(`export.arxiv.org returned HTTP ${response.status}`);
   const xml = await response.text();
   const entry = /<entry>([\s\S]*?)<\/entry>/.exec(xml)?.[1] ?? "";
-  if (!entry || /<title>\s*(?:Error|API rate limit exceeded)/i.test(entry)) return emptyEvidence("arxiv", id, "not_found", ["arxiv"]);
+  // arXiv reports a rate limit or a malformed id with HTTP 200 and an entry
+  // filed under /api/errors. That is a failed request, not a source that does
+  // not hold the paper: caching it for a week would invent a missing paper.
+  const feedTitle = entry ? arxivXmlTag(entry, "title") : "";
+  if (/\/api\/errors/.test(entry ? arxivXmlTag(entry, "id") : "") || /^(?:error|api rate limit exceeded)$/i.test(feedTitle)) {
+    throw new Error(`export.arxiv.org answered with an API error feed (${feedTitle || "no title"})`);
+  }
+  if (!entry) return emptyEvidence("arxiv", id, "not_found", ["arxiv"]);
   const recordVersion = arxivVersion(arxivXmlTag(entry, "id").replace(/^.*\/abs\//, ""));
   const versionConfirmed = requestedVersion !== null && recordVersion === requestedVersion;
   return {
