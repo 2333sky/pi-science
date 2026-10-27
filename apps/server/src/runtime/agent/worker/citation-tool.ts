@@ -32,7 +32,7 @@ export function citationVerifyTool(cwd: string): Tool {
       const response = await fetch(`${backendBaseUrl()}/api/citations/verify?cwd=${encodeURIComponent(cwd)}`, {
         method: "POST",
         headers,
-        body: JSON.stringify({ text: input.text }),
+        body: JSON.stringify({ text: input.text, trigger: "agent" }),
         signal: context.abortSignal,
       });
       const body = (await response.json().catch(() => ({}))) as { citations?: unknown[]; total?: number; processed?: number; unprocessed?: unknown[]; error?: string };
@@ -42,7 +42,10 @@ export function citationVerifyTool(cwd: string): Tool {
         return { content: [{ type: "text", text: "No DOI or arXiv citations were found in the text. PMIDs, bare titles and citations that only appear in attachments are not checked." }], details: { citations: 0 } };
       }
       const lines = citations.map((citation) => {
-        const status = citation.status === "found" ? "SOURCE METADATA FOUND" : citation.status === "error" ? `LOOKUP FAILED (${String(citation.error ?? "provider error")})` : `NOT IN ${(Array.isArray(citation.checked_providers) ? (citation.checked_providers as string[]) : []).join(", ") || "queried source"}`;
+        const status = citation.status === "found" ? "SOURCE METADATA FOUND"
+          : citation.status === "error" ? `LOOKUP FAILED (${String(citation.error ?? "provider error")})`
+            : citation.status === "unchecked" ? "NOT CHECKED (automatic citation verification is off)"
+              : `NOT IN ${(Array.isArray(citation.checked_providers) ? (citation.checked_providers as string[]) : []).join(", ") || "queried source"}`;
         const retraction = citation.retraction === "retracted"
           ? ` ⚠ RETRACTION NOTICE (${String(citation.retraction_note ?? "linked")})${citation.retraction_url ? ` ${String(citation.retraction_url)}` : ""}`
           : citation.retraction === "unknown" ? ` retraction: unknown${citation.retraction_note ? ` (${String(citation.retraction_note)})` : ""}` : " retraction: no notice in queried sources";
@@ -67,8 +70,10 @@ export function citationVerifyTool(cwd: string): Tool {
       const coverage = unprocessed.length
         ? `Checked ${citations.length} of ${total} citations. NOT checked (over the 30-per-call limit): ${unprocessed.map((ref) => `${String(ref.kind)}:${String(ref.requested_id ?? ref.id)}`).join(", ")}. Do not report these as verified.`
         : `Checked ${citations.length} of ${total} citations.`;
+      const unchecked = citations.filter((citation) => citation.status === "unchecked").length;
       const guidance = [
         coverage,
+        unchecked ? `${unchecked} citation${unchecked === 1 ? " was" : "s were"} not checked. Ask the user to enable automatic citation verification, or check them yourself from the returned snapshot. Do not report them as verified.` : null,
         "Only DOI and arXiv identifiers are checked. PMIDs, bare titles and citations that only appear in attachments are not checked.",
         "A found record only means the source lists this identifier. It does not mean the paper supports the claim it is attached to.",
         "For each citation above, judge whether its evidence supports the claim it is attached to:",
@@ -76,7 +81,7 @@ export function citationVerifyTool(cwd: string): Tool {
         "- does not support: the claim goes beyond or contradicts the evidence",
         "- could not check: the lookup failed, the record is missing, or the cited version is not confirmed",
         "State this judgement per citation in your reply and flag retraction notices prominently.",
-      ].join("\n");
+      ].filter((line): line is string => line !== null).join("\n");
       return { content: [{ type: "text", text: `${lines.join("\n\n---\n\n")}\n\n${guidance}` }], details: { citations: citations.length, total, unprocessed: unprocessed.length } };
     },
   };

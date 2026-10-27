@@ -18,8 +18,9 @@ import { recordEgress } from "../../security/egress-audit.js";
 
 export type CitationKind = "doi" | "arxiv";
 /** `found` and `not_found` are provider answers. `error` is a failed request:
- *  it is reported once and never cached as a bibliographic fact. */
-export type CitationStatus = "found" | "not_found" | "error";
+ *  it is reported once and never cached as a bibliographic fact. `unchecked`
+ *  means no provider was contacted, which is not a negative answer. */
+export type CitationStatus = "found" | "not_found" | "error" | "unchecked";
 /** `clear` means no notice in the sources we queried, never "not retracted". */
 export type RetractionState = "retracted" | "clear" | "unknown";
 /** arXiv answers with the current version only, so a versioned citation is
@@ -363,6 +364,28 @@ export const citationVerifyService = {
       processed: batch.length,
       unprocessed: refs.slice(MAX_CITATIONS_PER_CALL),
       citations: results,
+    };
+  },
+
+  /** Answer from the workspace snapshot only, contacting no provider. This is
+   *  what the agent tool falls back to when automatic verification is off: a
+   *  disabled switch must not become a network request. */
+  async lookupText(cwd: string, input: { text: string }): Promise<VerifyCitationsResult> {
+    const refs = extractCitations(String(input.text ?? ""));
+    const batch = refs.slice(0, MAX_CITATIONS_PER_CALL);
+    const cache = await readCache(cwd);
+    const citations = batch.map((ref) => {
+      const hit = cache.get(`${ref.kind}:${ref.id}`);
+      if (hit) return citationView(hit, ref, true);
+      const unchecked = { ...emptyEvidence(ref.kind, ref.id, "unchecked", []), verified_at: "" };
+      return citationView(unchecked, ref, false);
+    });
+    return {
+      text_sha256: createHash("sha256").update(String(input.text ?? "")).digest("hex"),
+      total: refs.length,
+      processed: citations.filter((view) => view.status !== "unchecked").length,
+      unprocessed: refs.slice(MAX_CITATIONS_PER_CALL),
+      citations,
     };
   },
 

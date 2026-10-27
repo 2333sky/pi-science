@@ -7,6 +7,7 @@
 import type { FastifyInstance } from "fastify";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import { citationVerifyService, type VerifyCitationsResult } from "../../runtime/citations/citation-verify-service.js";
+import { citationAutoVerifyEnabled } from "../../runtime/citations/citation-auto-verify.js";
 
 function q(request: { query: unknown }, key: string, fallback = "."): string {
   const value = (request.query as Record<string, unknown>)[key];
@@ -26,8 +27,12 @@ export function registerCitationRoutes(app: FastifyInstance, service = citationV
     if (!text.trim()) return reply.code(400).send({ error: "text is required" });
     if (text.length > 500_000) return reply.code(413).send({ error: "text is too large to verify" });
     // `refresh` is the manual retry path: it re-queries providers instead of
-    // replaying a snapshot taken before a rate limit or an outage.
-    const result: VerifyCitationsResult = await service.verify(cwd, { text, refresh: body.refresh === true });
+    // replaying a snapshot taken before a rate limit or an outage. The trigger
+    // is decided by server code, not by the model: with automatic verification
+    // off, the agent's own call answers from the snapshot and contacts nobody.
+    const result: VerifyCitationsResult = body.trigger === "agent" && !(await citationAutoVerifyEnabled())
+      ? await service.lookupText(cwd, { text })
+      : await service.verify(cwd, { text, refresh: body.refresh === true });
     return result;
   });
 

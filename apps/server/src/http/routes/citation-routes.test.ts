@@ -1,5 +1,5 @@
 import Fastify from "fastify";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -11,7 +11,7 @@ const apps: Array<{ close(): Promise<unknown> }> = [];
 const workspaces: string[] = [];
 
 afterEach(async () => {
-  vi.restoreAllMocks();
+  vi.restoreAllMocks(); vi.unstubAllEnvs();
   await Promise.all(apps.splice(0).map((app) => app.close()));
   await Promise.all(workspaces.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
@@ -41,6 +41,13 @@ function fakeService() {
       citations: [view("10.1/x")],
     })),
     lookup: vi.fn(async () => [{ ...view("10.1/x"), cached: true }]),
+    lookupText: vi.fn(async (): Promise<VerifyCitationsResult> => ({
+      text_sha256: "abc",
+      total: 1,
+      processed: 0,
+      unprocessed: [],
+      citations: [{ ...view("10.1/x"), status: "unchecked", verified_at: "" }],
+    })),
   };
 }
 
@@ -92,6 +99,45 @@ describe("citation routes", () => {
     });
     const canonicalCwd = await validateWorkspaceCwd(cwd);
     expect(service.verify).toHaveBeenCalledWith(canonicalCwd, { text: "Cites 10.1/x here.", refresh: true });
+  });
+
+  it("answers an agent request from the snapshot while automatic verification is off", async () => {
+    const cwd = await makeWorkspace();
+    const home = await mkdtemp(join(tmpdir(), "pi-citation-route-home-")); workspaces.push(home);
+    vi.stubEnv("PI_SCIENCE_HOME", home);
+    await writeFile(join(home, "config.json"), JSON.stringify({ citation_auto_verify: false }));
+    const service = fakeService();
+    const app = Fastify({ logger: false });
+    registerCitationRoutes(app, service as never);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/citations/verify?cwd=${encodeURIComponent(cwd)}`,
+      payload: { text: "Cites 10.1/x here.", trigger: "agent", refresh: true },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(service.lookupText).toHaveBeenCalledOnce();
+    expect(service.verify).not.toHaveBeenCalled();
+  });
+
+  it("queries providers for an agent request once the switch is on", async () => {
+    const cwd = await makeWorkspace();
+    const home = await mkdtemp(join(tmpdir(), "pi-citation-route-home-")); workspaces.push(home);
+    vi.stubEnv("PI_SCIENCE_HOME", home);
+    await writeFile(join(home, "config.json"), JSON.stringify({ citation_auto_verify: true }));
+    const service = fakeService();
+    const app = Fastify({ logger: false });
+    registerCitationRoutes(app, service as never);
+    apps.push(app);
+
+    await app.inject({
+      method: "POST",
+      url: `/api/citations/verify?cwd=${encodeURIComponent(cwd)}`,
+      payload: { text: "Cites 10.1/x here.", trigger: "agent" },
+    });
+    expect(service.verify).toHaveBeenCalledOnce();
+    expect(service.lookupText).not.toHaveBeenCalled();
   });
 
   it("looks up cached evidence by composite ids", async () => {
