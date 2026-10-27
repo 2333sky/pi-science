@@ -246,6 +246,33 @@ describe("citationVerifyService.verify", () => {
     expect(result.citations[0]).toMatchObject({ status: "found", version: "unconfirmed", record_version: "1", abstract: null });
   });
 
+  it("keeps the record abstract on the snapshot when the older version is cited first", async () => {
+    const cwd = await makeWorkspace();
+    const xml = arxivFeed({ id: "2401.12345v2", title: "Paper Title", summary: "Summary of version two.", published: "2024-01-22" });
+    const fetchMock = vi.fn(async () => xmlResponse(xml)) as unknown as typeof fetch;
+    const cited = await citationVerifyService.verify(cwd, { text: "As shown in arXiv:2401.12345v1." }, { fetch: fetchMock, minimumInterval: FAST });
+    expect(cited.citations[0]).toMatchObject({ requested_version: "1", record_version: "2", version: "unconfirmed", abstract: null });
+    // One source, one snapshot: hiding the abstract from this citation must not
+    // drop it from the cache the next citation of the current version reads.
+    expect(await cacheRows(cwd)).toContain("Summary of version two.");
+
+    const current = await citationVerifyService.verify(cwd, { text: "As shown in arXiv:2401.12345v2." }, { fetch: fetchMock, minimumInterval: FAST });
+    expect(current.citations[0]).toMatchObject({ requested_version: "2", version: "confirmed", abstract: "Summary of version two.", cached: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a later citation of another version from reading the cached abstract", async () => {
+    const cwd = await makeWorkspace();
+    const xml = arxivFeed({ id: "2401.12345v2", title: "Paper Title", summary: "Summary of version two.", published: "2024-01-22" });
+    const fetchMock = vi.fn(async () => xmlResponse(xml)) as unknown as typeof fetch;
+    await citationVerifyService.verify(cwd, { text: "As shown in arXiv:2401.12345v2." }, { fetch: fetchMock, minimumInterval: FAST });
+    const older = await citationVerifyService.verify(cwd, { text: "As shown in arXiv:2401.12345v1." }, { fetch: fetchMock, minimumInterval: FAST });
+    expect(older.citations[0]).toMatchObject({ requested_version: "1", version: "unconfirmed", abstract: null, cached: true });
+    // The id lookup reads the same snapshot and must hide it the same way.
+    const [lookedUp] = await citationVerifyService.lookup(cwd, ["arxiv:2401.12345v1"]);
+    expect(lookedUp).toMatchObject({ version: "unconfirmed", abstract: null });
+  });
+
   it("labels an unversioned arXiv citation as version unconfirmed and keeps the current abstract", async () => {
     const cwd = await makeWorkspace();
     const xml = arxivFeed({ id: "2401.12345v2", title: "Paper Title", summary: "Summary of version two.", published: "2024-01-22" });

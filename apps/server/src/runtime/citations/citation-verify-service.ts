@@ -321,7 +321,7 @@ function arxivXmlTag(entry: string, name: string): string {
 /** Query the version-less id: arXiv answers with the current version in the
  *  entry's `<id>`. Asking for a version that does not exist returns an empty
  *  feed, which would wrongly read as "this paper does not exist". */
-async function verifyArxiv(id: string, requestedVersion: string | null, deps: CitationDeps): Promise<CitationEvidence> {
+async function verifyArxiv(id: string, deps: CitationDeps): Promise<CitationEvidence> {
   const url = new URL("https://export.arxiv.org/api/query");
   url.searchParams.set("id_list", id);
   url.searchParams.set("max_results", "1");
@@ -340,14 +340,15 @@ async function verifyArxiv(id: string, requestedVersion: string | null, deps: Ci
   }
   if (!entry) return emptyEvidence("arxiv", id, "not_found", ["arxiv"]);
   const recordVersion = arxivVersion(arxivXmlTag(entry, "id").replace(/^.*\/abs\//, ""));
-  const versionConfirmed = requestedVersion !== null && recordVersion === requestedVersion;
   return {
     ...emptyEvidence("arxiv", id, "found", ["arxiv"]),
     title: arxivXmlTag(entry, "title") || null,
     authors: [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)].map((match) => match[1]!.replace(/\s+/g, " ").trim()).filter(Boolean),
-    // The feed only serves the current version. An abstract from a newer
-    // version must not be presented as the text of the cited one.
-    abstract: requestedVersion === null || versionConfirmed ? arxivXmlTag(entry, "summary").slice(0, MAX_ABSTRACT_CHARS) || null : null,
+    // The feed serves the current version only, so this is that record's own
+    // abstract and it belongs on the source snapshot: another answer may cite
+    // the current version. `citationView` hides it for a citation pinned to a
+    // different version, so hiding it here would also drop it from the cache.
+    abstract: arxivXmlTag(entry, "summary").slice(0, MAX_ABSTRACT_CHARS) || null,
     year: arxivXmlTag(entry, "published").slice(0, 4) || null,
     oa_url: `https://arxiv.org/abs/${id}`,
     retraction: "unknown",
@@ -370,7 +371,11 @@ function versionState(evidence: CitationEvidence, requestedVersion: string | nul
 const NOT_COMPARED: { state: BibliographicState; note: string | null } = { state: "not_compared", note: null };
 
 function citationView(evidence: CitationEvidence, ref: CitationRef, cached: boolean, bibliographic = NOT_COMPARED): CitationView {
-  return { ...evidence, requested_id: ref.requested_id, requested_version: ref.requested_version, version: versionState(evidence, ref.requested_version), bibliographic: bibliographic.state, bibliographic_note: bibliographic.note, cached };
+  const version = versionState(evidence, ref.requested_version);
+  // The snapshot keeps the current version's abstract. A citation that names
+  // another version must not read it as the text of the version it cites.
+  const citesOtherVersion = ref.requested_version !== null && ref.requested_version !== evidence.record_version;
+  return { ...evidence, abstract: citesOtherVersion ? null : evidence.abstract, requested_id: ref.requested_id, requested_version: ref.requested_version, version, bibliographic: bibliographic.state, bibliographic_note: bibliographic.note, cached };
 }
 
 /** A reference list is the one place an answer states a title for an
@@ -444,7 +449,7 @@ export const citationVerifyService = {
       }
       let evidence: CitationEvidence;
       try {
-        evidence = ref.kind === "doi" ? await verifyDoi(ref.id, deps) : await verifyArxiv(ref.id, ref.requested_version, deps);
+        evidence = ref.kind === "doi" ? await verifyDoi(ref.id, deps) : await verifyArxiv(ref.id, deps);
       } catch (error) {
         // A provider hiccup must not fail the whole batch, and must not be
         // cached as "this paper does not exist".
