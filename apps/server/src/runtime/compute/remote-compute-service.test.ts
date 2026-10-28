@@ -3,7 +3,7 @@ import type { ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { RemoteComputeError, remoteComputeService, type RemoteComputeDeps } from "./remote-compute-service.js";
 import { executionRepository } from "../executions/execution-repository.js";
 import { workspaceFile } from "../../storage/persistence.js";

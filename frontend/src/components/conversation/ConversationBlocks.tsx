@@ -82,7 +82,7 @@ function AgentMessage({ block, actionText, codeRunner }: { block: AgentMessageBl
   const citations = extractCitations(text);
   return <div className="group/message">
     <MarkdownViewer variant="chat" codeRunner={codeRunner} mode={block.partial ? "streaming" : "final"}>{text}</MarkdownViewer>
-    {citations.length > 0 && <CitationChips citations={citations} />}
+    {citations.length > 0 && <CitationChips citations={citations} text={text} streaming={block.partial} />}
     {!block.partial && actionText && <MessageActions text={parseSuggestions(actionText).clean} timestamp={block.timestamp} />}
   </div>;
 }
