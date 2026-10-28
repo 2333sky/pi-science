@@ -30,12 +30,12 @@ beforeEach(async () => {
   home = await mkdtemp(join(tmpdir(), "pi-catalog-routes-"));
   cleanups.push(home);
   process.env.PI_SCIENCE_HOME = home;
-  // Keep managed workspaces inside the fixture: the developer's real
-  // ~/pi-science-workspaces would otherwise leak into every listing assertion.
-  process.env.PI_SCIENCE_WORKSPACES = join(home, "managed-workspaces");
+  // Never discover the operator's real workspace tree during route tests.
+  vi.stubEnv("PI_SCIENCE_WORKSPACES", join(home, "managed-workspaces"));
 });
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   if (originalHome === undefined) delete process.env.PI_SCIENCE_HOME;
   else process.env.PI_SCIENCE_HOME = originalHome;
   if (originalWorkspaces === undefined) delete process.env.PI_SCIENCE_WORKSPACES;
