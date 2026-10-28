@@ -18,7 +18,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # The real Linux sandbox needs a nested user namespace, and Ubuntu 26.04
+        # (ubuntu-latest since 2026-10-27) refuses the gid map write for it:
+        # "apply-seccomp: write /proc/self/setgroups ... Permission denied".
+        # Pin the image the sandbox is verified on until the runtime supports it.
+        os: [ubuntu-24.04, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
