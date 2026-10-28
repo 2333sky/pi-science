@@ -15,6 +15,19 @@ export interface SessionTitleRecord {
   session_id: string;
   title: string;
   updated_at: string;
+  revision: number;
+}
+
+/** Records written before revisions existed count as 0 so an upgrade keeps
+ *  compare-and-set working against titles the user already had. */
+function revisionOf(record: SessionTitleRecord | undefined): number {
+  return record && typeof record.revision === "number" && Number.isFinite(record.revision) ? record.revision : 0;
+}
+
+function latestRecord(records: SessionTitleRecord[], sessionId: string): SessionTitleRecord | undefined {
+  let latest: SessionTitleRecord | undefined;
+  for (const record of records) if (record && record.session_id === sessionId) latest = record;
+  return latest;
 }
 
 export class SessionTitleRepository {
@@ -34,6 +47,16 @@ export class SessionTitleRepository {
     return titles;
   }
 
+  /** Current title and revision, or null when the session has no record.
+   *  A record whose title is unusable still reports its revision: a caller that
+   *  read 0 there could never win the compare-and-set and the session's title
+   *  would stop being regenerable. */
+  async getTitleEntry(cwd: string, sessionId: string): Promise<{ title: string; revision: number } | null> {
+    const record = latestRecord(await readJsonLines<SessionTitleRecord>(this.file(cwd)), sessionId);
+    if (!record) return null;
+    return { title: typeof record.title === "string" ? record.title : "", revision: revisionOf(record) };
+  }
+
   /** Upsert a title for a session. Rewrites the file under a lock so a
    *  concurrent rename cannot be lost to an interleaved append. */
   async setTitle(cwd: string, sessionId: string, title: string): Promise<void> {
@@ -41,8 +64,25 @@ export class SessionTitleRepository {
     await withFileWriteLock(file, async () => {
       const records = await readJsonLines<SessionTitleRecord>(file);
       const next = records.filter((record) => record?.session_id !== sessionId);
-      next.push({ session_id: sessionId, title, updated_at: new Date().toISOString() });
+      next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision: revisionOf(latestRecord(records, sessionId)) + 1 });
       await rewriteTitles(file, next);
+    });
+  }
+
+  /** Write only when the stored revision still equals expected; bumps it on success. */
+  async setTitleIfRevision(cwd: string, sessionId: string, title: string, expected: number): Promise<{ applied: boolean; revision: number }> {
+    const file = this.file(cwd);
+    return withFileWriteLock(file, async () => {
+      const records = await readJsonLines<SessionTitleRecord>(file);
+      const current = revisionOf(latestRecord(records, sessionId));
+      // A stale generation must not touch the file at all: the winner's title
+      // is already the user-visible one and any rewrite here could reorder it.
+      if (current !== expected) return { applied: false, revision: current };
+      const revision = current + 1;
+      const next = records.filter((record) => record?.session_id !== sessionId);
+      next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision });
+      await rewriteTitles(file, next);
+      return { applied: true, revision };
     });
   }
 

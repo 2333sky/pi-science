@@ -71,7 +71,7 @@ describe("SessionTitleRepository", () => {
     const raw = await readFile(file, "utf8");
     expect(raw.endsWith("\n")).toBe(true);
     expect(raw.split("\n").filter(Boolean).map((line) => JSON.parse(line))).toEqual([
-      { session_id: "s1", title: "one-updated", updated_at: expect.any(String) },
+      { session_id: "s1", title: "one-updated", updated_at: expect.any(String), revision: 2 },
     ]);
     const { readdir } = await import("node:fs/promises");
     const entries = await readdir(join(cwd, ".pi-science"));
@@ -91,5 +91,59 @@ describe("SessionTitleRepository", () => {
     const titles = await repo.getTitles(cwd);
     expect(titles.get("s1")).toBe("ok");
     expect(titles.has("s2")).toBe(false);
+  });
+
+  it("starts a fresh session at revision 0 and bumps it on every write", async () => {
+    const repo = new SessionTitleRepository();
+    const cwd = await workspace();
+    expect(await repo.getTitleEntry(cwd, "s1")).toBeNull();
+    await repo.setTitle(cwd, "s1", "first");
+    expect(await repo.getTitleEntry(cwd, "s1")).toEqual({ title: "first", revision: 1 });
+    await repo.setTitle(cwd, "s1", "second");
+    expect(await repo.getTitleEntry(cwd, "s1")).toEqual({ title: "second", revision: 2 });
+  });
+
+  it("reads a record written before revisions existed as 0 and stores 1 on the next write", async () => {
+    const repo = new SessionTitleRepository();
+    const cwd = await workspace();
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    await mkdir(join(cwd, ".pi-science"), { recursive: true });
+    await writeFile(
+      join(cwd, ".pi-science", "session-titles.jsonl"),
+      '{"session_id":"legacy","title":"Old title","updated_at":"2026-01-01T00:00:00.000Z"}\n',
+      "utf8",
+    );
+    expect(await repo.getTitleEntry(cwd, "legacy")).toEqual({ title: "Old title", revision: 0 });
+    expect(await repo.setTitleIfRevision(cwd, "legacy", "New title", 0)).toEqual({ applied: true, revision: 1 });
+    expect(await repo.getTitleEntry(cwd, "legacy")).toEqual({ title: "New title", revision: 1 });
+    await repo.setTitle(cwd, "legacy", "Forced title");
+    expect(await repo.getTitleEntry(cwd, "legacy")).toEqual({ title: "Forced title", revision: 2 });
+  });
+
+  it("applies a conditional write on an equal revision", async () => {
+    const repo = new SessionTitleRepository();
+    const cwd = await workspace();
+    await repo.setTitle(cwd, "s1", "base");
+    const entry = await repo.getTitleEntry(cwd, "s1");
+    expect(await repo.setTitleIfRevision(cwd, "s1", "generated", entry!.revision)).toEqual({ applied: true, revision: 2 });
+    expect(await repo.getTitleEntry(cwd, "s1")).toEqual({ title: "generated", revision: 2 });
+  });
+
+  it("refuses a stale conditional write without touching the file or the revision", async () => {
+    const repo = new SessionTitleRepository();
+    const cwd = await workspace();
+    await repo.setTitle(cwd, "s1", "manual");
+    const file = join(cwd, ".pi-science", "session-titles.jsonl");
+    const before = await readFile(file, "utf8");
+    expect(await repo.setTitleIfRevision(cwd, "s1", "late generated", 0)).toEqual({ applied: false, revision: 1 });
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(await repo.getTitleEntry(cwd, "s1")).toEqual({ title: "manual", revision: 1 });
+  });
+
+  it("refuses a conditional write for a session that has no record yet from a stale expectation", async () => {
+    const repo = new SessionTitleRepository();
+    const cwd = await workspace();
+    expect(await repo.setTitleIfRevision(cwd, "missing", "generated", 3)).toEqual({ applied: false, revision: 0 });
+    await expect(readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8")).rejects.toThrow();
   });
 });
