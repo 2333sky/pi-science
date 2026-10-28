@@ -30,7 +30,7 @@ export type {
   TurnArtifactTurn,
 } from "./types";
 export { clampThinkingLevel, conversationModelOptions } from "./models";
-export { aiTitleAttemptedAt, clearAiTitle, clearAiTitleAttempted, clearSessionName, deriveSessionName, getSessionName, hasAiTitle, markAiTitle, markAiTitleAttempted, moveSessionName, setSessionName } from "./session-names";
+export { aiTitleAttemptedAt, cacheSessionName, clearAiTitle, clearAiTitleAttempted, clearSessionName, deriveSessionName, getSessionName, hasAiTitle, markAiTitle, markAiTitleAttempted, moveSessionName, normalizeSessionTitle, noteManualTitleWrite, SESSION_TITLE_MAX_LENGTH, setSessionName, titleWriteEpoch } from "./session-names";
 export { clearCachedMessages } from "./message-cache";
 
 // ── Client ──

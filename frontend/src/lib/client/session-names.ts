@@ -66,6 +66,14 @@ export function getSessionName(cwd: string, sessionId: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/** Cache a display name locally without touching the server: the caller has
+ *  already persisted it, and an extra PUT would burn a title revision. */
+export function cacheSessionName(cwd: string, sessionId: string, name: string): void {
+  const names = loadNames();
+  names[sessionKey(cwd, sessionId)] = name.slice(0, SESSION_TITLE_MAX_LENGTH);
+  saveNames(names);
+}
+
 export function setSessionName(cwd: string, sessionId: string, name: string): void {
   const names = loadNames();
   names[sessionKey(cwd, sessionId)] = name.slice(0, 50);  // Cap length
@@ -148,7 +156,9 @@ export function hasAiTitle(cwd: string, sessionId: string): boolean {
   return loadAiMarks()[sessionKey(cwd, sessionId)] === true;
 }
 
-/** Record that the session's name came from the AI title feature. */
+/** Record that the session's title is final: automatic generation must not
+ *  replace it. A user rename sets this mark too, otherwise the next settled
+ *  turn would overwrite the hand-written name. */
 export function markAiTitle(cwd: string, sessionId: string): void {
   const marks = loadAiMarks();
   marks[sessionKey(cwd, sessionId)] = true;
@@ -209,6 +219,27 @@ export function clearAiTitleAttempted(cwd: string, sessionId: string): void {
   const attempts = loadAiAttempts();
   delete attempts[sessionKey(cwd, sessionId)];
   saveAiAttempts(attempts);
+}
+
+const manualTitleWrites = new Map<string, number>();
+
+/** Successful manual title saves, monotonic per session. A generation started
+ *  before one of these must not be displayed. */
+export function titleWriteEpoch(cwd: string, sessionId: string): number {
+  return manualTitleWrites.get(sessionKey(cwd, sessionId)) ?? 0;
+}
+
+export function noteManualTitleWrite(cwd: string, sessionId: string): void {
+  const key = sessionKey(cwd, sessionId);
+  manualTitleWrites.set(key, (manualTitleWrites.get(key) ?? 0) + 1);
+}
+
+export const SESSION_TITLE_MAX_LENGTH = 50;
+
+/** Trim, collapse inner whitespace, cap at 50. Returns "" when unusable. */
+export function normalizeSessionTitle(raw: string): string {
+  const collapsed = raw.trim().replace(/\s+/g, " ");
+  return collapsed.length > SESSION_TITLE_MAX_LENGTH ? "" : collapsed;
 }
 
 /** Derive a display name from message text: first non-empty line, trimmed,

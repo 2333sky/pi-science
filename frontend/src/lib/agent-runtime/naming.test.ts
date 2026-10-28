@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getSessionName, hasAiTitle, markAiTitle, setSessionName } from "../client/pi-science-client";
+import { getSessionName, hasAiTitle, markAiTitle, normalizeSessionTitle, noteManualTitleWrite, setSessionName, titleWriteEpoch } from "../client/pi-science-client";
 import { useRuntimeStore } from "./index";
-import { applyAiSessionName } from "./naming";
+import { applyAiSessionName, regenerateSessionTitle, renameSession } from "./naming";
 import { FakeEventSource, installRuntimeTestEnvironment, jsonResponse, state } from "./test-helpers";
 
 
@@ -141,5 +141,120 @@ describe("session naming", () => {
     applyAiSessionName("/workspace", "session-b", "Fresh title");
     expect(getSessionName("/workspace", "session-b")).toBe("Fresh title");
     expect(hasAiTitle("/workspace", "session-b")).toBe(true);
+  });
+
+  it("keeps the automatic early return but lets a manual regenerate replace a titled session", () => {
+    setSessionName("/workspace", "session-c", "Existing AI title");
+    markAiTitle("/workspace", "session-c");
+
+    applyAiSessionName("/workspace", "session-c", "Late automatic result");
+    expect(getSessionName("/workspace", "session-c")).toBe("Existing AI title");
+
+    applyAiSessionName("/workspace", "session-c", "User regenerated", "manual");
+    expect(getSessionName("/workspace", "session-c")).toBe("User regenerated");
+    expect(hasAiTitle("/workspace", "session-c")).toBe(true);
+  });
+
+  it("never touches the store for another workspace", () => {
+    useRuntimeStore.setState({ cwd: "/other", sessions: [{ id: "session-d", cwd: "/workspace", name: "Old" }] });
+    applyAiSessionName("/workspace", "session-d", "Scoped title", "manual");
+    expect(getSessionName("/workspace", "session-d")).toBe("Scoped title");
+    expect(useRuntimeStore.getState().sessions[0].name).toBe("Old");
+  });
+});
+
+describe("title request results", () => {
+  it("applies a generated title for a session in the list", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: "Generated title", revision: 1 })));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-e", cwd: "/workspace" }] });
+
+    expect(await regenerateSessionTitle("/workspace", "session-e", "manual")).toBe("applied");
+    expect(getSessionName("/workspace", "session-e")).toBe("Generated title");
+    expect(useRuntimeStore.getState().sessions[0].name).toBe("Generated title");
+  });
+
+  it("drops a generation whose manual rename landed while it was in flight", async () => {
+    let release!: (value: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((done) => { release = done; })));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-f", cwd: "/workspace" }] });
+
+    const pending = regenerateSessionTitle("/workspace", "session-f", "manual");
+    await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+    noteManualTitleWrite("/workspace", "session-f");
+    release(jsonResponse({ ok: true, title: "Stale title", revision: 1 }));
+
+    expect(await pending).toBe("superseded");
+    expect(getSessionName("/workspace", "session-f")).toBe("");
+  });
+
+  it("reports a failed request and a rejected title as failed", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("network down"); }));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-g", cwd: "/workspace" }] });
+    expect(await regenerateSessionTitle("/workspace", "session-g", "manual")).toBe("failed");
+
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: null })));
+    expect(await regenerateSessionTitle("/workspace", "session-g", "manual")).toBe("failed");
+    expect(getSessionName("/workspace", "session-g")).toBe("");
+  });
+
+  it("reports gone when the session left the list during generation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: "Generated title", revision: 2 })));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [] });
+
+    expect(await regenerateSessionTitle("/workspace", "session-h", "manual")).toBe("gone");
+    expect(getSessionName("/workspace", "session-h")).toBe("");
+  });
+});
+
+describe("manual rename", () => {
+  it("sends one PUT and only then writes local state", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true, title: "手写标题" }));
+    vi.stubGlobal("fetch", fetchMock);
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-i", cwd: "/workspace", name: "Old" }] });
+    const epoch = titleWriteEpoch("/workspace", "session-i");
+
+    await renameSession("/workspace", "session-i", "  手写标题  ");
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/sessions/session-i/title?cwd=%2Fworkspace");
+    expect(getSessionName("/workspace", "session-i")).toBe("手写标题");
+    expect(hasAiTitle("/workspace", "session-i")).toBe(true);
+    expect(titleWriteEpoch("/workspace", "session-i")).toBe(epoch + 1);
+    expect(useRuntimeStore.getState().sessions[0].name).toBe("手写标题");
+  });
+
+  it("leaves local state untouched when the request fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: false, error: "boom" }, 500)));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-j", cwd: "/workspace", name: "Old" }] });
+    const epoch = titleWriteEpoch("/workspace", "session-j");
+
+    await expect(renameSession("/workspace", "session-j", "New name")).rejects.toThrow();
+
+    expect(getSessionName("/workspace", "session-j")).toBe("");
+    expect(hasAiTitle("/workspace", "session-j")).toBe(false);
+    expect(titleWriteEpoch("/workspace", "session-j")).toBe(epoch);
+    expect(useRuntimeStore.getState().sessions[0].name).toBe("Old");
+  });
+
+  it("normalizes before sending and refuses an unusable title", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true, title: "ok" }));
+    vi.stubGlobal("fetch", fetchMock);
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-k", cwd: "/workspace" }] });
+
+    await expect(renameSession("/workspace", "session-k", "   ")).rejects.toThrow();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await renameSession("/workspace", "session-k", "  Two   words  ");
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ title: "Two words" }) });
+    expect(getSessionName("/workspace", "session-k")).toBe("Two words");
+  });
+});
+
+describe("normalizeSessionTitle", () => {
+  it("trims, collapses inner whitespace and rejects empty or over-long input", () => {
+    expect(normalizeSessionTitle("  Two   words ")).toBe("Two words");
+    expect(normalizeSessionTitle("  ")).toBe("");
+    expect(normalizeSessionTitle("x".repeat(50))).toBe("x".repeat(50));
+    expect(normalizeSessionTitle("x".repeat(51))).toBe("");
   });
 });
