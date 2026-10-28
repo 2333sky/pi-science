@@ -22,7 +22,7 @@ async function makeWorkspace(): Promise<string> {
   return cwd;
 }
 
-async function publish(cwd: string, path: string, content: string): Promise<{ artifact_id: string; version: number; sha256: string }> {
+async function publish(cwd: string, path: string): Promise<{ artifact_id: string; version: number; sha256: string }> {
   const app = apps[0]!;
   const response = await app.inject({
     method: "POST",
@@ -54,9 +54,9 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
   it("diffs two text versions into unified hunks", async () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, "report.md"), "intro\nmethod one\nresults\n", "utf8");
-    const first = await publish(cwd, "report.md", "");
+    const first = await publish(cwd, "report.md");
     await writeFile(join(cwd, "report.md"), "intro\nmethod two\nresults\nconclusion\n", "utf8");
-    const second = await publish(cwd, "report.md", "");
+    const second = await publish(cwd, "report.md");
 
     const response = await apps[0]!.inject({
       method: "GET",
@@ -76,9 +76,9 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
   it("diffs csv versions cell by cell", async () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, "metrics.csv"), "epoch,loss,acc\n1,0.5,0.7\n2,0.4,0.8\n", "utf8");
-    await publish(cwd, "metrics.csv", "");
+    await publish(cwd, "metrics.csv");
     await writeFile(join(cwd, "metrics.csv"), "epoch,loss,acc\n1,0.5,0.75\n2,0.4,0.8\n3,0.3,0.9\n", "utf8");
-    const second = await publish(cwd, "metrics.csv", "");
+    const second = await publish(cwd, "metrics.csv");
 
     const response = await apps[0]!.inject({
       method: "GET",
@@ -95,9 +95,9 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
   it("returns paired content hashes for images", async () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, "plot.png"), Buffer.from([1, 2, 3]), "utf8");
-    const first = await publish(cwd, "plot.png", "");
+    const first = await publish(cwd, "plot.png");
     await writeFile(join(cwd, "plot.png"), Buffer.from([4, 5, 6]), "utf8");
-    const second = await publish(cwd, "plot.png", "");
+    const second = await publish(cwd, "plot.png");
 
     const response = await apps[0]!.inject({
       method: "GET",
@@ -113,9 +113,9 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
   it("reports unsupported kinds instead of guessing", async () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, "model.bin"), Buffer.from([1, 2, 3]), "utf8");
-    await publish(cwd, "model.bin", "");
+    await publish(cwd, "model.bin");
     await writeFile(join(cwd, "model.bin"), Buffer.from([4, 5, 6]), "utf8");
-    const second = await publish(cwd, "model.bin", "");
+    const second = await publish(cwd, "model.bin");
 
     const response = await apps[0]!.inject({
       method: "GET",
@@ -131,9 +131,9 @@ describe("GET /api/artifacts/by-path/*", () => {
     const { cwd } = await setup();
     await mkdir(join(cwd, "figures"), { recursive: true });
     await writeFile(join(cwd, "figures/plot.png"), Buffer.from([1]), "utf8");
-    await publish(cwd, "figures/plot.png", "");
+    await publish(cwd, "figures/plot.png");
     await writeFile(join(cwd, "figures/plot.png"), Buffer.from([2]), "utf8");
-    const second = await publish(cwd, "figures/plot.png", "");
+    const second = await publish(cwd, "figures/plot.png");
 
     const response = await apps[0]!.inject({
       method: "GET",
