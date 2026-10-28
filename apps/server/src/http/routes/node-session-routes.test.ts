@@ -212,7 +212,7 @@ describe("native Node conversation routes", () => {
     registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
     const ok = await server.inject({ method: "POST", url: `/api/sessions/session-title/title?cwd=${encodeURIComponent(cwd)}` });
     expect(ok.statusCode).toBe(200);
-    expect(ok.json()).toEqual({ ok: true, title: "AI 标题" });
+    expect(ok.json()).toEqual({ ok: true, title: "AI 标题", revision: 1 });
     const missing = await server.inject({ method: "POST", url: `/api/sessions/no-such/title?cwd=${encodeURIComponent(cwd)}` });
     expect(missing.statusCode).toBe(404);
     await server.close();
@@ -228,7 +228,7 @@ describe("native Node conversation routes", () => {
     registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
     const response = await server.inject({ method: "POST", url: `/api/sessions/session-title-persist/title?cwd=${encodeURIComponent(cwd)}` });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ ok: true, title: "AI 自动标题" });
+    expect(response.json()).toEqual({ ok: true, title: "AI 自动标题", revision: 1 });
     // No client PUT involved: the title is already on disk and in the list.
     const raw = await readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8");
     expect(raw).toContain('"session_id":"session-title-persist"');
@@ -248,6 +248,88 @@ describe("native Node conversation routes", () => {
     expect(response.json()).toEqual({ ok: true, title: null });
     await expect(readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8")).rejects.toThrow();
     await server.close();
+  });
+
+  it("refuses a generation that finished after a later manual title write", async () => {
+    const cwd = await workspaceWithSessions("session-title-race");
+    let release!: (title: string) => void;
+    const aiTitleService = { generateTitle: () => new Promise<string>((done) => { release = done; }) };
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
+    const url = `/api/sessions/session-title-race/title?cwd=${encodeURIComponent(cwd)}`;
+    try {
+      const slow = server.inject({ method: "POST", url, payload: {} });
+      await vi.waitFor(() => expect(release).toBeTypeOf("function"));
+      const put = await server.inject({ method: "PUT", url, payload: { title: "用户标题" } });
+      expect(put.statusCode).toBe(200);
+      release("生成的标题");
+      expect((await slow).json()).toEqual({ ok: true, title: null, superseded: true });
+      const raw = await readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8");
+      expect(JSON.parse(raw.trim())).toMatchObject({ session_id: "session-title-race", title: "用户标题", revision: 1 });
+      expect(raw).not.toContain("生成的标题");
+    } finally { await server.close(); }
+  });
+
+  it("refuses a manual title request while the session is running", async () => {
+    const cwd = await workspaceWithSessions("session-busy");
+    const generateTitle = vi.fn(async () => "AI 标题");
+    const service = { sessionBusy: () => true, liveSessions: () => [] } as unknown as NodeSessionService;
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, service, sessionRepository, { generateTitle } as never);
+    try {
+      const response = await server.inject({ method: "POST", url: `/api/sessions/session-busy/title?cwd=${encodeURIComponent(cwd)}`, payload: { manual: true } });
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({ ok: false, code: "session_busy" });
+      expect(generateTitle).not.toHaveBeenCalled();
+    } finally { await server.close(); }
+  });
+
+  it("leaves the automatic title request unaffected by a busy session", async () => {
+    const cwd = await workspaceWithSessions("session-busy-auto");
+    const generateTitle = vi.fn(async () => "AI 标题");
+    const service = { sessionBusy: () => true, liveSessions: () => [] } as unknown as NodeSessionService;
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, service, sessionRepository, { generateTitle } as never);
+    try {
+      const response = await server.inject({ method: "POST", url: `/api/sessions/session-busy-auto/title?cwd=${encodeURIComponent(cwd)}`, payload: {} });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ ok: true, title: "AI 标题", revision: 1 });
+      expect(generateTitle).toHaveBeenCalledOnce();
+    } finally { await server.close(); }
+  });
+
+  it("writes nothing when the session disappears while the title generates", async () => {
+    const cwd = await workspaceWithSessions("session-vanished");
+    const aiTitleService = {
+      async generateTitle() {
+        await rm(join(cwd, ".pi-science", "sessions", "session-vanished.jsonl"));
+        return "AI 标题";
+      },
+    };
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
+    try {
+      const response = await server.inject({ method: "POST", url: `/api/sessions/session-vanished/title?cwd=${encodeURIComponent(cwd)}` });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ ok: true, title: null, deleted: true });
+      await expect(readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8")).rejects.toThrow();
+    } finally { await server.close(); }
+  });
+
+  it("overwrites an existing title on a manual regenerate and bumps the revision", async () => {
+    const cwd = await workspaceWithSessions("session-manual");
+    const aiTitleService = { async generateTitle() { return "AI 新标题"; } };
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
+    const url = `/api/sessions/session-manual/title?cwd=${encodeURIComponent(cwd)}`;
+    try {
+      expect((await server.inject({ method: "PUT", url, payload: { title: "旧标题" } })).json()).toEqual({ ok: true, title: "旧标题" });
+      const response = await server.inject({ method: "POST", url, payload: { manual: true } });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ ok: true, title: "AI 新标题", revision: 2 });
+      const raw = await readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8");
+      expect(JSON.parse(raw.trim())).toMatchObject({ title: "AI 新标题", revision: 2 });
+    } finally { await server.close(); }
   });
 
   it("accepts a title PUT for a live session before its file exists on disk", async () => {

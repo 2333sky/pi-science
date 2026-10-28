@@ -166,11 +166,20 @@ export function registerNodeSessionRoutes(
     }
     const exists = await sessionRepository.findPath(workspace, sessionId);
     if (!exists) return reply.code(404).send({ ok: false, code: "not_found", error: "session not found" });
+    const manual = (request.body as { manual?: unknown } | undefined)?.manual === true;
+    // Only the manual path guards on busy: an automatic request is triggered by
+    // the turn-completed event, where the live table may still report busy.
+    if (manual && nodeSessionService.sessionBusy(workspace, sessionId)) {
+      return reply.code(409).send({ ok: false, code: "session_busy", error: "session is running; stop it before regenerating the title" });
+    }
+    const expected = (await titles.getTitleEntry(workspace, sessionId))?.revision ?? 0;
     const title = await aiTitleService.generateTitle(workspace, sessionId);
-    // Persist the generated title server-side so a lost client PUT (tab closed,
-    // network drop) cannot lose it; null means no title was produced.
-    if (title) await titles.setTitle(workspace, sessionId, title);
-    return { ok: true, title };
+    if (!title) return { ok: true, title: null };
+    // The generation can outlive the session. Re-check before writing so a
+    // deleted conversation does not grow a title record again.
+    if (!(await sessionRepository.findPath(workspace, sessionId))) return { ok: true, title: null, deleted: true };
+    const applied = await titles.setTitleIfRevision(workspace, sessionId, title, expected);
+    return applied.applied ? { ok: true, title, revision: applied.revision } : { ok: true, title: null, superseded: true };
     });
   });
 
