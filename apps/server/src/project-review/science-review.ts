@@ -43,7 +43,7 @@ export async function buildScienceEvidence(cwd: string, sessionText: string, ses
     const evidence = await citationVerifyService.lookup(cwd, citations.map((citation) => `${citation.kind}:${citation.id}`));
     if (evidence.length) {
       const lines = evidence.map((item) => {
-        const state = item.retracted ? "RETRACTED" : item.status === "found" ? "verified" : "NOT FOUND";
+        const state = item.retraction === "retracted" ? "RETRACTED" : item.status === "found" ? "verified" : "NOT FOUND";
         return `- ${item.kind}:${item.id} [${state}] ${item.title ?? ""}${item.year ? ` (${item.year})` : ""}${item.journal ? `, ${item.journal}` : ""}`;
       });
       sections.push(`Verified citation evidence:\n${lines.join("\n")}`);

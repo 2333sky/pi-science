@@ -15,7 +15,7 @@ interface CitationEvidence {
   year: string | null;
   abstract: string | null;
   oa_url: string | null;
-  retracted: boolean;
+  retraction: "retracted" | "clear" | "unknown";
 }
 
 /**
@@ -56,8 +56,8 @@ export function CitationRef({ href, citationKey, children }: { href: string; cit
         {!evidence && <span className="block text-xs text-muted">{t("citation.hoverUnverified")}</span>}
         {evidence && (
           <span className="block space-y-1">
-            <span className={cn("inline-block rounded px-1.5 py-0.5 text-[10px] font-medium", evidence.retracted ? "bg-error-fill text-error-text" : evidence.status === "found" ? "bg-ok-fill text-ok-text" : "bg-warn-fill text-warn-text")}>
-              {evidence.retracted ? t("citation.hoverRetracted") : evidence.status === "found" ? t("citation.hoverVerified") : t("citation.hoverNotFound")}
+            <span className={cn("inline-block rounded px-1.5 py-0.5 text-[10px] font-medium", evidence.retraction === "retracted" ? "bg-error-fill text-error-text" : evidence.status === "found" ? "bg-ok-fill text-ok-text" : "bg-warn-fill text-warn-text")}>
+              {evidence.retraction === "retracted" ? t("citation.hoverRetracted") : evidence.status === "found" ? t("citation.hoverVerified") : t("citation.hoverNotFound")}
             </span>
             {evidence.title && <span className="block text-xs font-medium text-text">{evidence.title}</span>}
             {(evidence.authors?.length || evidence.year || evidence.journal) && (
