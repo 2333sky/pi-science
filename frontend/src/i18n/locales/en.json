@@ -1579,6 +1579,7 @@
   "sidebar.renameError": "Unable to rename conversation",
   "sidebar.regenerateTitle": "Regenerate title with AI",
   "sidebar.regenerateError": "Unable to generate a title",
+  "sidebar.generatingTitle": "Generating title",
   "sidebar.forkSession": "Fork conversation",
   "sidebar.deleteSession": "Delete conversation",
   "sidebar.loadError": "Unable to load conversations",

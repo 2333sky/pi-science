@@ -1579,6 +1579,7 @@
   "sidebar.renameError": "无法重命名会话",
   "sidebar.regenerateTitle": "AI 重新生成标题",
   "sidebar.regenerateError": "无法生成标题",
+  "sidebar.generatingTitle": "正在生成标题",
   "sidebar.forkSession": "分叉会话",
   "sidebar.deleteSession": "删除会话",
   "sidebar.loadError": "无法加载会话",

@@ -196,4 +196,65 @@ describe("conversation menu actions", () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "POST" });
   });
+
+  it("keeps the generating indicator on the row after the menu closes", async () => {
+    let release!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((done) => { release = done; })));
+    renderList();
+
+    const menu = await openMenu("Alpha");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Regenerate title with AI" }));
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+
+    // The menu is gone, the request is not: the row still says so.
+    expect(screen.getByRole("status")).toHaveTextContent("Generating title");
+    expect(screen.getByRole("button", { name: "Manage conversation: Alpha" })).toBeInTheDocument();
+
+    release(jsonResponse({ ok: true, title: "AlphaFold", revision: 1 }));
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(await screen.findByRole("button", { name: "Manage conversation: AlphaFold" })).toBeInTheDocument();
+  });
+
+  it("drops the generating indicator on failure and keeps the old title", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: false, error: "boom" }, 500)));
+    renderList();
+
+    const menu = await openMenu("Alpha");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Regenerate title with AI" }));
+
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Manage conversation: Alpha" })).toBeInTheDocument();
+    expect(await screen.findByText("Unable to generate a title")).toBeInTheDocument();
+  });
+
+  it("ends a cancelled regeneration silently", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: null, superseded: true })));
+    renderList();
+
+    const menu = await openMenu("Alpha");
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Regenerate title with AI" }));
+
+    await waitFor(() => expect(screen.queryByRole("status")).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Manage conversation: Alpha" })).toBeInTheDocument();
+    expect(screen.queryByText("Unable to generate a title")).not.toBeInTheDocument();
+  });
+
+  it("sends one rename request when Enter is pressed twice while saving", async () => {
+    let release!: (response: Response) => void;
+    const fetchMock = vi.fn(() => new Promise<Response>((done) => { release = done; }));
+    vi.stubGlobal("fetch", fetchMock);
+    renderList();
+    const input = await openRename("Alpha");
+
+    fireEvent.change(input, { target: { value: "Renamed" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(input).toBeDisabled();
+
+    release(jsonResponse({ ok: true, title: "Renamed" }));
+    expect(await screen.findByRole("button", { name: "Manage conversation: Renamed" })).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
 });

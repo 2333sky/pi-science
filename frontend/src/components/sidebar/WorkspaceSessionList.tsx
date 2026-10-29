@@ -59,6 +59,13 @@ export function WorkspaceSessionList({ cwd, query = "" }: { cwd: string; query?:
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState("");
   const [regenerating, setRegenerating] = useState<Set<string>>(new Set());
+  const [settledTitle, setSettledTitle] = useState<Set<string>>(new Set());
+  // A ref, not the state above: two Enter presses in one tick both see
+  // `renameBusy === false` before React re-renders, and each would send a PUT.
+  const renameInFlight = useRef(false);
+  const settleTimer = useRef<number | null>(null);
+
+  useEffect(() => () => { if (settleTimer.current !== null) window.clearTimeout(settleTimer.current); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,10 +138,11 @@ export function WorkspaceSessionList({ cwd, query = "" }: { cwd: string; query?:
   };
 
   const handleRename = async () => {
-    if (!renaming) return;
+    if (!renaming || renameInFlight.current) return;
     const normalized = normalizeSessionTitle(renaming.value);
     if (!normalized) return;
     if (normalized === renaming.label) { setRenaming(null); return; }
+    renameInFlight.current = true;
     setRenameBusy(true);
     setRenameError("");
     try {
@@ -144,8 +152,17 @@ export function WorkspaceSessionList({ cwd, query = "" }: { cwd: string; query?:
       // Keep the dialog and the typed text so the user can retry the same value.
       setRenameError(error instanceof Error ? error.message : t("sidebar.renameError"));
     } finally {
+      renameInFlight.current = false;
       setRenameBusy(false);
     }
+  };
+
+  /** Tint the title the AI just wrote so the row visibly settles, then fade
+   *  back. A colour change carries no motion, so reduced motion is unaffected. */
+  const showSettledTitle = (sessionId: string) => {
+    setSettledTitle((current) => new Set(current).add(sessionId));
+    if (settleTimer.current !== null) window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(() => { setSettledTitle(new Set()); settleTimer.current = null; }, 1600);
   };
 
   const handleRegenerate = async (sessionId: string) => {
@@ -153,7 +170,10 @@ export function WorkspaceSessionList({ cwd, query = "" }: { cwd: string; query?:
     setRegenerating((current) => new Set(current).add(sessionId));
     try {
       const result = await regenerateSessionTitle(cwd, sessionId, "manual");
-      if (result === "failed") toast(t("sidebar.regenerateError"), "error");
+      if (result === "applied") showSettledTitle(sessionId);
+      // `superseded` and `gone` are the server cancelling a request that no
+      // longer applies; only a real failure is worth an error toast.
+      else if (result === "failed") toast(t("sidebar.regenerateError"), "error");
     } finally {
       setRegenerating((current) => {
         const next = new Set(current);
@@ -180,8 +200,11 @@ export function WorkspaceSessionList({ cwd, query = "" }: { cwd: string; query?:
                 onClick={() => { navigate(`${workspaceRoot}/session/${session.id}`); closeSidebarOnNarrow(); }}
                 className={cn("flex h-nav min-w-0 flex-1 items-center gap-2 px-2 text-left text-ui-label", isCurrent && "font-medium")}>
                 <span aria-hidden="true" className={cn("h-1.5 w-1.5 shrink-0 rounded-full", isConnected ? "bg-accent" : "bg-transparent")} />
-                <span className="min-w-0 flex-1 truncate">{label}</span>
+                <span className={cn("min-w-0 flex-1 truncate transition-colors duration-300", settledTitle.has(session.id) && "text-accent")}>{label}</span>
               </button>
+              {/* Outside the row button so the live region is a normal element and
+                  the row's accessible name stays the title. */}
+              {regenerating.has(session.id) && <span role="status" className="shrink-0 text-muted"><Loader2 size={12} aria-hidden="true" className="animate-spin motion-reduce:animate-none" /><span className="sr-only">{t("sidebar.generatingTitle")}</span></span>}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button type="button" aria-label={t("sidebar.manageSession", { name: label })} disabled={!!deleting || !!forking}
@@ -205,7 +228,7 @@ export function WorkspaceSessionList({ cwd, query = "" }: { cwd: string; query?:
         {query.trim() && sessionsHasMore && <p className="px-2 pb-2 text-ui-micro text-muted">{t("sidebar.searchScope")}</p>}
       </div>
       {renaming && <Modal title={t("sidebar.renameSession")} onClose={() => { if (!renameBusy) setRenaming(null); }} footer={<div className="flex justify-end gap-2"><button type="button" disabled={renameBusy} onClick={() => setRenaming(null)} className="min-h-9 rounded-input border border-border px-3 text-ui-caption text-text hover:bg-surface-hover disabled:opacity-40">{t("common.cancel")}</button><button type="button" disabled={renameBusy || normalizeSessionTitle(renaming.value) === ""} onClick={() => void handleRename()} className="min-h-9 rounded-input bg-accent-fill px-3 text-ui-caption font-medium text-accent-fg disabled:opacity-40">{t("common.save")}</button></div>}>
-        <input autoFocus aria-label={t("sidebar.renameSession")} value={renaming.value} onChange={(event) => setRenaming({ ...renaming, value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void handleRename(); } }} className="min-h-10 w-full rounded-input border border-border bg-bg px-3 py-2 text-ui-label text-text outline-none focus:border-accent" />
+        <input autoFocus disabled={renameBusy} aria-label={t("sidebar.renameSession")} value={renaming.value} onChange={(event) => setRenaming({ ...renaming, value: event.target.value })} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void handleRename(); } }} className="min-h-10 w-full rounded-input border border-border bg-bg px-3 py-2 text-ui-label text-text outline-none focus:border-accent disabled:opacity-60" />
         {renameError ? <p role="alert" className="mt-2 text-ui-caption text-error-text">{renameError}</p> : <p className="mt-2 text-ui-caption text-muted">{t("sidebar.renameHint")}</p>}
       </Modal>}
     </div>
