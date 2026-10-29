@@ -130,3 +130,43 @@ Skills policy changes and refreshes affect subsequent invocations without a Work
 restart. An already admitted invocation retains its original sandbox policy.
 
 The pinned SRT 0.0.79 dependency carries a pnpm patch for macOS Seatbelt read-rule generation. When a literal parent denial is restored after the workspace allow, it excludes explicitly allowed literal child directories. This preserves enabled Skill helper reads under `.pi` while leaving sibling directories and independently denied sensitive descendants inaccessible. Literal path semantics also apply to project names containing glob characters. The platform acceptance suite runs real helper execution on both Linux and macOS; the [Skill policy benchmark](performance/skill-resources-benchmark.md) records the cost of scanning enabled resource trees on every Bash invocation.
+
+## macOS runtime dependency reads
+
+A dynamically linked runtime needs the shared libraries it loads at launch, not
+only its entry binary. The server asks `otool -L` once per binary identity and
+grants each non-system library file plus the file its symlinks resolve to. An
+allow entry compiles to a Seatbelt subpath grant, so a library's parent
+directory cannot be granted. Granting `opt`, the Homebrew prefix or a Cellar
+`lib` directory would expose every sibling file beneath it, including the
+configuration files Homebrew keeps in `etc`. When `otool` cannot list a binary's
+libraries, the installation's own `lib` prefix is granted instead, which is
+still one installation rather than a shared parent.
+
+Traversal is separate from content. Seatbelt checks `file-read-metadata` on
+every vnode a loader walks, and a symlinked component such as
+`opt/<formula>` is neither a file nor a directory. The pinned SRT patch emits
+that metadata allow for the link components of an allowed path, as literal
+filters, so a link is traversable while the target's contents stay behind the
+read denies.
+
+Residual risk, measured on macOS 15.6 with the real Seatbelt backend:
+
+- Link components of a granted library become observable. `lstat`, `readlink`
+  and `existsSync` report that the link and its target path exist, and where the
+  link points. Directory entry names beneath the target stay unlistable and
+  file contents stay unreadable.
+- SRT emits `(allow file-read-metadata (vnode-type DIRECTORY))` whenever any read
+  deny exists, and later rules win, so directory entry names are readable
+  system-wide, including `/opt/homebrew`, `/Users` and `/etc`, even with no
+  dependency grant at all. File contents in those directories stay denied. This
+  is upstream 0.0.79 behavior, not a grant this repository adds, and removing it
+  breaks `realpath()` through denied regions.
+- The grant is computed from the binary when a sandbox is prepared and cached on
+  its modification time and size. Replacing a library after preparation is
+  outside this model.
+
+`apps/server/src/runtime/sandbox/platform-acceptance.test.ts` holds the real
+macOS regression. A fixture Homebrew-shaped prefix whose `opt` entry is a symlink
+must load its library while a file beside that library, a file reached through
+the link, and `/etc/passwd` all stay unreadable.
