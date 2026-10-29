@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -43,6 +43,23 @@ describe("isReportTurn", () => {
 });
 
 describe("buildScienceEvidence", () => {
+  it("reports every citation in the text, including the ones with no snapshot", async () => {
+    const cwd = await makeWorkspace();
+    await writeFile(join(cwd, ".pi-science/citations.jsonl"), `${JSON.stringify({
+      schema: 2, kind: "doi", id: "10.1038/verified", status: "found", title: "Verified Paper", authors: ["Ada Lovelace"], journal: "Nature", year: "2024",
+      abstract: "A measured summary of the recorded result.", oa_url: null, retraction: "clear", retraction_note: null, retraction_url: null,
+      checked_providers: ["crossref"], record_version: null, status_note: null, verified_at: new Date().toISOString(),
+    })}\n`);
+    const evidence = await buildScienceEvidence(cwd, "Cites 10.1038/verified, 10.9999/unchecked-one and arXiv:2401.99999v1 here.", "s1");
+    expect(evidence).toContain("doi:10.1038/verified [verified] Verified Paper (2024), Nature");
+    // The reviewer needs the source's own words, and the limits of them.
+    expect(evidence).toContain("A measured summary of the recorded result.");
+    expect(evidence).toContain("never that the source supports the sentence citing it");
+    // A cached snapshot must never let the other citations disappear from the report.
+    expect(evidence).toContain("doi:10.9999/unchecked-one [NOT CHECKED]");
+    expect(evidence).toContain("arxiv:2401.99999v1 [NOT CHECKED]");
+  });
+
   it("reports unverified citations and missing executions honestly", async () => {
     const cwd = await makeWorkspace();
     const evidence = await buildScienceEvidence(cwd, "Cites 10.9999/unknown here.", "s1");
