@@ -616,7 +616,7 @@ describe("runtime event subscription", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const { createClient } = await import("../client/pi-science-client");
-    const title = await createClient("").generateSessionTitle("session-a", "/workspace");
+    const title = await createClient("").generateSessionTitle("session-a", "/workspace", false);
     expect(title).toBe("单细胞数据 QC 分析");
   });
 

@@ -326,12 +326,15 @@ export async function respondToInteraction(
   }
 }
 
-/** Ask the control plane to generate an AI title for a session (Pi runtime). */
-export async function generateSessionTitle(baseUrl: string, sessionId: string, cwd: string): Promise<string | null> {
+/** Ask the control plane to generate an AI title for a session (Pi runtime).
+ *  `manual` records who asked: the server only guards a running session for a
+ *  user-requested regenerate, because the settled-turn trigger fires while the
+ *  live table may still report busy. */
+export async function generateSessionTitle(baseUrl: string, sessionId: string, cwd: string, manual: boolean): Promise<string | null> {
   const res = await request(`${baseUrl}/api/sessions/${encodeURIComponent(sessionId)}/title?cwd=${encodeURIComponent(cwd)}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: "{}",
+    body: JSON.stringify({ manual }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || data.ok === false) {

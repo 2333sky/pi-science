@@ -71,7 +71,7 @@ export async function regenerateSessionTitle(cwd: string, sessionId: string, sou
   const epoch = titleWriteEpoch(cwd, sessionId);
   let title: string | null;
   try {
-    title = await getClient().generateSessionTitle(sessionId, cwd);
+    title = await getClient().generateSessionTitle(sessionId, cwd, source === "manual");
   } catch {
     return "failed";
   }

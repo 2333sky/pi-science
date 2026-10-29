@@ -184,8 +184,8 @@ export class PiScienceClient {
   }
 
   /** Ask the control plane to generate an AI title via an isolated Pi runtime. */
-  async generateSessionTitle(sessionId: string, cwd: string): Promise<string | null> {
-    return rest.generateSessionTitle(this.baseUrl, sessionId, cwd);
+  async generateSessionTitle(sessionId: string, cwd: string, manual: boolean): Promise<string | null> {
+    return rest.generateSessionTitle(this.baseUrl, sessionId, cwd, manual);
   }
 
   // ── SSE ──
