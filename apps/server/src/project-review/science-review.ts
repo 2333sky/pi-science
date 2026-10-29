@@ -10,8 +10,7 @@
  * Off by default; enabled with PI_SCIENCE_SCIENCE_REVIEW=1 or a manual
  * endpoint call, which works regardless of the automatic gate.
  */
-import { citationVerifyService } from "../runtime/citations/citation-verify-service.js";
-import { extractCitations } from "../runtime/citations/citation-verify-service.js";
+import { citationVerifyService, extractCitations, MAX_CITATIONS_PER_CALL, type CitationView } from "../runtime/citations/citation-verify-service.js";
 import { executionRepository } from "../runtime/executions/execution-repository.js";
 import type { ConversationExcerpt } from "./types.js";
 
@@ -33,6 +32,26 @@ export function isReportTurn(text: string): boolean {
   return [...text.matchAll(REPORT_PATH_PATTERN)].length >= 2;
 }
 
+/** One citation as the reviewer sees it: what the sources answered, whether
+ *  the snapshot describes the cited version, and where it disagrees with the
+ *  reference entry the answer printed. */
+function citationEvidenceLine(view: CitationView): string {
+  const state = view.retraction === "retracted" ? "RETRACTED"
+    : view.status === "unchecked" ? "NOT CHECKED"
+    : view.status === "not_found" ? `NOT FOUND in ${view.checked_providers.join(", ") || "the queried sources"}`
+    : view.status === "error" ? `CHECK FAILED${view.error ? ` (${view.error})` : ""}`
+    : "verified";
+  const record = [view.title, view.year ? `(${view.year})` : null].filter(Boolean).join(" ") + (view.journal ? `, ${view.journal}` : "");
+  const abstract = view.abstract ? ` Abstract (source summary, truncated): ${view.abstract.slice(0, 240)}${view.abstract.length > 240 ? "…" : ""}` : "";
+  const notes = [
+    view.status === "found" && view.kind === "arxiv" ? (view.version === "confirmed" ? `version ${view.requested_version} confirmed` : view.requested_version ? `cited version ${view.requested_version} not confirmed (record has ${view.record_version ?? "an unknown version"})` : "no version cited") : "",
+    view.bibliographic === "match" ? "reference entry matches the record" : view.bibliographic === "mismatch" ? `reference entry does not match the record: ${view.bibliographic_note ?? ""}` : "",
+    view.retraction === "retracted" && view.retraction_url ? `notice: ${view.retraction_url}` : "",
+    view.status_note ?? "",
+  ].filter(Boolean);
+  return `- ${view.kind}:${view.requested_id} [${state}] ${record ? `${record}.` : "No bibliographic record."}${abstract}${notes.length ? ` [${notes.join("; ")}]` : ""}`;
+}
+
 /** Assemble the evidence pack for the reviewer: citation snapshots (from the
  *  free-API verification cache) plus the session's recent execution records. */
 export async function buildScienceEvidence(cwd: string, sessionText: string, sessionId: string): Promise<string> {
@@ -40,16 +59,19 @@ export async function buildScienceEvidence(cwd: string, sessionText: string, ses
 
   const citations = extractCitations(sessionText);
   if (citations.length) {
-    const evidence = await citationVerifyService.lookup(cwd, citations.map((citation) => `${citation.kind}:${citation.id}`));
-    if (evidence.length) {
-      const lines = evidence.map((item) => {
-        const state = item.retraction === "retracted" ? "RETRACTED" : item.status === "found" ? "verified" : "NOT FOUND";
-        return `- ${item.kind}:${item.id} [${state}] ${item.title ?? ""}${item.year ? ` (${item.year})` : ""}${item.journal ? `, ${item.journal}` : ""}`;
-      });
-      sections.push(`Verified citation evidence:\n${lines.join("\n")}`);
-    } else {
-      sections.push(`Citation evidence: ${citations.length} citation(s) in the text have NOT been verified (no snapshots). Ask the agent to run verify_citations.`);
-    }
+    // Report every citation the text carries, not only the cached ones: a
+    // snapshot for one DOI must never make the rest of the list look checked.
+    const verification = await citationVerifyService.lookupText(cwd, { text: sessionText });
+    const unchecked = verification.citations.filter((view) => view.status === "unchecked").length;
+    sections.push([
+      "Citation evidence, one line per citation in the report:",
+      ...verification.citations.map(citationEvidenceLine),
+      verification.unprocessed.length
+        ? `NOT CHECKED (over the ${MAX_CITATIONS_PER_CALL} per-call verification limit): ${verification.unprocessed.map((ref) => `${ref.kind}:${ref.requested_id}`).join(", ")}`
+        : "",
+      unchecked ? `${unchecked} citation(s) in the text have NOT been verified (no snapshots). Ask the agent to run verify_citations.` : "",
+      "Limits: a found record, an abstract or a matching reference entry shows what the source is, never that the source supports the sentence citing it. Treat an unchecked or failed lookup as unknown, and a missing retraction notice as unknown rather than cleared.",
+    ].filter(Boolean).join("\n"));
   }
 
   const executions = await executionRepository.list(cwd, { session_id: sessionId, limit: MAX_EVIDENCE_EXECUTIONS });
