@@ -6,11 +6,11 @@ import { create } from "zustand";
 // The store handle, not the barrel: session replacement reads this module, and
 // reaching it through the barrel would close an import cycle.
 import { useRuntimeStore } from "../agent-runtime/store";
+import type { MessageQuoteKind, MessageQuoteRole } from "./quoted-message";
 
+export type { MessageQuoteKind, MessageQuoteRole } from "./quoted-message";
 export interface MessageQuoteScope { workspaceCwd: string; sessionId: string; }
-export type MessageQuoteRole = "user" | "agent";
 export interface MessageQuoteSource extends MessageQuoteScope { blockId: string; role: MessageQuoteRole; }
-export type MessageQuoteKind = "message" | "selection";
 export interface MessageQuote {
   source: MessageQuoteSource;
   kind: MessageQuoteKind;
@@ -58,6 +58,7 @@ export function selectedTextWithin(element: HTMLElement): string | null {
 export interface MessageQuoteState {
   quotes: Record<string, MessageQuote>;
   setQuote: (quote: MessageQuote) => void;
+  clearQuote: (scope: MessageQuoteScope) => void;
   migrateSession: (scope: MessageQuoteScope, newSessionId: string) => void;
 }
 
@@ -66,6 +67,15 @@ export interface MessageQuoteState {
 export const useMessageQuoteStore = create<MessageQuoteState>((set) => ({
   quotes: {},
   setQuote: (quote) => set((state) => ({ quotes: { ...state.quotes, [quoteKey(quote.source)]: quote } })),
+  // Only the conversation the quote belongs to is touched, so a removal can
+  // never drop the quote another conversation is composing with.
+  clearQuote: (scope) => set((state) => {
+    const key = quoteKey(scope);
+    if (!state.quotes[key]) return state;
+    const quotes = { ...state.quotes };
+    delete quotes[key];
+    return { quotes };
+  }),
   // A runtime restart re-issues the session id for a conversation the user never
   // left. Without this the key misses and the pending quote disappears as if
   // they had walked away, which the isolation rule does not ask for.

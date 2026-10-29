@@ -16,6 +16,7 @@ import { CitationChips } from "./CitationChips";
 import { parseSuggestions } from "../../lib/conversation";
 import { MessageActions, MessageSelectionQuoteMenu, type MessageSelectionAnchor } from "./MessageActions";
 import { buildMessageQuote, selectedTextWithin, useMessageQuoteStore, type MessageQuoteScope, type MessageQuoteSource } from "../../lib/conversation/message-quote";
+import { messageAnchorId, quotedMessagesFromMessage } from "../../lib/conversation/quoted-message";
 import { buildTurnPresentations, turnBlockIds, type TurnPresentation } from "../../lib/conversation/turn-presentation";
 import { AgentActivity } from "./AgentActivity";
 import { isLiveLifecycle } from "../../lib/conversation/turn-presentation";
@@ -64,8 +65,19 @@ function UserMessage({ block, scope }: { block: UserMessageBlock; scope: Message
   const references = referencesFromMessage(block.text);
   const copyText = visibleText || references.map((reference) => reference.path).join("\n");
   const selection = useMessageSelection({ blockId: block.id, role: "user", ...scope }, visibleText);
+  const quoted = quotedMessagesFromMessage(block.text);
   return (
-    <div id={`user-msg-${block.id}`} className="group/message ml-auto flex max-w-[min(var(--user-message-width),82%)] scroll-mt-4 flex-col items-end gap-1">
+    <div id={messageAnchorId({ blockId: block.id, role: "user" })} className="group/message ml-auto flex max-w-[min(var(--user-message-width),82%)] scroll-mt-4 flex-col items-end gap-1">
+      {/* The quote is part of the sent message, so it stays readable here: what
+          the model received is what the transcript shows. */}
+      {quoted.map((item, index) => <div key={index} className="max-w-full rounded-input border-l-2 border-accent/40 bg-surface-2/60 px-2 py-1 text-left">
+        <div className="text-[10px] text-accent">
+          {item.role === "user" ? t("conversation.quoteCardFromUser") : t("conversation.quoteCardFromAgent")}
+          {" · "}
+          {item.kind === "selection" ? t("conversation.quoteCardSelection") : t("conversation.quoteCardMessage")}
+        </div>
+        <div className="mt-0.5 max-h-40 overflow-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-muted">{item.text}</div>
+      </div>)}
       {block.images && block.images.length > 0 && <div className="flex max-w-full flex-wrap justify-end gap-2" aria-label={t("conversation.attachedImages")}>
         {block.images.map((image, index) => <img key={`${image.mimeType}-${index}`} src={`data:${image.mimeType};base64,${image.data}`} alt={`Attachment ${index + 1}`} className="max-h-64 max-w-full rounded-input border border-border object-contain" />)}
       </div>}
@@ -90,7 +102,7 @@ function AgentMessage({ block, actionText, codeRunner, pinnedReferences, scope }
   const selection = useMessageSelection({ blockId: block.id, role: "agent", ...scope }, text);
   if (!rawText) return null;
   const citations = extractCitations(text);
-  return <div className="group/message">
+  return <div className="group/message" id={messageAnchorId({ blockId: block.id, role: "agent" })}>
     <div ref={selection.ref}><MarkdownViewer variant="chat" codeRunner={codeRunner} mode={block.partial ? "streaming" : "final"} pinnedReferences={pinnedReferences}>{text}</MarkdownViewer></div>
     {selection.selection && <MessageSelectionQuoteMenu selection={selection.selection} onQuote={selection.quote} />}
     {citations.length > 0 && <CitationChips citations={citations} text={text} streaming={block.partial} />}
