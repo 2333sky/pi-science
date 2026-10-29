@@ -25,6 +25,17 @@ describe("remarkCitations", () => {
     expect(link!.data!.hProperties).toMatchObject({ dataCitation: "arxiv:2401.12345" });
   });
 
+  it("keeps the cited arXiv version in the request key and the link", () => {
+    const nodes = run("See arXiv:2401.12345v2 and arXiv:2401.12345v1.");
+    const links = nodes.filter((node) => node.type === "link");
+    expect(links.map((node) => node.url)).toEqual(["https://arxiv.org/abs/2401.12345v2", "https://arxiv.org/abs/2401.12345v1"]);
+    // The evidence lookup reports whether the snapshot describes the version
+    // the answer cites, so the request key carries the version while the
+    // visible text stays exactly what the model wrote.
+    expect(links.map((node) => (node.data!.hProperties as { dataCitation: string }).dataCitation)).toEqual(["arxiv:2401.12345v2", "arxiv:2401.12345v1"]);
+    expect(links.map((node) => node.children![0]!.value)).toEqual(["arXiv:2401.12345v2", "arXiv:2401.12345v1"]);
+  });
+
   it("keeps surrounding prose intact", () => {
     const nodes = run("Before 10.1/none-matching here after.");
     expect(nodes.every((node) => node.type === "text")).toBe(true);
