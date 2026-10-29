@@ -5,7 +5,7 @@ settings:
   excludeLinksFromLockfile: false
 
 patchedDependencies:
-  '@anthropic-ai/sandbox-runtime@0.0.79': 648a4c80d221e120b57f6a0e1c40bf93c62410db1f15ca950e8862837d08f492
+  '@anthropic-ai/sandbox-runtime@0.0.79': f15ddb61c3b9f687fc820a338d45f723fac4e0261242fed9db25a1f605fcd740
 
 importers:
 
@@ -15,7 +15,7 @@ importers:
     dependencies:
       '@anthropic-ai/sandbox-runtime':
         specifier: 0.0.79
-        version: 0.0.79(patch_hash=648a4c80d221e120b57f6a0e1c40bf93c62410db1f15ca950e8862837d08f492)
+        version: 0.0.79(patch_hash=f15ddb61c3b9f687fc820a338d45f723fac4e0261242fed9db25a1f605fcd740)
       '@earendil-works/pi-agent-core':
         specifier: 0.99.2
         version: 0.99.2(@aws-sdk/credential-provider-node@3.972.84)(@modelcontextprotocol/sdk@1.30.0(zod@4.4.3))(@smithy/signature-v4@5.7.4)(undici@7.29.0)(ws@8.21.1)(zod@4.4.3)
@@ -4961,7 +4961,7 @@ snapshots:
 
   '@alloc/quick-lru@5.2.0': {}
 
-  '@anthropic-ai/sandbox-runtime@0.0.79(patch_hash=648a4c80d221e120b57f6a0e1c40bf93c62410db1f15ca950e8862837d08f492)':
+  '@anthropic-ai/sandbox-runtime@0.0.79(patch_hash=f15ddb61c3b9f687fc820a338d45f723fac4e0261242fed9db25a1f605fcd740)':
     dependencies:
       '@pondwader/socks5-server': 1.0.10
       commander: 12.1.0
