@@ -18,11 +18,11 @@ describe("remarkCitations", () => {
     expect(link!.data!.hProperties).toMatchObject({ dataCitation: "doi:10.1038/s41586-025-10072-4" });
   });
 
-  it("wraps arXiv ids without the version suffix", () => {
+  it("wraps arXiv ids with the cited version", () => {
     const nodes = run("See arXiv:2401.12345v2 for details.");
     const link = nodes.find((node) => node.type === "link");
-    expect(link).toMatchObject({ url: "https://arxiv.org/abs/2401.12345" });
-    expect(link!.data!.hProperties).toMatchObject({ dataCitation: "arxiv:2401.12345" });
+    expect(link).toMatchObject({ url: "https://arxiv.org/abs/2401.12345v2" });
+    expect(link!.data!.hProperties).toMatchObject({ dataCitation: "arxiv:2401.12345v2" });
   });
 
   it("keeps the cited arXiv version in the request key and the link", () => {

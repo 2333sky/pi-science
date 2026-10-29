@@ -8,6 +8,7 @@
 const DOI_PATTERN = /10\.\d{4,9}\/[^\s)\]}>\u2010-\u2027\u2030-\u205e\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]+/gi;
 const ARXIV_PATTERN = /arXiv:\s?(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
 const TRAILING = /[.,;:!?*"'\u2010-\u2027\u2030-\u205e\u3000-\u303f\uff00-\uffef]+$/;
+const ARXIV_VERSION = /v\d+$/i;
 
 type MdNode = { type?: string; value?: string; url?: string; children?: MdNode[]; data?: { hProperties?: Record<string, unknown> } };
 
@@ -18,20 +19,25 @@ export function remarkCitations() {
       const node = nodes[index]!;
       if (node.type === "text" && parent && typeof node.value === "string") {
         const value = node.value;
-        const matches: Array<{ start: number; end: number; id: string; kind: "doi" | "arxiv"; url: string; label: string }> = [];
+        const matches: Array<{ start: number; end: number; id: string; requestedId: string; kind: "doi" | "arxiv"; url: string; label: string }> = [];
         for (const pattern of [DOI_PATTERN, ARXIV_PATTERN]) {
           for (const match of value.matchAll(pattern)) {
             const raw = match[0];
             const cleaned = raw.replace(TRAILING, "");
             if (pattern === DOI_PATTERN && cleaned.endsWith("/")) continue;
-            const id = pattern === DOI_PATTERN ? cleaned.toLowerCase() : (match[1] ?? "").replace(/v\d+$/, "");
+            // `id` stays the version-less source identity the cache and dedupe
+            // keys use; `requestedId` is the identifier as cited, so the hover
+            // lookup can report whether its snapshot describes that version.
+            const id = pattern === DOI_PATTERN ? cleaned.toLowerCase() : (match[1] ?? "").replace(ARXIV_VERSION, "");
+            const requestedId = pattern === DOI_PATTERN ? id : (match[1] ?? "");
             if (!id) continue;
             matches.push({
               start: match.index ?? 0,
               end: (match.index ?? 0) + cleaned.length,
               id,
+              requestedId,
               kind: pattern === DOI_PATTERN ? "doi" : "arxiv",
-              url: pattern === DOI_PATTERN ? `https://doi.org/${cleaned}` : `https://arxiv.org/abs/${id}`,
+              url: pattern === DOI_PATTERN ? `https://doi.org/${cleaned}` : `https://arxiv.org/abs/${requestedId}`,
               label: cleaned,
             });
           }
@@ -47,7 +53,7 @@ export function remarkCitations() {
             type: "link",
             url: match.url,
             children: [{ type: "text", value: match.label }],
-            data: { hProperties: { className: ["citation-ref"], dataCitation: `${match.kind}:${match.id}` } },
+            data: { hProperties: { className: ["citation-ref"], dataCitation: `${match.kind}:${match.requestedId}` } },
           });
           cursor = match.end;
         }
