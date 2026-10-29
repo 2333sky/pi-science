@@ -24,6 +24,7 @@
   "office.truncatedPrefix": "Showing first {{count}} rows",
   "filePreview.inspectWithoutLoading": "Inspect file structure without loading full content",
   "filePreview.publishedVersion": "Published {{version}}",
+  "filePreview.latestPublishedVersion": "Latest published {{version}}",
   "filePreview.pointer.format": "Format",
   "filePreview.pointer.size": "Size",
   "filePreview.pointer.rows": "Rows",
@@ -1823,5 +1824,6 @@
   "diff.column": "Column",
   "diff.before": "Before",
   "diff.after": "After",
-  "diff.showLineDiff": "Show line diff"
+  "diff.showLineDiff": "Show line diff",
+  "diff.cellsUnavailable": "Cell-level changes are unavailable because a quoted field is not closed. Showing the line diff only."
 }

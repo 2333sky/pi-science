@@ -294,7 +294,7 @@ export function FilePreviewInspector({
     <div className="flex h-full flex-col">
       <header className={cn("preview-toolbar", compactHeader ? "min-h-9" : "min-h-12")}>
         {showTitle && <span className="truncate text-sm font-medium text-text">{data.filename}</span>}
-        {data.sha256 && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">{t("filePreview.publishedVersion", { version: data.version ? `v${data.version}` : data.sha256.slice(0, 8) })}</span>}
+        {data.sha256 && <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">{t(data.versionSource === "latest" ? "filePreview.latestPublishedVersion" : "filePreview.publishedVersion", { version: data.version ? `v${data.version}` : data.sha256.slice(0, 8) })}</span>}
         <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">
           {data.artifact || t("filePreview.file")}
         </span>

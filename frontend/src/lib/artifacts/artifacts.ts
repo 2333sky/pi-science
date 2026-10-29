@@ -11,9 +11,10 @@ import type {
   FilePreviewInspector,
   NotebookFileInspector,
   ThreadBlock,
+  TurnArtifactItem,
 } from "../../types/thread";
 import { toWorkspaceRelativePath } from "../files/workspace-path";
-import { findPublishedVersion } from "./artifact-versions";
+import { resolvePublishedVersion, type PublishedReference } from "./artifact-versions";
 
 // Re-export so existing imports from artifacts.ts keep working
 export type { ArtifactKind, ArtifactBlock, ArtifactVersion, ArtifactInspector, FilePreviewInspector, NotebookFileInspector };
@@ -267,26 +268,45 @@ export function resolveArtifactContent(
   };
 }
 
+/** Version identities a turn published, keyed by workspace path. Rendering a
+ *  message from that turn pins its references to these versions instead of
+ *  whatever is newest when the user clicks. */
+export function pinnedReferenceMap(artifacts: readonly TurnArtifactItem[]): ReadonlyMap<string, PublishedReference> {
+  const map = new Map<string, PublishedReference>();
+  for (const item of artifacts) {
+    if (item.version === undefined && !item.sha256) continue;
+    map.set(normalizeArtifactPath(item.path), {
+      ...(item.artifactId ? { artifactId: item.artifactId } : {}),
+      ...(item.version !== undefined ? { version: item.version } : {}),
+      ...(item.sha256 ? { sha256: item.sha256 } : {}),
+    });
+  }
+  return map;
+}
+
 /**
- * Resolve a chat or prose file reference to its newest published artifact
- * version, pinning the inspector to that version's immutable bytes so later
- * workspace edits cannot silently change what the reference shows. Falls back
- * to the live file when the path was never published.
+ * Resolve a chat or prose file reference to the published artifact version it
+ * names, pinning the inspector to that version's immutable bytes so later
+ * workspace edits cannot silently change what the reference shows. Without a
+ * named version the newest published one is used and reported as such. Falls
+ * back to the live file when the path was never published.
  */
 export async function pinnedFileInspector(
   path: string,
   filename = path.split("/").pop() || path,
   root?: FileRoot,
   cwd?: string,
+  reference?: PublishedReference,
 ): Promise<FilePreviewInspector | NotebookFileInspector> {
   const inspector = fileInspectorForPath(path, filename, root, cwd);
   if (inspector.variant !== "file" || !cwd) return inspector;
-  const published = await findPublishedVersion(cwd, path);
-  if (!published) return inspector;
+  const resolved = await resolvePublishedVersion(cwd, path, reference);
+  if (!resolved) return inspector;
   return {
     ...inspector,
-    sha256: published.sha256,
-    version: published.version,
-    artifactId: published.artifact_id,
+    sha256: resolved.ref.sha256,
+    version: resolved.ref.version,
+    artifactId: resolved.ref.artifact_id,
+    versionSource: resolved.source,
   };
 }

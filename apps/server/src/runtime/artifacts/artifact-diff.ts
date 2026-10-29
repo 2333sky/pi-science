@@ -38,6 +38,8 @@ export type ArtifactDiff =
       cells: Array<{ row: number; column: string; from: string; to: string }>;
       hunks: DiffHunk[];
       truncated: boolean;
+      /** Set when quoted fields could not be parsed, so only row-level hunks are reported. */
+      cells_unavailable?: "unbalanced_quotes";
     }
   | {
       kind: "image";
@@ -169,14 +171,52 @@ function toHunks(lines: DiffLine[]): DiffHunk[] {
   return hunks;
 }
 
-/** Cell-level changes for aligned replacement blocks of a delimited table. */
-function tableCells(fromLines: string[], toLines: string[], lines: DiffLine[], delimiter: string): { cells: Array<{ row: number; column: string; from: string; to: string }>; rowsAdded: number; rowsRemoved: number; truncated: boolean } {
+/** Split a delimited table into records, honouring RFC 4180 quoting: a quoted
+ *  field may hold the delimiter, a line break, or a doubled quote. Returns null
+ *  when a quote never closes, because the rows cannot be recovered without
+ *  guessing; the caller then reports the row-level line diff alone. */
+function parseDelimitedRecords(text: string, delimiter: string): string[][] | null {
+  const records: string[][] = [];
+  let record: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i]!;
+    if (quoted) {
+      if (ch !== '"') field += ch;
+      else if (text[i + 1] === '"') { field += '"'; i += 1; }
+      else quoted = false;
+      continue;
+    }
+    if (ch === '"' && field === "") { quoted = true; continue; }
+    if (ch === delimiter) { record.push(field); field = ""; continue; }
+    if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i += 1;
+      record.push(field);
+      records.push(record);
+      record = [];
+      field = "";
+      continue;
+    }
+    field += ch;
+  }
+  if (quoted) return null;
+  if (field !== "" || record.length > 0) { record.push(field); records.push(record); }
+  return records;
+}
+
+/** Cell-level changes for aligned replacement blocks of a parsed table. Rows are
+ *  aligned by record content, so one quoted field holding the delimiter or a
+ *  line break stays one cell on one row. */
+function tableCells(fromRecords: string[][], toRecords: string[][]): { cells: Array<{ row: number; column: string; from: string; to: string }>; rowsAdded: number; rowsRemoved: number; truncated: boolean } {
   const cells: Array<{ row: number; column: string; from: string; to: string }> = [];
   let rowsAdded = 0;
   let rowsRemoved = 0;
-  let truncated = false;
   // Pair consecutive -/+ runs and compare per column; the first row supplies headers.
-  const headersOf = (rows: string[]) => (rows[0] ? rows[0].split(delimiter) : []);
+  const headers = fromRecords[0] ?? [];
+  const rowKey = (record: string[]) => JSON.stringify(record);
+  const recordsByKey = new Map<string, string[]>([...fromRecords, ...toRecords].map((record) => [rowKey(record), record]));
+  const { lines, truncated } = lineDiff(fromRecords.map(rowKey), toRecords.map(rowKey));
   let index = 0;
   let rowNumber = 0;
   while (index < lines.length) {
@@ -189,15 +229,14 @@ function tableCells(fromLines: string[], toLines: string[], lines: DiffLine[], d
       while (index < lines.length && lines[index]!.type === "+") { added.push(lines[index]!.text); index += 1; }
       rowsRemoved += removed.length - Math.min(removed.length, added.length);
       rowsAdded += added.length - Math.min(removed.length, added.length);
-      const headers = headersOf(fromLines);
       for (let k = 0; k < Math.min(removed.length, added.length); k += 1) {
-        const fromCells = removed[k]!.split(delimiter);
-        const toCells = added[k]!.split(delimiter);
+        const fromCells = recordsByKey.get(removed[k]!) ?? [];
+        const toCells = recordsByKey.get(added[k]!) ?? [];
         for (let column = 0; column < Math.max(fromCells.length, toCells.length); column += 1) {
           const from = fromCells[column] ?? "";
           const to = toCells[column] ?? "";
           if (from === to) continue;
-          if (cells.length >= MAX_DIFF_CELLS) { truncated = true; return { cells, rowsAdded, rowsRemoved, truncated }; }
+          if (cells.length >= MAX_DIFF_CELLS) return { cells, rowsAdded, rowsRemoved, truncated: true };
           cells.push({ row: rowNumber + k + 1, column: headers[column] ?? `#${column + 1}`, from, to });
         }
       }
@@ -239,17 +278,20 @@ export async function diffArtifactVersions(cwd: string, from: DiffableManifest, 
   const hunks = toHunks(lines);
   if (kind === "table") {
     const delimiter = extensionOf(to.path) === "tsv" ? "\t" : ",";
-    const table = tableCells(fromLines, toLines, lines, delimiter);
+    const fromRecords = parseDelimitedRecords(fromText, delimiter);
+    const toRecords = parseDelimitedRecords(toText, delimiter);
+    const table = fromRecords && toRecords ? tableCells(fromRecords, toRecords) : null;
     return {
       kind: "table",
       from_version: from.version,
       to_version: to.version,
       delimiter,
-      rows_added: table.rowsAdded,
-      rows_removed: table.rowsRemoved,
-      cells: table.cells,
+      rows_added: table?.rowsAdded ?? 0,
+      rows_removed: table?.rowsRemoved ?? 0,
+      cells: table?.cells ?? [],
+      ...(table ? {} : { cells_unavailable: "unbalanced_quotes" as const }),
       hunks,
-      truncated: truncated || table.truncated,
+      truncated: truncated || (table?.truncated ?? false),
     };
   }
   return { kind: "text", from_version: from.version, to_version: to.version, hunks, from_lines: fromLines.length, to_lines: toLines.length, truncated };
