@@ -20,6 +20,8 @@ import { InteractionBridge } from "../agent/worker/interaction-bridge.js";
 import { builtinMcpConnectors } from "../../mcp/builtin-connectors.js";
 
 const roots: string[] = [];
+/** The Homebrew prefix this server runs from, when node came from a keg. */
+const homebrewPrefix = /^(.*)\/Cellar\//.exec(process.execPath)?.[1];
 const managers: NodeKernelManager[] = [];
 afterEach(async () => { await Promise.all(managers.splice(0).map((manager) => manager.shutdownAll())); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function fixture() { const root = await mkdtemp(join(await realpath("/tmp"), "ps-accept-")); roots.push(root); return root; }
@@ -214,6 +216,16 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
       "printf probes-done",
     ].join(" && ")], [app]);
     expect(probes, probes.stderr).toMatchObject({ code: 0, stdout: "probes-done" });
+  }, 60_000);
+  it.skipIf(process.platform !== "darwin" || !homebrewPrefix)("runs a Homebrew runtime whose libraries sit behind Cellar links", async () => {
+    const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    // A real keg run adds what a compiled fixture cannot: libnode behind
+    // @rpath, a formula linking another formula, a dylib named through a
+    // symlink whose target names a different file, and the keg's openssl.cnf.
+    const probe = `const fs=require('node:fs');const read=(path)=>{try{fs.readFileSync(path);return true}catch{return false}};const list=(path)=>{try{fs.readdirSync(path);return true}catch{return false}};process.stdout.write(JSON.stringify({runtime:process.versions.node,prefixRead:read(${JSON.stringify(join(homebrewPrefix!, "bin/brew"))}),prefixListing:list(${JSON.stringify(homebrewPrefix)}),passwdRead:read('/etc/passwd')}))`;
+    const result = await execute(cwd, [process.execPath, "-e", probe], [process.execPath]);
+    expect(result, result.stderr).toMatchObject({ code: 0 });
+    expect(JSON.parse(result.stdout)).toEqual({ runtime: process.versions.node, prefixRead: false, prefixListing: false, passwdRead: false });
   }, 60_000);
   it("confines a real MCP server while passing only its own explicitly bound credential", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("OPENAI_API_KEY", "host-model-key");

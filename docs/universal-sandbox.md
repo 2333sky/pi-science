@@ -134,14 +134,31 @@ The pinned SRT 0.0.79 dependency carries a pnpm patch for macOS Seatbelt read-ru
 ## macOS runtime dependency reads
 
 A dynamically linked runtime needs the shared libraries it loads at launch, not
-only its entry binary. The server asks `otool -L` once per binary identity and
-grants each non-system library file plus the file its symlinks resolve to. An
-allow entry compiles to a Seatbelt subpath grant, so a library's parent
-directory cannot be granted. Granting `opt`, the Homebrew prefix or a Cellar
-`lib` directory would expose every sibling file beneath it, including the
-configuration files Homebrew keeps in `etc`. When `otool` cannot list a binary's
-libraries, the installation's own `lib` prefix is granted instead, which is
-still one installation rather than a shared parent.
+only its entry binary, and one `otool -L` level is not the load closure: a
+Homebrew formula links further formulae, and dyld aborts on the first library no
+grant covers. The server walks the closure once per binary identity and grants,
+for each non-system library, the file the loader writes, the file its symlinks
+resolve to, and the `lib` directory of that library's own keg
+(`<prefix>/Cellar/<formula>/<version>/lib`).
+
+The keg `lib` directory is the one deliberate directory grant. A Homebrew dylib
+is usually a symlink to a versioned file (`libllhttp.9.4.dylib ->
+libllhttp.9.4.1.dylib`), and Seatbelt matches a symlinked leaf at the path its
+parent resolves to, which no filter written in the loader's spelling can name.
+The alternative is granting the shared prefix; one keg's `lib` directory holds
+that one installation and nothing else.
+
+The keg's startup configuration is granted the same way: the top-level files of
+`<prefix>/etc/<formula>`, never the directory and never the prefix `etc` tree.
+OpenSSL refuses to start a Homebrew node without the `openssl.cnf` that the keg
+itself does not ship.
+
+The shared prefix is never granted. `/opt`, `/opt/homebrew`, `/opt/homebrew/opt`,
+`/opt/homebrew/bin` and `/opt/homebrew/etc` stay out of the read set, so
+neighbouring packages, package state and unrelated configuration stay
+unreadable. When `otool` cannot list a binary's libraries, the installation's own
+`lib` prefix is granted instead, which is still one installation rather than a
+shared parent.
 
 Traversal is separate from content. Seatbelt checks `file-read-metadata` on
 every vnode a loader walks, and a symlinked component such as
@@ -169,4 +186,7 @@ Residual risk, measured on macOS 15.6 with the real Seatbelt backend:
 `apps/server/src/runtime/sandbox/platform-acceptance.test.ts` holds the real
 macOS regression. A fixture Homebrew-shaped prefix whose `opt` entry is a symlink
 must load its library while a file beside that library, a file reached through
-the link, and `/etc/passwd` all stay unreadable.
+the link, and `/etc/passwd` all stay unreadable. A second case runs the server's
+own node when it came from a keg, which covers what a compiled fixture cannot:
+`libnode` behind `@rpath`, a formula linking another formula, a dylib named
+through a symlink to a differently named file, and the keg's `openssl.cnf`.

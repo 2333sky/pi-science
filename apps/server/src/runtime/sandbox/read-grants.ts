@@ -2,7 +2,7 @@ import { constants } from "node:fs";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { lstat, open, realpath } from "node:fs/promises";
+import { lstat, open, readdir, realpath } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { z } from "zod";
@@ -61,6 +61,7 @@ export async function runtimeReadPolicy(): Promise<RuntimeReadPolicy> {
 const runFile = promisify(execFile);
 const sharedLibraryCache = new Map<string, { stamp: string; roots: string[] }>();
 const systemLibraryRoots = ["/usr/lib", "/System", "/Library/Apple"];
+const LOAD_CLOSURE_DEPTH = 8;
 /** The library file itself and the file its symlinks resolve to. Ancestor
  * directories are deliberately absent: every allow entry compiles to a subpath
  * grant, so granting `opt` or the Homebrew prefix would expose every config
@@ -71,6 +72,50 @@ async function libraryGrants(path: string): Promise<string[]> {
   const target = await realpath(path).catch(() => undefined);
   if (target && target !== path) grants.push(target);
   return grants;
+}
+/** Configuration a keg's runtime opens at startup. OpenSSL refuses to start node
+ * without the `openssl.cnf` that `/prefix/Cellar/<formula>/<version>` does not
+ * ship, so the files at the top of `/prefix/etc/<formula>` are granted — the
+ * files only, never the directory and never the prefix `etc` tree. */
+async function kegConfigGrants(library: string): Promise<string[]> {
+  const parts = library.split("/").filter(Boolean);
+  const keg = parts.indexOf("Cellar");
+  if (keg < 1 || parts.length < keg + 3) return [];
+  const config = `/${[...parts.slice(0, keg), "etc", parts[keg + 1]!].join("/")}`;
+  return (await readdir(config, { withFileTypes: true }).catch(() => [])).filter((entry) => entry.isFile()).map((entry) => join(config, entry.name));
+}
+/** Candidate files for a dyld entry that is not an absolute path. `@rpath` and
+ * `@loader_path` spellings resolve next to the loading library or one `lib`
+ * above it, so both candidates stay inside a keg this walk already visits. */
+const dyldCandidates = (entry: string, loader: string): string[] => {
+  const name = entry.startsWith("@rpath/") ? entry.slice("@rpath/".length) : entry.startsWith("@loader_path/") ? entry.slice("@loader_path/".length) : undefined;
+  return name === undefined ? [] : [join(dirname(loader), name), join(dirname(loader), "..", "lib", name)];
+};
+/** Everything one library contributes: the file spellings the loader writes and
+ * the startup configuration of its keg. Keg grants need the resolved path,
+ * because the spelling runs through `opt/<formula>` and never names `Cellar`. */
+async function collectReads(spelling: string, resolved: string | undefined, roots: Set<string>): Promise<void> {
+  for (const grant of await libraryGrants(spelling)) roots.add(grant);
+  for (const grant of await kegConfigGrants(resolved ?? spelling)) roots.add(grant);
+}
+/** Every non-system library `binary` loads, followed through the libraries those
+ * libraries link. One `otool -L` level is not the closure: a Homebrew formula
+ * links further formulae, and dyld aborts on the first library no grant covers. */
+async function collectLibraryReads(binary: string, roots: Set<string>, visited: Set<string>, depth = 0): Promise<void> {
+  if (depth > LOAD_CLOSURE_DEPTH) return;
+  const { stdout } = await runFile("/usr/bin/otool", ["-L", binary], { timeout: 5_000, maxBuffer: 256 * 1024 });
+  for (const line of stdout.split("\n").slice(1)) {
+    const entry = line.trim().split(" ")[0];
+    if (!entry) continue;
+    for (const candidate of entry.startsWith("/") ? [entry] : dyldCandidates(entry, binary)) {
+      if (systemLibraryRoots.some((root) => isWithin(root, candidate))) continue;
+      const resolved = await realpath(candidate).catch(() => undefined);
+      await collectReads(candidate, resolved, roots);
+      if (!resolved || visited.has(resolved)) continue;
+      visited.add(resolved);
+      await collectLibraryReads(resolved, roots, visited, depth + 1).catch(() => undefined);
+    }
+  }
 }
 /** Shared libraries a dynamically linked executable loads at launch. Cached on
  * the binary identity so repeated sandbox preparation does not respawn otool. */
@@ -83,14 +128,7 @@ export async function executableReadRoots(executable: string): Promise<string[]>
   const cached = sharedLibraryCache.get(canonical);
   if (cached?.stamp === stamp) return cached.roots;
   const roots = new Set<string>();
-  try {
-    const { stdout } = await runFile("/usr/bin/otool", ["-L", canonical], { timeout: 5_000, maxBuffer: 256 * 1024 });
-    for (const line of stdout.split("\n").slice(1)) {
-      const path = line.trim().split(" ")[0];
-      if (!path?.startsWith("/") || systemLibraryRoots.some((root) => isWithin(root, path))) continue;
-      try { for (const entry of await libraryGrants(path)) roots.add(entry); } catch { /* optional library is absent */ }
-    }
-  } catch { /* otool unavailable: fall back below */ }
+  try { await collectReads(canonical, canonical, roots); await collectLibraryReads(canonical, roots, new Set([canonical])); } catch { /* otool unavailable: fall back below */ }
   if (!roots.size) {
     // An installation whose libraries otool cannot list keeps a grant on its own
     // lib prefix. That directory is still one installation, never a shared parent.

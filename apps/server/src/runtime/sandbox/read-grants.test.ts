@@ -1,5 +1,7 @@
 import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { identifyPolicy } from "./policy.js";
 import { bindRuntimeReadPolicy, runtimeDependencyGrants, runtimeReadPolicy, runtimeReadPolicyId } from "./read-grants.js";
@@ -89,9 +91,27 @@ describe.skipIf(process.platform !== "darwin")("darwin shared library grants", (
     const node = await realpath(process.execPath);
     const grants = await runtimeDependencyGrants(await runtimeReadPolicy(), [node]);
     // An allow entry compiles to a subpath grant, so a library's parent
-    // directory would expose every sibling file beneath it.
+    // directory would expose every sibling file beneath it, and the Homebrew
+    // prefix would expose every neighbouring package.
     const directories = [];
-    for (const grant of grants) if ((await stat(grant)).isDirectory()) directories.push(grant);
+    for (const grant of grants) if ((await stat(grant).catch(() => undefined))?.isDirectory()) directories.push(grant);
     expect(directories).toEqual([]);
+    expect(grants.filter((grant) => ["/", "/opt", "/opt/homebrew", "/opt/homebrew/bin", "/opt/homebrew/opt", "/opt/homebrew/etc", "/usr", "/usr/local"].includes(grant))).toEqual([]);
+  });
+  it("grants every library the load closure reaches, not only the direct links", async () => {
+    const node = await realpath(process.execPath);
+    const grants = await runtimeDependencyGrants(await runtimeReadPolicy(), [node]);
+    const links = async (binary: string) => { const { stdout } = await promisify(execFile)("/usr/bin/otool", ["-L", binary]); return stdout.split("\n").slice(1).flatMap((line) => { const entry = line.trim().split(" ")[0]; return entry?.startsWith("/") && !["/usr/lib", "/System", "/Library/Apple"].some((root) => entry.startsWith(root)) ? [entry] : []; }); };
+    const closure = new Set<string>();
+    const queue = [node];
+    while (queue.length) for (const library of await links(queue.shift()!)) { const resolved = await realpath(library).catch(() => undefined); if (resolved && !closure.has(resolved)) { closure.add(resolved); queue.push(resolved); } }
+    // A formula links further formulae, so one otool level leaves dyld an
+    // unloadable library behind a library that did load.
+    expect(closure.size).toBeGreaterThan(1);
+    for (const library of closure) if (/\/Cellar\//.test(library)) expect(grants).toContain(library);
+    // The prefix etc tree stays closed; only a keg's own startup config is open.
+    const prefix = /^(.*)\/Cellar\//.exec(node)?.[1];
+    const config = prefix ? join(prefix, "etc/openssl@3/openssl.cnf") : undefined;
+    if (config && (await stat(config).catch(() => undefined))?.isFile()) expect(grants).toContain(config);
   });
 });
