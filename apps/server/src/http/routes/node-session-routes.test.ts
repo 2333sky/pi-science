@@ -7,6 +7,7 @@ import { registerNodeSessionRoutes } from "./node-session-routes.js";
 import { NodeSessionService } from "../../runtime/node/node-session-service.js";
 import { registerSessionReadRoutes } from "./session-routes.js";
 import { sessionRepository } from "../../runtime/node/session-repository.js";
+import { SessionTitleRepository } from "../../runtime/node/session-titles.js";
 import { AI_TITLE_PROMPT_INSTRUCTION } from "../../runtime/title/title-prompt.js";
 
 const cleanup: string[] = [];
@@ -295,6 +296,30 @@ describe("native Node conversation routes", () => {
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ ok: true, title: "AI 标题", revision: 1 });
       expect(generateTitle).toHaveBeenCalledOnce();
+    } finally { await server.close(); }
+  });
+
+  it("does not resurrect a title when the session is deleted between the existence check and the write", async () => {
+    const cwd = await workspaceWithSessions("session-delete-race");
+    const sessionFile = join(cwd, ".pi-science", "sessions", "session-delete-race.jsonl");
+    // A delete that lands after the route's existence check and before the
+    // write: the delete route removes the session file, then clears the title
+    // store. Both happen here at the exact interleaving under test.
+    class DeleteLandsBeforeWrite extends SessionTitleRepository {
+      override async setTitleIfRevision(...args: Parameters<SessionTitleRepository["setTitleIfRevision"]>) {
+        await rm(sessionFile);
+        await this.deleteTitle(cwd, "session-delete-race");
+        return super.setTitleIfRevision(...args);
+      }
+    }
+    const titles = new DeleteLandsBeforeWrite();
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, { async generateTitle() { return "AI 标题"; } } as never, titles);
+    try {
+      const response = await server.inject({ method: "POST", url: `/api/sessions/session-delete-race/title?cwd=${encodeURIComponent(cwd)}` });
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toEqual({ ok: true, title: null, deleted: true });
+      await expect(readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8")).rejects.toThrow();
     } finally { await server.close(); }
   });
 
