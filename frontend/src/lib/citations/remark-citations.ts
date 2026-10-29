@@ -1,9 +1,13 @@
 // Remark plugin: turn bare DOI and arXiv identifiers in prose into citation
 // links so the renderer can attach verified-evidence hovers. The visible text
 // is preserved exactly; only the wrapping element changes.
-const DOI_PATTERN = /10\.\d{4,9}\/[^\s)\]}>]+/gi;
+// DOI suffixes are ASCII, but prose is not: stop the match at CJK
+// ideographs/kana/hangul and CJK/fullwidth/general punctuation, or Chinese
+// sentences glue their words onto the id and the doi.org link breaks. Keep in
+// sync with lib/citations/citations.ts.
+const DOI_PATTERN = /10\.\d{4,9}\/[^\s)\]}>\u2010-\u2027\u2030-\u205e\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]+/gi;
 const ARXIV_PATTERN = /arXiv:\s?(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
-const TRAILING = /[.,;:!?*"']+$/;
+const TRAILING = /[.,;:!?*"'\u2010-\u2027\u2030-\u205e\u3000-\u303f\uff00-\uffef]+$/;
 
 type MdNode = { type?: string; value?: string; url?: string; children?: MdNode[]; data?: { hProperties?: Record<string, unknown> } };
 

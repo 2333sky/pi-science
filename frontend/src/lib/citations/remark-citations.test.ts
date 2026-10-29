@@ -47,4 +47,13 @@ describe("remarkCitations", () => {
     const paragraph = tree.children![0]!.children![0]!;
     expect(paragraph.children!.some((node) => node.type === "link")).toBe(true);
   });
+
+  it("terminates DOI links at CJK text and fullwidth punctuation", () => {
+    const nodes = run("AlphaFold 方法见 10.1038/s41586-021-03819-2，另见 arXiv:2112.10752。");
+    const link = nodes.find((node) => node.type === "link");
+    expect(link).toMatchObject({ url: "https://doi.org/10.1038/s41586-021-03819-2" });
+    const arxivLink = nodes.filter((node) => node.type === "link")[1];
+    expect(arxivLink).toMatchObject({ url: "https://arxiv.org/abs/2112.10752" });
+    expect(nodes.map((node) => node.value ?? "").join("")).toContain("，另见");
+  });
 });
