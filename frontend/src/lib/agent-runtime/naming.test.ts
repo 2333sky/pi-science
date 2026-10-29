@@ -197,6 +197,26 @@ describe("title request results", () => {
     expect(getSessionName("/workspace", "session-g")).toBe("");
   });
 
+  it("tells the server a user-requested regenerate is manual so a running session is refused", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true, title: "Generated title", revision: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-l", cwd: "/workspace" }] });
+
+    await regenerateSessionTitle("/workspace", "session-l", "manual");
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ manual: true });
+  });
+
+  it("keeps the settled-turn regenerate unguarded so a live busy table cannot block it", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => jsonResponse({ ok: true, title: "Generated title", revision: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-m", cwd: "/workspace" }] });
+
+    await regenerateSessionTitle("/workspace", "session-m", "automatic");
+
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]?.body))).toEqual({ manual: false });
+  });
+
   it("reports gone when the session left the list during generation", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: "Generated title", revision: 2 })));
     useRuntimeStore.setState({ cwd: "/workspace", sessions: [] });
