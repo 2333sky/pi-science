@@ -1,5 +1,5 @@
-import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { chmod, link, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { identifyPolicy } from "./policy.js";
 import { bindRuntimeReadPolicy, runtimeDependencyGrants, runtimeReadPolicy, runtimeReadPolicyId } from "./read-grants.js";
@@ -84,7 +84,14 @@ describe.skipIf(process.platform !== "darwin")("darwin shared library grants", (
     const grants = await runtimeDependencyGrants(await runtimeReadPolicy(), [node]);
     expect(grants).toContain(node);
     for (const grant of grants) expect(grant.startsWith("/usr/lib") || grant.startsWith("/System")).toBe(false);
-    const prefixLib = await realpath(join(dirname(node), "..", "lib")).catch(() => undefined);
-    if (prefixLib) expect(grants).toContain(prefixLib);
+  });
+  it("grants library files instead of the directories that contain them", async () => {
+    const node = await realpath(process.execPath);
+    const grants = await runtimeDependencyGrants(await runtimeReadPolicy(), [node]);
+    // An allow entry compiles to a subpath grant, so a library's parent
+    // directory would expose every sibling file beneath it.
+    const directories = [];
+    for (const grant of grants) if ((await stat(grant)).isDirectory()) directories.push(grant);
+    expect(directories).toEqual([]);
   });
 });
