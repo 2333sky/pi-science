@@ -61,19 +61,16 @@ export async function runtimeReadPolicy(): Promise<RuntimeReadPolicy> {
 const runFile = promisify(execFile);
 const sharedLibraryCache = new Map<string, { stamp: string; roots: string[] }>();
 const systemLibraryRoots = ["/usr/lib", "/System", "/Library/Apple"];
-/** Every path component a loader traverses, plus the link targets it resolves.
- * Seatbelt checks each component, so a symlinked Homebrew prefix needs the link
- * itself and its Cellar target, not only the final library file. */
-async function pathChain(path: string): Promise<string[]> {
-  const chain: string[] = [];
-  let current = "";
-  for (const part of path.split("/").filter(Boolean)) {
-    current += `/${part}`;
-    chain.push(current);
-    const target = await realpath(current).catch(() => undefined);
-    if (target && target !== current) chain.push(target);
-  }
-  return chain;
+/** The library file itself and the file its symlinks resolve to. Ancestor
+ * directories are deliberately absent: every allow entry compiles to a subpath
+ * grant, so granting `opt` or the Homebrew prefix would expose every config
+ * file beneath it. Traversal needs metadata only, which the profile builder
+ * adds for the directories and links an allowed path runs through. */
+async function libraryGrants(path: string): Promise<string[]> {
+  const grants = [path];
+  const target = await realpath(path).catch(() => undefined);
+  if (target && target !== path) grants.push(target);
+  return grants;
 }
 /** Shared libraries a dynamically linked executable loads at launch. Cached on
  * the binary identity so repeated sandbox preparation does not respawn otool. */
@@ -86,16 +83,20 @@ export async function executableReadRoots(executable: string): Promise<string[]>
   const cached = sharedLibraryCache.get(canonical);
   if (cached?.stamp === stamp) return cached.roots;
   const roots = new Set<string>();
-  try { const prefixLib = await realpath(join(dirname(canonical), "..", "lib")); if ((await lstat(prefixLib)).isDirectory()) roots.add(prefixLib); }
-  catch { /* installations without a prefix lib keep the binary grant */ }
   try {
     const { stdout } = await runFile("/usr/bin/otool", ["-L", canonical], { timeout: 5_000, maxBuffer: 256 * 1024 });
     for (const line of stdout.split("\n").slice(1)) {
       const path = line.trim().split(" ")[0];
       if (!path?.startsWith("/") || systemLibraryRoots.some((root) => isWithin(root, path))) continue;
-      try { for (const entry of await pathChain(path)) roots.add(entry); } catch { /* optional library is absent */ }
+      try { for (const entry of await libraryGrants(path)) roots.add(entry); } catch { /* optional library is absent */ }
     }
-  } catch { /* otool unavailable: keep the prefix lib grant */ }
+  } catch { /* otool unavailable: fall back below */ }
+  if (!roots.size) {
+    // An installation whose libraries otool cannot list keeps a grant on its own
+    // lib prefix. That directory is still one installation, never a shared parent.
+    try { const prefixLib = await realpath(join(dirname(canonical), "..", "lib")); if ((await lstat(prefixLib)).isDirectory()) roots.add(prefixLib); }
+    catch { /* installations without a prefix lib keep the binary grant */ }
+  }
   const resolved = [...roots].sort();
   sharedLibraryCache.set(canonical, { stamp, roots: resolved });
   return resolved;
