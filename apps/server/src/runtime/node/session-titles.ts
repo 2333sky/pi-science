@@ -69,15 +69,26 @@ export class SessionTitleRepository {
     });
   }
 
-  /** Write only when the stored revision still equals expected; bumps it on success. */
-  async setTitleIfRevision(cwd: string, sessionId: string, title: string, expected: number): Promise<{ applied: boolean; revision: number }> {
+  /** Write only when the stored revision still equals expected; bumps it on
+   *  success. `guard` runs under the same lock, so a caller can require state
+   *  that `deleteTitle` also rewrites (a live session) without racing it: a
+   *  delete that lands while the title was generating wins either way, and the
+   *  record can never outlive its session. */
+  async setTitleIfRevision(
+    cwd: string,
+    sessionId: string,
+    title: string,
+    expected: number,
+    guard?: () => Promise<boolean>,
+  ): Promise<{ applied: boolean; revision: number; reason?: "stale" | "gone" }> {
     const file = this.file(cwd);
     return withFileWriteLock(file, async () => {
       const records = await readJsonLines<SessionTitleRecord>(file);
       const current = revisionOf(latestRecord(records, sessionId));
       // A stale generation must not touch the file at all: the winner's title
       // is already the user-visible one and any rewrite here could reorder it.
-      if (current !== expected) return { applied: false, revision: current };
+      if (current !== expected) return { applied: false, revision: current, reason: "stale" as const };
+      if (guard && !(await guard())) return { applied: false, revision: current, reason: "gone" as const };
       const revision = current + 1;
       const next = records.filter((record) => record?.session_id !== sessionId);
       next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision });

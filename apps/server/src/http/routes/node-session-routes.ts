@@ -175,11 +175,18 @@ export function registerNodeSessionRoutes(
     const expected = (await titles.getTitleEntry(workspace, sessionId))?.revision ?? 0;
     const title = await aiTitleService.generateTitle(workspace, sessionId);
     if (!title) return { ok: true, title: null };
-    // The generation can outlive the session. Re-check before writing so a
-    // deleted conversation does not grow a title record again.
-    if (!(await sessionRepository.findPath(workspace, sessionId))) return { ok: true, title: null, deleted: true };
-    const applied = await titles.setTitleIfRevision(workspace, sessionId, title, expected);
-    return applied.applied ? { ok: true, title, revision: applied.revision } : { ok: true, title: null, superseded: true };
+    // The generation can outlive the session. The existence re-check runs
+    // inside the title write's lock, so a delete that lands while the title
+    // generates cannot leave a record behind for a session that is gone.
+    const applied = await titles.setTitleIfRevision(
+      workspace,
+      sessionId,
+      title,
+      expected,
+      async () => (await sessionRepository.findPath(workspace, sessionId)) !== null,
+    );
+    if (applied.applied) return { ok: true, title, revision: applied.revision };
+    return applied.reason === "gone" ? { ok: true, title: null, deleted: true } : { ok: true, title: null, superseded: true };
     });
   });
 

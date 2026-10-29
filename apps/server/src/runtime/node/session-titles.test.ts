@@ -135,7 +135,7 @@ describe("SessionTitleRepository", () => {
     await repo.setTitle(cwd, "s1", "manual");
     const file = join(cwd, ".pi-science", "session-titles.jsonl");
     const before = await readFile(file, "utf8");
-    expect(await repo.setTitleIfRevision(cwd, "s1", "late generated", 0)).toEqual({ applied: false, revision: 1 });
+    expect(await repo.setTitleIfRevision(cwd, "s1", "late generated", 0)).toMatchObject({ applied: false, revision: 1, reason: "stale" });
     expect(await readFile(file, "utf8")).toBe(before);
     expect(await repo.getTitleEntry(cwd, "s1")).toEqual({ title: "manual", revision: 1 });
   });
@@ -143,7 +143,18 @@ describe("SessionTitleRepository", () => {
   it("refuses a conditional write for a session that has no record yet from a stale expectation", async () => {
     const repo = new SessionTitleRepository();
     const cwd = await workspace();
-    expect(await repo.setTitleIfRevision(cwd, "missing", "generated", 3)).toEqual({ applied: false, revision: 0 });
+    expect(await repo.setTitleIfRevision(cwd, "missing", "generated", 3)).toMatchObject({ applied: false, revision: 0, reason: "stale" });
     await expect(readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8")).rejects.toThrow();
+  });
+
+  it("refuses a conditional write whose guard no longer allows it and says why", async () => {
+    const repo = new SessionTitleRepository();
+    const cwd = await workspace();
+    await repo.setTitle(cwd, "s1", "kept");
+    const file = join(cwd, ".pi-science", "session-titles.jsonl");
+    const before = await readFile(file, "utf8");
+    expect(await repo.setTitleIfRevision(cwd, "s1", "generated", 1, async () => false)).toMatchObject({ applied: false, reason: "gone" });
+    expect(await readFile(file, "utf8")).toBe(before);
+    expect(await repo.getTitleEntry(cwd, "s1")).toEqual({ title: "kept", revision: 1 });
   });
 });
