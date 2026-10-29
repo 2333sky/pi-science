@@ -148,8 +148,8 @@ export class PiScienceClient {
 
   /** Persist a session display title on the server (best-effort; the
    *  localStorage registry remains the immediate/fallback source). */
-  async setSessionTitle(sessionId: string, title: string, cwd?: string): Promise<void> {
-    await rest.setSessionTitle(this.baseUrl, sessionId, title, cwd);
+  async setSessionTitle(sessionId: string, title: string, cwd?: string, mode: rest.SessionTitleWriteMode = "override"): Promise<rest.SessionTitleWrite> {
+    return rest.setSessionTitle(this.baseUrl, sessionId, title, cwd, mode);
   }
 
   async deleteSession(sessionId: string, cwd?: string): Promise<void> {
@@ -184,7 +184,7 @@ export class PiScienceClient {
   }
 
   /** Ask the control plane to generate an AI title via an isolated Pi runtime. */
-  async generateSessionTitle(sessionId: string, cwd: string, manual: boolean): Promise<string | null> {
+  async generateSessionTitle(sessionId: string, cwd: string, manual: boolean): Promise<rest.TitleGenerationResult> {
     return rest.generateSessionTitle(this.baseUrl, sessionId, cwd, manual);
   }
 

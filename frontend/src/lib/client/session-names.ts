@@ -74,14 +74,24 @@ export function cacheSessionName(cwd: string, sessionId: string, name: string): 
   saveNames(names);
 }
 
-export function setSessionName(cwd: string, sessionId: string, name: string): void {
+export function setSessionName(cwd: string, sessionId: string, name: string, onStoredTitle?: (stored: string) => void): void {
   const names = loadNames();
   names[sessionKey(cwd, sessionId)] = name.slice(0, 50);  // Cap length
   saveNames(names);
   // Best-effort server persistence (fire-and-forget): the localStorage
   // registry stays the immediate source and the fallback when the control
   // plane is unreachable, so naming never blocks the prompt path.
-  void setSessionTitle("", sessionId, name.slice(0, 100), cwd).catch(() => undefined);
+  // A derived name only fills an empty slot server-side: this browser's cache
+  // belongs to one browser, so it cannot prove the session is unnamed.
+  void setSessionTitle("", sessionId, name.slice(0, 100), cwd, "initialize")
+    .then((stored) => {
+      if (stored.applied || stored.title === name) return;
+      // A newer name won locally while the request was in flight; keep it.
+      if (getSessionName(cwd, sessionId) !== name.slice(0, 50)) return;
+      cacheSessionName(cwd, sessionId, stored.title);
+      onStoredTitle?.(stored.title);
+    })
+    .catch(() => undefined);
 }
 
 /** Remove the display name for a session (e.g. after deletion or when a

@@ -224,6 +224,79 @@ describe("title request results", () => {
     expect(await regenerateSessionTitle("/workspace", "session-h", "manual")).toBe("gone");
     expect(getSessionName("/workspace", "session-h")).toBe("");
   });
+
+  it("reports a cancelled generation as superseded or gone, not as a failure", async () => {
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "session-n", cwd: "/workspace" }] });
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: null, superseded: true })));
+    expect(await regenerateSessionTitle("/workspace", "session-n", "manual")).toBe("superseded");
+
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse({ ok: true, title: null, deleted: true })));
+    expect(await regenerateSessionTitle("/workspace", "session-n", "manual")).toBe("gone");
+  });
+});
+
+describe("names a browser learns from the control plane", () => {
+  it("keeps a title loaded from the control plane when this browser has no local name", async () => {
+    const writes: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/messages")) return jsonResponse({ messages: [
+        { id: "user-1", role: "user", content: [{ type: "text", text: "derived from the message" }] },
+      ] });
+      if (url.includes("/state")) return jsonResponse(state("renamed-elsewhere"));
+      if (url.startsWith("/api/sessions?")) return jsonResponse([{ id: "renamed-elsewhere", cwd: "/workspace", name: "手写标题" }]);
+      if (init?.method === "PUT") { writes.push(init.body); return jsonResponse({ ok: true, applied: true }); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "renamed-elsewhere", cwd: "/workspace", name: "手写标题" }] });
+
+    await useRuntimeStore.getState().connect("/workspace", "renamed-elsewhere");
+
+    // Empty localStorage is not proof that the session is unnamed.
+    expect(writes).toEqual([]);
+    expect(getSessionName("/workspace", "renamed-elsewhere")).toBe("");
+    expect(useRuntimeStore.getState().sessions).toContainEqual(
+      expect.objectContaining({ id: "renamed-elsewhere", name: "手写标题" }),
+    );
+  });
+
+  it("shows the title the control plane kept when only it knew the session was named", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("/messages")) return jsonResponse({ messages: [
+        { id: "user-1", role: "user", content: [{ type: "text", text: "derived from the message" }] },
+      ] });
+      if (url.includes("/state")) return jsonResponse(state("listed-late"));
+      if (url.startsWith("/api/sessions?")) return jsonResponse([]);
+      if (init?.method === "PUT") return jsonResponse({ ok: true, applied: false, title: "手写标题" });
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "listed-late", cwd: "/workspace" }] });
+
+    await useRuntimeStore.getState().connect("/workspace", "listed-late");
+
+    await vi.waitFor(() => expect(getSessionName("/workspace", "listed-late")).toBe("手写标题"));
+    expect(useRuntimeStore.getState().sessions).toContainEqual(
+      expect.objectContaining({ id: "listed-late", name: "手写标题" }),
+    );
+  });
+
+  it("does not adopt a stored title over a name saved while the request was in flight", async () => {
+    const releases: Array<(response: Response) => void> = [];
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((done) => { releases.push(done); })));
+    useRuntimeStore.setState({ cwd: "/workspace", sessions: [{ id: "race-name", cwd: "/workspace" }] });
+
+    setSessionName("/workspace", "race-name", "Derived name");
+    await vi.waitFor(() => expect(releases).toHaveLength(1));
+    // The user names it before the first initialize response arrives.
+    setSessionName("/workspace", "race-name", "Typed name");
+    await vi.waitFor(() => expect(releases).toHaveLength(2));
+    releases[0](jsonResponse({ ok: true, applied: false, title: "Stored elsewhere" }));
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getSessionName("/workspace", "race-name")).toBe("Typed name");
+    releases[1](jsonResponse({ ok: true, applied: true, title: "Typed name" }));
+  });
 });
 
 describe("manual rename", () => {
@@ -265,7 +338,7 @@ describe("manual rename", () => {
     expect(fetchMock).not.toHaveBeenCalled();
 
     await renameSession("/workspace", "session-k", "  Two   words  ");
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ title: "Two words" }) });
+    expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: "PUT", body: JSON.stringify({ title: "Two words", mode: "override" }) });
     expect(getSessionName("/workspace", "session-k")).toBe("Two words");
   });
 });
