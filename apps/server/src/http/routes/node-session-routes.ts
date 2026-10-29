@@ -172,16 +172,20 @@ export function registerNodeSessionRoutes(
     if (manual && nodeSessionService.sessionBusy(workspace, sessionId)) {
       return reply.code(409).send({ ok: false, code: "session_busy", error: "session is running; stop it before regenerating the title" });
     }
+    // Claim the start order before the model runs, so a user-requested regenerate
+    // that starts second still wins when the automatic one finishes first.
+    const claim = titles.beginGeneration(workspace, sessionId, manual ? "manual" : "automatic");
     const expected = (await titles.getTitleEntry(workspace, sessionId))?.revision ?? 0;
     const title = await aiTitleService.generateTitle(workspace, sessionId);
     if (!title) return { ok: true, title: null };
     // The generation can outlive the session. The existence re-check runs
     // inside the title write's lock, so a delete that lands while the title
     // generates cannot leave a record behind for a session that is gone.
-    const applied = await titles.setTitleIfRevision(
+    const applied = await titles.commitGeneratedTitle(
       workspace,
       sessionId,
       title,
+      claim,
       expected,
       async () => (await sessionRepository.findPath(workspace, sessionId)) !== null,
     );
@@ -193,10 +197,14 @@ export function registerNodeSessionRoutes(
   app.put<{ Params: { session_id: string } }>("/api/sessions/:session_id/title", async (request, reply) => {
     return admitSessionRequest(request, reply, async () => {
     const sessionId = request.params.session_id;
-    const body = (request.body ?? {}) as { title?: unknown };
+    const body = (request.body ?? {}) as { title?: unknown; mode?: unknown };
     const title = typeof body.title === "string" ? body.title.trim() : "";
     if (!title) return reply.code(400).send({ ok: false, code: "invalid_request", error: "title must be a non-empty string" });
     if (title.length > 100) return reply.code(400).send({ ok: false, code: "invalid_request", error: "title must be at most 100 characters" });
+    // `initialize` is the client's first name for a session, derived from the
+    // first message. It may only fill an empty slot; the user's typed rename
+    // sends `override` and always wins.
+    const initialize = body.mode === "initialize";
     let workspace: string;
     try {
       workspace = await validateWorkspaceCwd(cwd(request));
@@ -209,8 +217,12 @@ export function registerNodeSessionRoutes(
     const exists = (await sessionRepository.findPath(workspace, sessionId)) !== null
       || nodeSessionService.liveSessions(workspace).some((session) => session.id === sessionId);
     if (!exists) return reply.code(404).send({ ok: false, code: "not_found", error: "session not found" });
+    if (initialize) {
+      const stored = await titles.createTitle(workspace, sessionId, title);
+      return { ok: true, applied: stored.applied, title: stored.title };
+    }
     await titles.setTitle(workspace, sessionId, title);
-    return { ok: true, title };
+    return { ok: true, applied: true, title };
     });
   });
 

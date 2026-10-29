@@ -30,7 +30,33 @@ function latestRecord(records: SessionTitleRecord[], sessionId: string): Session
   return latest;
 }
 
+/** Who asked for a title. A manual request is the user asking for one, so it
+ *  outranks an automatic request that started earlier. */
+export type TitleSource = "automatic" | "manual";
+
+/** One generation's place in the session's start order. */
+export interface TitleClaim {
+  seq: number;
+  source: TitleSource;
+}
+
+/** True when `claim` may replace a title that `other` wrote: a manual request
+ *  always beats an automatic one, and between equals the later start wins. */
+function outranks(claim: TitleClaim, other: TitleClaim): boolean {
+  return claim.source === other.source ? claim.seq > other.seq : claim.source === "manual";
+}
+
+function titleKey(cwd: string, sessionId: string): string {
+  return `${cwd}\u0000${sessionId}`;
+}
+
 export class SessionTitleRepository {
+  /** Start order of title generations. Kept in memory because a generation lives
+   *  only for one request: the stored revision says who wrote last, not who
+   *  asked last. */
+  private nextSeq = new Map<string, number>();
+  private newestStart = new Map<string, Record<TitleSource, number>>();
+
   private file(cwd: string): string {
     return workspaceFile(cwd, "session-titles.jsonl");
   }
@@ -69,24 +95,66 @@ export class SessionTitleRepository {
     });
   }
 
-  /** Write only when the stored revision still equals expected; bumps it on
-   *  success. `guard` runs under the same lock, so a caller can require state
-   *  that `deleteTitle` also rewrites (a live session) without racing it: a
-   *  delete that lands while the title was generating wins either way, and the
-   *  record can never outlive its session. */
-  async setTitleIfRevision(
+  /** Store a derived title only when the session has none, and report what is
+   *  stored afterwards. The caller's local name cache belongs to one browser, so
+   *  "no local name" cannot prove the session is unnamed: a second browser
+   *  backfilling history must not replace a title typed somewhere else. */
+  async createTitle(cwd: string, sessionId: string, title: string): Promise<{ applied: boolean; title: string }> {
+    const file = this.file(cwd);
+    return withFileWriteLock(file, async () => {
+      const records = await readJsonLines<SessionTitleRecord>(file);
+      const current = latestRecord(records, sessionId);
+      if (current && typeof current.title === "string" && current.title) return { applied: false, title: current.title };
+      const revision = revisionOf(current) + 1;
+      const next = records.filter((record) => record?.session_id !== sessionId);
+      next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision });
+      await rewriteTitles(file, next);
+      return { applied: true, title };
+    });
+  }
+
+  /** Claim a place in the session's generation order before the model runs, so
+   *  a manual request that starts second still wins when it finishes first. */
+  beginGeneration(cwd: string, sessionId: string, source: TitleSource): TitleClaim {
+    const key = titleKey(cwd, sessionId);
+    const seq = (this.nextSeq.get(key) ?? 0) + 1;
+    this.nextSeq.set(key, seq);
+    const started = this.newestStart.get(key) ?? { automatic: 0, manual: 0 };
+    this.newestStart.set(key, { ...started, [source]: seq });
+    return { seq, source };
+  }
+
+  /** True when a request that started after this claim beats it. */
+  private outranked(key: string, claim: TitleClaim): boolean {
+    const started = this.newestStart.get(key);
+    if (!started) return false;
+    return (started.manual > claim.seq && outranks({ seq: started.manual, source: "manual" }, claim))
+      || (started.automatic > claim.seq && outranks({ seq: started.automatic, source: "automatic" }, claim));
+  }
+
+  /** Write a generated title. Arbitration, the compare-and-set and the write run
+   *  under one lock. A generation commits only while nothing that started later
+   *  outranks it and nobody wrote since it started, so the user's newest request
+   *  wins whichever finishes first and a title written by hand during the
+   *  generation stands. `guard` covers state `deleteTitle` also rewrites: a delete
+   *  that lands during generation wins, so the record cannot outlive its session. */
+  async commitGeneratedTitle(
     cwd: string,
     sessionId: string,
     title: string,
+    claim: TitleClaim,
     expected: number,
     guard?: () => Promise<boolean>,
   ): Promise<{ applied: boolean; revision: number; reason?: "stale" | "gone" }> {
+    const key = titleKey(cwd, sessionId);
     const file = this.file(cwd);
     return withFileWriteLock(file, async () => {
       const records = await readJsonLines<SessionTitleRecord>(file);
       const current = revisionOf(latestRecord(records, sessionId));
-      // A stale generation must not touch the file at all: the winner's title
-      // is already the user-visible one and any rewrite here could reorder it.
+      // A request the session already outranks must not touch the file at all:
+      // its result is not the one the user asked for last.
+      if (this.outranked(key, claim)) return { applied: false, revision: current, reason: "stale" as const };
+      // Someone else wrote while this generation ran, so its input is stale.
       if (current !== expected) return { applied: false, revision: current, reason: "stale" as const };
       if (guard && !(await guard())) return { applied: false, revision: current, reason: "gone" as const };
       const revision = current + 1;
@@ -99,6 +167,9 @@ export class SessionTitleRepository {
 
   async deleteTitle(cwd: string, sessionId: string): Promise<void> {
     const file = this.file(cwd);
+    const key = titleKey(cwd, sessionId);
+    this.nextSeq.delete(key);
+    this.newestStart.delete(key);
     await withFileWriteLock(file, async () => {
       const records = await readJsonLines<SessionTitleRecord>(file);
       const next = records.filter((record) => record?.session_id !== sessionId);

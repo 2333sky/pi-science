@@ -306,10 +306,10 @@ describe("native Node conversation routes", () => {
     // write: the delete route removes the session file, then clears the title
     // store. Both happen here at the exact interleaving under test.
     class DeleteLandsBeforeWrite extends SessionTitleRepository {
-      override async setTitleIfRevision(...args: Parameters<SessionTitleRepository["setTitleIfRevision"]>) {
+      override async commitGeneratedTitle(...args: Parameters<SessionTitleRepository["commitGeneratedTitle"]>) {
         await rm(sessionFile);
         await this.deleteTitle(cwd, "session-delete-race");
-        return super.setTitleIfRevision(...args);
+        return super.commitGeneratedTitle(...args);
       }
     }
     const titles = new DeleteLandsBeforeWrite();
@@ -320,6 +320,43 @@ describe("native Node conversation routes", () => {
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ ok: true, title: null, deleted: true });
       await expect(readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8")).rejects.toThrow();
+    } finally { await server.close(); }
+  });
+
+  it("fills an empty title from the first message without replacing a stored one", async () => {
+    const cwd = await workspaceWithSessions("session-title-init");
+    const server = app();
+    const url = `/api/sessions/session-title-init/title?cwd=${encodeURIComponent(cwd)}`;
+    try {
+      const typed = await server.inject({ method: "PUT", url, payload: { title: "手写标题", mode: "override" } });
+      expect(typed.json()).toEqual({ ok: true, applied: true, title: "手写标题" });
+      // A second browser backfills history with empty localStorage and derives
+      // its own name; that name must not replace the stored title.
+      const derived = await server.inject({ method: "PUT", url, payload: { title: "首条消息", mode: "initialize" } });
+      expect(derived.json()).toEqual({ ok: true, applied: false, title: "手写标题" });
+      const listed = await server.inject({ method: "GET", url: `/api/sessions?cwd=${encodeURIComponent(cwd)}` });
+      expect((listed.json() as Array<{ id: string; name: string | null }>).find((s) => s.id === "session-title-init")?.name).toBe("手写标题");
+    } finally { await server.close(); }
+  });
+
+  it("lets a manual regenerate replace an automatic title that finished first", async () => {
+    const cwd = await workspaceWithSessions("session-title-priority");
+    const releases: Array<(title: string) => void> = [];
+    const aiTitleService = { generateTitle: () => new Promise<string>((done) => { releases.push(done); }) };
+    const server = Fastify({ logger: false });
+    registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
+    const url = `/api/sessions/session-title-priority/title?cwd=${encodeURIComponent(cwd)}`;
+    try {
+      const automatic = server.inject({ method: "POST", url, payload: {} });
+      const manual = server.inject({ method: "POST", url, payload: { manual: true } });
+      await vi.waitFor(() => expect(releases).toHaveLength(2));
+      // The automatic generation returns first, but the user has asked again.
+      releases[0]!("自动标题");
+      expect((await automatic).json()).toEqual({ ok: true, title: null, superseded: true });
+      releases[1]!("手动标题");
+      expect((await manual).json()).toEqual({ ok: true, title: "手动标题", revision: 1 });
+      const raw = await readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8");
+      expect(JSON.parse(raw.trim())).toMatchObject({ title: "手动标题", revision: 1 });
     } finally { await server.close(); }
   });
 
@@ -348,7 +385,7 @@ describe("native Node conversation routes", () => {
     registerNodeSessionRoutes(server, nodeSessionService, sessionRepository, aiTitleService as never);
     const url = `/api/sessions/session-manual/title?cwd=${encodeURIComponent(cwd)}`;
     try {
-      expect((await server.inject({ method: "PUT", url, payload: { title: "旧标题" } })).json()).toEqual({ ok: true, title: "旧标题" });
+      expect((await server.inject({ method: "PUT", url, payload: { title: "旧标题" } })).json()).toEqual({ ok: true, applied: true, title: "旧标题" });
       const response = await server.inject({ method: "POST", url, payload: { manual: true } });
       expect(response.statusCode).toBe(200);
       expect(response.json()).toEqual({ ok: true, title: "AI 新标题", revision: 2 });
