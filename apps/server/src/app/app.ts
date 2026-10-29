@@ -178,7 +178,7 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
   registerNotebookRoutes(app, notebooks, config.internalToken);
   if (config.nodeCatalog !== false) registerCitationRoutes(app);
   if (config.nodeCatalog !== false) registerCatalogRoutes(app, jobs, sqliteEnabled ? workspaces : undefined, sqliteEnabled ? mcp : undefined, nodeSessionService);
-  if (config.nodeCatalog !== false) registerProjectRoutes(app, projectReview);
+  if (config.nodeProject !== false) registerProjectRoutes(app, projectReview);
   app.addHook("onReady", async () => {
     if (sqliteEnabled) {
       try {
