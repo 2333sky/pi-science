@@ -90,6 +90,18 @@ Do not duplicate a protocol's maps or timers when extracting helpers. Keep
 components on the public entrypoint, keep folding pure, and import internal
 operations from their owning leaf module.
 
+### Manual title precedence, known boundary
+
+A hand-written title beats an automatic one only in the browser that wrote it.
+The mark that stops a settled turn from regenerating a renamed conversation
+(`hasAiTitle`, written by `markAiTitle`) lives in localStorage. The written
+title itself is server-persisted in `.pi-science/session-titles.jsonl`, so a
+second browser, or the same browser after clearing site data, shows the manual
+title and still lets the next settled turn replace it. Making the precedence
+survive a browser change means recording the title's source in that same record
+and having the automatic request refuse to overwrite a manual one. Until that
+decision is taken, this is the boundary.
+
 ## Validation
 
 Run `pnpm --filter frontend exec vitest run src/lib/agent-runtime --maxWorkers=2`
