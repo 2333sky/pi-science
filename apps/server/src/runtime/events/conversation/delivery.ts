@@ -1,5 +1,5 @@
 import type { SseEventRecord } from "../event-store.js";
-import type { Subscriber, EventStore } from "./types.js";
+import type { Subscriber, SubscriberAbandonReason, EventStore } from "./types.js";
 import { MAX_SUBSCRIBER_REPLAY_PENDING } from "./limits.js";
 import { streamKey, recordKey, recordPayload } from "./records.js";
 
@@ -44,9 +44,10 @@ export class ConversationDelivery {
     lastEventId: string | undefined,
     deliver: (record: SseEventRecord) => unknown,
     replay = true,
+    onAbandon?: (reason: SubscriberAbandonReason) => void,
   ): Promise<() => void> {
     const key = streamKey(cwd, sessionId);
-    const subscriber: Subscriber = { ready: false, pending: [], delivered: new Set(), cancelled: false, deliver };
+    const subscriber: Subscriber = { ready: false, pending: [], delivered: new Set(), cancelled: false, deliver, abandon: onAbandon };
     const set = this.subscribers.get(key) ?? new Set<Subscriber>();
     set.add(subscriber);
     this.subscribers.set(key, set);
@@ -57,13 +58,17 @@ export class ConversationDelivery {
       set.delete(subscriber);
       if (set.size === 0) this.subscribers.delete(key);
     };
+    const abandon = (reason: SubscriberAbandonReason): void => {
+      if (subscriber.cancelled) return;
+      this.abandonSubscriber(key, subscriber, reason);
+    };
     const send = (record: SseEventRecord): boolean => {
       if (subscriber.cancelled) return false;
       const identity = recordKey(record);
       if (subscriber.delivered.has(identity)) return true;
       subscriber.delivered.add(identity);
       if (deliver(record) === false) {
-        unsubscribe();
+        abandon("delivery_failed");
         return false;
       }
       return true;
@@ -88,6 +93,19 @@ export class ConversationDelivery {
     subscriber.pending.length = 0;
     subscriber.delivered.clear();
     return unsubscribe;
+  }
+  /** Delivery, not the consumer, decided this subscriber is gone. Tell the
+   *  consumer: it owns the socket and can only close it (or hand the client a
+   *  cursor rebase) if it hears about it. */
+  private abandonSubscriber(key: string, subscriber: Subscriber, reason: SubscriberAbandonReason): void {
+    if (subscriber.cancelled) return;
+    subscriber.cancelled = true;
+    subscriber.pending.length = 0;
+    const set = this.subscribers.get(key);
+    set?.delete(subscriber);
+    if (set && set.size === 0) this.subscribers.delete(key);
+    try { subscriber.abandon?.(reason); }
+    catch { /* a consumer callback must never break event delivery */ }
   }
   deliver(key: string, payload: Record<string, unknown>, record: SseEventRecord, canPublish: () => boolean): boolean {
     const type = String(payload.type ?? "");
@@ -118,14 +136,9 @@ export class ConversationDelivery {
       if (subscriber.cancelled) continue;
       if (subscriber.ready) {
         if (!canPublish()) return false;
-        if (subscriber.deliver(record) === false) {
-          subscriber.cancelled = true;
-          this.subscribers.get(key)?.delete(subscriber);
-        }
+        if (subscriber.deliver(record) === false) this.abandonSubscriber(key, subscriber, "delivery_failed");
       } else if (subscriber.pending.length >= MAX_SUBSCRIBER_REPLAY_PENDING) {
-        subscriber.cancelled = true;
-        subscriber.pending.length = 0;
-        this.subscribers.get(key)?.delete(subscriber);
+        this.abandonSubscriber(key, subscriber, "replay_backlog_overflow");
       } else {
         subscriber.pending.push(record);
       }
