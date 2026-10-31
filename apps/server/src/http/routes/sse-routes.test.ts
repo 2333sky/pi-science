@@ -66,6 +66,15 @@ describe("SSE session existence fallback", () => {
     // route did NOT reply with the terminal "session not found" error.
     expect(subscribed).toBe(true);
     expect(response.body).not.toContain("session not found in this workspace");
+    // The response is sent before subscribe() runs, so a failure cannot become a
+    // 500. It must reach the client as a terminal error event: a rethrow only
+    // logs FST_ERR_REP_ALREADY_SENT and hands EventSource an empty 200 that it
+    // retries every few seconds, which is the regression this case pins down.
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("event: error");
+    expect(response.body).toContain('"code":"subscribe_failed"');
+    expect(response.body).toContain('"terminal":true');
+    expect(response.body).toContain("subscribe-reached");
     await app.close();
   });
 
@@ -80,6 +89,34 @@ describe("SSE session existence fallback", () => {
     const response = await app.inject({ method: "GET", url: `/api/sessions/ghost/events?cwd=${encodeURIComponent(workspace)}` });
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("session not found in this workspace");
+    await app.close();
+    rmSync(workspace, { recursive: true, force: true });
+  });
+
+  it("reports a rejected subscription as a terminal error, not an empty 200", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "pi-science-sse-subscribe-failed-"));
+    mkdirSync(join(workspace, ".pi-science"), { recursive: true });
+    const app = Fastify();
+    // A replay store that cannot answer makes the real hub's subscribe() reject
+    // after the route already sent the response headers. The failure has to
+    // travel on the wire: rethrowing only turns into an empty 200 that closes,
+    // and EventSource answers that by reconnecting every few seconds.
+    const hub = new ConversationEventHub({
+      append: async () => undefined,
+      readAfter: async () => { throw new Error("event store unavailable"); },
+    });
+    registerSseRoutes(app, sessionServiceFor(workspace) as never, hub as never);
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/sessions/sse-session/events?cwd=${encodeURIComponent(workspace)}&lastEventId=test-epoch:0`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain(": connected");
+    expect(response.body).toContain("event: error");
+    expect(response.body).toContain('"code":"subscribe_failed"');
+    expect(response.body).toContain('"terminal":true');
+    expect(response.body).toContain("event store unavailable");
+    expect(response.body.endsWith("\n\n")).toBe(true);
     await app.close();
     rmSync(workspace, { recursive: true, force: true });
   });
