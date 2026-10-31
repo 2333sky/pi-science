@@ -41,7 +41,16 @@ const WORKSPACE_ENV_KEYS = new Set([
   "PI_SCIENCE_BACKEND_URL", "PI_SCIENCE_INTERNAL_TOKEN",
 ]);
 
-function workerEntry(): { path: string; execArgv: string[] } {
+/** Resolve the worker entry point. A build ships `worker/main.js` next to this
+ *  module; a source checkout forks the TypeScript entry through tsx, and that
+ *  transform costs ~1.1s per session. The test suite precompiles the entry and
+ *  points here instead, but only when NODE_ENV is `test`: a production or dev
+ *  process must never take its worker code from the environment. The variable
+ *  is deliberately absent from `workerEnvironment`, so it never reaches the
+ *  worker process. */
+export function resolveWorkerEntry(env: NodeJS.ProcessEnv = process.env): { path: string; execArgv: string[] } {
+  const override = env.NODE_ENV === "test" ? env.PI_SCIENCE_WORKER_ENTRY : undefined;
+  if (override) return { path: override, execArgv: [] };
   const compiled = fileURLToPath(new URL("./worker/main.js", import.meta.url));
   if (existsSync(compiled)) return { path: compiled, execArgv: [] };
   return { path: fileURLToPath(new URL("./worker/main.ts", import.meta.url)), execArgv: ["--import", import.meta.resolve("tsx")] };
@@ -97,7 +106,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
     }
     const launch = { ...options, settings: { ...options.settings, modelConfigBackend: backend, modelConfigSnapshot: snapshot,
       modelConfigAllowPrivate: options.settings?.modelConfigAllowPrivate !== false && process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0" } };
-    const entry = workerEntry();
+    const entry = resolveWorkerEntry();
     const env = workerEnvironment({ ...options.env, ...modelEnvironment }, [...(options.credentialEnvNames ?? []), ...Object.keys(modelEnvironment)]);
     const child = fork(entry.path, [], {
       cwd: options.cwd,
