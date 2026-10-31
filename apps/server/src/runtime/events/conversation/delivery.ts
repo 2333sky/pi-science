@@ -3,6 +3,18 @@ import type { Subscriber, SubscriberAbandonReason, EventStore } from "./types.js
 import { MAX_SUBSCRIBER_REPLAY_PENDING } from "./limits.js";
 import { streamKey, recordKey, recordPayload } from "./records.js";
 
+// A replay runs inside one synchronous loop while the response is already
+// attached. Without a yield the Readable's consumer never gets a turn to
+// drain, so `blocked` stays set once the first 64KB is handed over and every
+// later record lands in the route's pending buffer: a healthy client
+// reconnecting to a long conversation would be told the replay overflowed
+// even though it could have consumed all of it. Yield by bytes as well as by
+// count (a page of large tool results must still reach a fast consumer) so the
+// 512-record/512KB caps keep measuring the real backlog; a genuinely slow
+// consumer keeps filling them and still gets the explicit gap.
+const REPLAY_YIELD_BYTES = 32 * 1024;
+const REPLAY_YIELD_RECORDS = 128;
+
 export class ConversationDelivery {
   private readonly subscribers = new Map<string, Set<Subscriber>>();
   private readonly pendingInteractions = new Map<string, SseEventRecord[]>();
@@ -74,8 +86,22 @@ export class ConversationDelivery {
       return true;
     };
     const records = replay ? await this.eventStore.readAfter(cwd, sessionId, lastEventId) : [];
+    // Let the already-attached response drain during a long replay. The caps in
+    // the SSE route must bound what the consumer has not taken yet, not how
+    // fast this loop can hand records over: without the turn below a healthy
+    // reconnect streams nothing for the whole replay and then reports
+    // `replay_overflow`.
+    let replayedBytes = 0;
+    let replayedRecords = 0;
     for (const record of records) {
       if (!send(record)) return unsubscribe;
+      replayedBytes += Buffer.byteLength(record.data);
+      replayedRecords += 1;
+      if (replayedBytes >= REPLAY_YIELD_BYTES || replayedRecords >= REPLAY_YIELD_RECORDS) {
+        replayedBytes = 0;
+        replayedRecords = 0;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
     }
     // A page refresh has no in-memory SSE cursor. Re-deliver interactions that
     // are still waiting for a browser response so the UI can reconstruct the

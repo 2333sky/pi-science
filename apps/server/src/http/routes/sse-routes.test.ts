@@ -159,7 +159,57 @@ function readSlowly(url: string): Promise<string> {
   });
 }
 
+/** Read as fast as the data arrives and stop once `done` accepts the body.
+ *  A healthy SSE stream stays open after its replay, so the client ends the
+ *  request instead of waiting for the server to close it. */
+function readPromptly(url: string, done: (body: string) => boolean): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let body = "";
+    const request = httpGet(url, (response) => {
+      response.setEncoding("utf8");
+      response.on("data", (chunk: string) => {
+        body += chunk;
+        if (!done(body)) return;
+        request.destroy();
+        resolve(body);
+      });
+      // A healthy stream stays open, so end here means the server closed it
+      // early: report the tail instead of waiting for the request timeout.
+      response.on("end", () => {
+        if (!done(body)) reject(new Error(`SSE stream ended before the replay completed: ${body.slice(-200)}`));
+      });
+      response.on("error", () => undefined);
+    });
+    request.on("error", reject);
+    request.setTimeout(15_000, () => request.destroy(new Error("SSE test request timed out")));
+  });
+}
+
 describe("SSE replay pacing", () => {
+  it("replays a page larger than the buffer to a healthy consumer without a gap", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "pi-science-sse-paced-"));
+    mkdirSync(join(workspace, ".pi-science"), { recursive: true });
+    const app = Fastify();
+    // 40 records (~800KB) is an ordinary reconnect for a long conversation: it
+    // is far past the 512KB/64KB windows, but the consumer reads while the
+    // replay runs, so pacing it must not turn this into a rebase.
+    const records = Array.from({ length: 40 }, (_, index) => replayRecord("sse-session", index + 1, 20 * 1024));
+    const hub = new ConversationEventHub({ append: async () => undefined, readAfter: async () => records });
+    registerSseRoutes(app, sessionServiceFor(workspace) as never, hub as never);
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = app.server.address() as AddressInfo;
+    const body = await readPromptly(
+      `http://127.0.0.1:${port}/api/sessions/sse-session/events?cwd=${encodeURIComponent(workspace)}&lastEventId=test-epoch:0`,
+      (text) => eventIds(text).length >= records.length,
+    );
+    expect(body).toContain(": connected");
+    // The whole page arrives: no gap, no full REST rebase for a normal reconnect.
+    expect(body).not.toContain("event: stream.gap");
+    expect(eventIds(body)).toEqual(records.map((record) => record.id));
+    await app.close();
+    rmSync(workspace, { recursive: true, force: true });
+  }, 15_000);
+
   it("ends a replay past the buffer cap with an explicit stream.gap", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "pi-science-sse-replay-"));
     mkdirSync(join(workspace, ".pi-science"), { recursive: true });
