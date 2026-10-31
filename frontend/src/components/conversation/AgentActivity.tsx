@@ -78,6 +78,15 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
             : thinkingLive
               ? t("conversation.activity.thinking")
               : t("conversation.activity.processLive");
+    // The row names the phase, not just the fact that something runs: the
+    // narrative states already describe the trace groups, and reusing them
+    // keeps the status line and the steps above from disagreeing. Lifecycle
+    // titles such as recovering already are the narrative, so skip a repeat.
+    const narrative = shown
+      ? t(`conversation.activity.narrative.${shown.state}.${shown.domain}`, { defaultValue: "" })
+        || t(`conversation.activity.narrative.${shown.state}`, { defaultValue: "" })
+      : "";
+    const narrativeDetail = narrative && narrative !== title ? narrative : null;
     const visualSlot = shown ? "currentActivity" : "thinking";
     // The stream is always open while live: narration and tool lines render
     // chronologically, and the caller pins the status row after the answer.
@@ -95,7 +104,7 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
             after the phase word. */}
         <div className="flex min-h-primary w-full items-center gap-2 py-1 text-left">
           <span key={state} className="mx-1 flex w-3.5 shrink-0 justify-center"><ActivityIcon state={state} slot={visualSlot} config={progressAppearance} compact label={title} activityState={activityStateFor(lifecycle, shown)} /></span>
-          <ActivityLabel title={title} detail={null} error={false} elapsed={<LiveElapsed live turnStartedAt={turnStartedAt} />} />
+          <ActivityLabel title={title} detail={narrativeDetail} error={false} elapsed={<LiveElapsed live turnStartedAt={turnStartedAt} />} />
         </div>
       </div>
     );
@@ -289,8 +298,8 @@ function useDisplayedActivity(blocks: ToolCallBlock[], lifecycle: TurnLifecycle)
 function ActivityLabel({ title, detail, error = false, elapsed }: { title: string; detail: string | null; error?: boolean; elapsed?: ReactNode }) {
   return <span aria-live="polite" aria-atomic="true" className={styles.label}>
     <span className={cn(styles.title, "text-text", error && "text-error-text")}>{title}</span>
-    {elapsed}
     {detail && <span className={cn(styles.detail, "text-muted")}>{detail}</span>}
+    {elapsed}
   </span>;
 }
 
