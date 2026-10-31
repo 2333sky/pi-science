@@ -340,5 +340,9 @@ describe("SSE subscription abandonment", () => {
     expect(response.body).toContain('"reason":"replay_overflow"');
     await app.close();
     rmSync(workspace, { recursive: true, force: true });
-  });
+    // 2001 sequential publishes exceed the 2000-record subscriber cap; on a cold
+    // Windows runner that loop alone was measured past the 5s default, so give
+    // the case room to reach the same assertion instead of turning a slow I/O
+    // path into a false failure.
+  }, 20_000);
 });
