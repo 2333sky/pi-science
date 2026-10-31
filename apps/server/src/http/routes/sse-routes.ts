@@ -190,11 +190,14 @@ export function registerSseRoutes(app: FastifyInstance, nodeSessionService: Node
         (reason) => closeWithGap(reason === "replay_backlog_overflow" ? "replay_overflow" : "subscriber_overflow"),
       );
     } catch (error) {
-      // The headers are already on the wire. Rethrowing here goes through the
-      // error handler and produces a 500 on a response the client is already
-      // reading as an event stream, which EventSource treats as a transport
-      // error and retries. Answer with the same terminal error frame as the
-      // not-found branch instead, so the client reaches a definite state.
+      // The reply is already committed to Fastify as a stream payload, so a
+      // rethrow goes through the error handler instead of ending the request
+      // cleanly: reply.sent only short-circuits once the response has ended, so
+      // the handler tries to write a 500 — if the headers have not flushed the
+      // client gets a JSON 500, otherwise writeHead throws ERR_HTTP_HEADERS_SENT
+      // and the connection is torn down. Either way the failure arrives as a
+      // transport fault, not a terminal event. Answer with the same terminal
+      // error frame as the not-found branch.
       request.log.error({ err: error }, "SSE subscription failed");
       if (!closed) {
         stream.push(serializeSseEvent({

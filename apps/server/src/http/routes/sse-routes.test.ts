@@ -66,10 +66,10 @@ describe("SSE session existence fallback", () => {
     // route did NOT reply with the terminal "session not found" error.
     expect(subscribed).toBe(true);
     expect(response.body).not.toContain("session not found in this workspace");
-    // A rethrow would reach the client as a 500 from the error handler on a
-    // response it is already reading as an event stream, which EventSource
-    // treats as a transport error and retries. The route answers with a terminal
-    // error frame instead, and this case pins that choice down.
+    // A rethrow reaches the client as a 500 from the error handler while the
+    // headers are still unflushed, i.e. as a transport fault rather than a
+    // terminal event. The route answers with a terminal error frame instead,
+    // and this case pins that choice down.
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("event: error");
     expect(response.body).toContain('"code":"subscribe_failed"');
@@ -98,9 +98,9 @@ describe("SSE session existence fallback", () => {
     mkdirSync(join(workspace, ".pi-science"), { recursive: true });
     const app = Fastify();
     // A replay store that cannot answer makes the real hub's subscribe() reject
-    // after the route already sent the response headers. Rethrowing would reach
-    // the client as a 500 on a stream it is already reading, so the failure
-    // travels as a terminal error frame instead.
+    // while the response headers are still unflushed. Rethrowing would surface
+    // that as a JSON 500 from the error handler, so the failure travels as a
+    // terminal error frame instead.
     const hub = new ConversationEventHub({
       append: async () => undefined,
       readAfter: async () => { throw new Error("event store unavailable"); },
