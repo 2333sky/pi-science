@@ -254,8 +254,17 @@ describe("AgentActivity live stream", () => {
 
   it("uses the thinking pattern when a tool has no semantics", () => {
     render(<AgentActivity blocks={[tool("bash", "bash", "running", { command: "git status" })]} />);
-    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    // The row names the program, never the arguments.
+    expect(screen.getByText("Running git")).toBeInTheDocument();
+    expect(screen.queryByText(/status/)).not.toBeInTheDocument();
     expect(screen.getByText("Working")).toBeInTheDocument();
+  });
+
+  it("names the phase on the live status row", () => {
+    render(<AgentActivity blocks={[tool("read-1", "read", "running", { path: "a.ts" })]} />);
+    expect(screen.getByText("Working")).toBeInTheDocument();
+    // The title stays the phase word; the narrative detail names the phase.
+    expect(screen.getByText(/^Reviewing /)).toBeInTheDocument();
   });
 
   it("holds implementation through test and corrective reads", () => {
