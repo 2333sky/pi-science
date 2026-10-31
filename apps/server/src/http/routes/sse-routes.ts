@@ -190,11 +190,12 @@ export function registerSseRoutes(app: FastifyInstance, nodeSessionService: Node
         (reason) => closeWithGap(reason === "replay_backlog_overflow" ? "replay_overflow" : "subscriber_overflow"),
       );
     } catch (error) {
-      // The response was already sent above, so rethrowing cannot become a 500:
-      // Fastify only logs FST_ERR_REP_ALREADY_SENT and the client is handed a
-      // 200 that closes immediately, which EventSource answers with a reconnect
-      // every few seconds instead of surfacing a failure. Report the subscription
-      // error on the wire, in the same terminal shape as the not-found branch.
+      // The headers are already on the wire. Rethrowing here goes through the
+      // error handler and produces a 500 on a response the client is already
+      // reading as an event stream, which EventSource treats as a transport
+      // error and retries. Answer with the same terminal error frame as the
+      // not-found branch instead, so the client reaches a definite state.
+      request.log.error({ err: error }, "SSE subscription failed");
       if (!closed) {
         stream.push(serializeSseEvent({
           event: "error",
