@@ -115,21 +115,6 @@
   padding-block: 0.125rem;
 }
 
-/* A run of exploration steps leads with its own tally, and the entries step in
-   under it: the caption reads as a heading for the group rather than as one
-   more row of the list. Proximity does the grouping — no rail, no fill. */
-.group {
-  padding-top: 0.25rem;
-}
-
-.group > div:not(:first-child) {
-  padding-left: var(--space-compact);
-}
-
-.groupCaption {
-  padding-bottom: 0.25rem;
-}
-
 .toolButton {
   transition: color var(--motion-normal) var(--ease-standard);
 }

@@ -6,7 +6,7 @@ import type { AgentMessageBlock, ThinkingBlock, ToolCallBlock } from "../../type
 import { activityPolicy } from "../../lib/conversation/activity-policy";
 import { ACTIVITY_SWITCH_DEBOUNCE_MS, MIN_ACTIVITY_VISIBLE_MS, selectDisplayedActivity } from "../../lib/conversation/activity-display-policy";
 import type { PresentedActivity } from "../../lib/conversation/activity-narrative";
-import { groupActivityBlocks, type ActivityGroup } from "../../lib/conversation/activity-groups";
+import { groupActivityBlocks, type ActivityEntry } from "../../lib/conversation/activity-groups";
 import { isLiveLifecycle, type TurnLifecycle } from "../../lib/conversation/turn-presentation";
 import { projectToolActivity } from "../../lib/conversation/projection";
 import { ProgressVisual, useProgressAppearance } from "../progress/ProgressVisual";
@@ -51,7 +51,9 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
     : block.kind === "thinking"
       ? block.parts.some((part) => part.text.trim())
       : activityPolicy(block).visibleInExecutionTrace), [blocks]);
-  const activityGroups = useMemo(() => groupActivityBlocks(blocks), [blocks]);
+  // groupActivityBlocks drops the entries the trace never shows; the flat list
+  // below keeps that filtering (and its ordering) and nothing else.
+  const activityEntries = useMemo(() => groupActivityBlocks(blocks).flatMap((group) => group.blocks), [blocks]);
   const traceId = useId();
   // Final answers are rendered by ConversationTurn. Everything else is
   // process history and collapses together once the turn is terminal.
@@ -94,7 +96,7 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
     const content = activities.length === 0 ? null : (
       <div id={blocks.length === 1 && blocks[0].kind === "tool" ? `thread-block-${blocks[0].id}` : undefined} data-thread-block-ids={blocks.map((block) => block.id).join(" ")} data-state={state} data-motion={progressAppearance.motion} style={activityStyle(progressAppearance)} className={cn(styles.root, "min-w-0 scroll-mt-4")}>
         <div role="region" className={cn(styles.trace, styles.traceLive)} aria-label={t("conversation.activity.trace")}>
-          <ActivityTrace groups={activityGroups} cwd={cwd} live />
+          <ActivityTrace blocks={activityEntries} cwd={cwd} live />
         </div>
       </div>
     );
@@ -174,27 +176,22 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
       <div aria-live="polite" aria-atomic="true" className={cn(styles.summary, "flex min-h-primary w-full items-center py-1 text-sm font-medium text-text")}>{headline}</div>
     ) : null}
     {traceExpanded && traceBlocks.length > 0 && <div id={traceId} role="region" className={cn(styles.trace, styles.traceOpen)} aria-label={t("conversation.activity.trace")}>
-      <ActivityTrace groups={groupActivityBlocks(traceBlocks)} cwd={cwd} />
+      <ActivityTrace blocks={groupActivityBlocks(traceBlocks).flatMap((group) => group.blocks)} cwd={cwd} />
     </div>}
   </div>;
 }
 
 /** Chronological narration and tool lines. Live turns show the running
- *  tool's pulsing dot; the exploration group carries its own running tally. */
-function ActivityTrace({ groups, cwd, live = false }: { groups: ActivityGroup[]; cwd?: string; live?: boolean }) {
+ *  tool's pulsing dot. The list stays flat: a caption above a run of reads
+ *  repeated what the status row already says, indented the steps under a
+ *  heading nobody needed, and cost a type-scale step of its own. */
+function ActivityTrace({ blocks, cwd, live = false }: { blocks: ActivityEntry[]; cwd?: string; live?: boolean }) {
   return <>
-    {groups.map((group) => {
-      const entries = group.blocks.map((block) => block.kind === "agent"
-        ? <div key={block.id} id={`thread-block-${block.id}`} className={cn(styles.entry, styles.narration, "min-w-0")}><MarkdownViewer variant="chat" mode={block.partial ? "streaming" : "final"} className="text-ui-body leading-relaxed text-muted [overflow-wrap:anywhere]" resourceContext={cwd ? { cwd } : undefined}>{parseSuggestions(block.parts.map((part) => part.text).join("")).clean}</MarkdownViewer></div>
-        : block.kind === "thinking"
-          ? <ThinkingRow key={block.id} block={block} />
-          : <TraceItem key={block.id} block={block} live={live} />);
-      if (group.kind !== "exploration" || group.blocks.length < 2) return entries;
-      return <div key={group.id} data-activity-group-id={group.id} className={cn(styles.entry, styles.group, "min-w-0")}>
-        <GroupSummary group={group} live={live} />
-        {entries}
-      </div>;
-    })}
+    {blocks.map((block) => block.kind === "agent"
+      ? <div key={block.id} id={`thread-block-${block.id}`} className={cn(styles.entry, styles.narration, "min-w-0")}><MarkdownViewer variant="chat" mode={block.partial ? "streaming" : "final"} className="text-ui-body leading-relaxed text-muted [overflow-wrap:anywhere]" resourceContext={cwd ? { cwd } : undefined}>{parseSuggestions(block.parts.map((part) => part.text).join("")).clean}</MarkdownViewer></div>
+      : block.kind === "thinking"
+        ? <ThinkingRow key={block.id} block={block} />
+        : <TraceItem key={block.id} block={block} live={live} />)}
   </>;
 }
 
@@ -245,15 +242,6 @@ function LiveStepElapsed({ since }: { since?: string }) {
   }, [startedAt]);
   if (startedAt === null) return null;
   return <span aria-hidden="true" className="shrink-0 font-mono text-[10px] tabular-nums text-muted">{formatSeconds(Math.max(0, (Date.now() - startedAt) / 1000))}</span>;
-}
-
-function GroupSummary({ group, live }: { group: ActivityGroup; live: boolean }) {
-  const { t } = useTranslation();
-  const done = group.blocks.filter((block) => block.kind === "tool" && block.status !== "running").length;
-  const label = live
-    ? t("conversation.activity.exploreSummaryLive", { done, count: group.blocks.length })
-    : t("conversation.activity.exploreSummary", { count: group.blocks.length });
-  return <div className={`${styles.groupCaption} text-ui-micro text-muted`}>{label}</div>;
 }
 
 function activityStyle(config: ProgressAppearance): CSSProperties {
