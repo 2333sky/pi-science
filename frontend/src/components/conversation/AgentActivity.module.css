@@ -17,6 +17,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The folded summary is the reopen affordance for the whole trace, so it tints
+   across its full row on hover/focus instead of carrying a permanent fill. */
+.summaryButton {
+  transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.summaryButton:hover {
+  background-color: var(--surface-hover);
+}
+
 .glyph {
   display: inline-flex;
   width: 2rem;
@@ -85,6 +95,12 @@
    records behind the settled summary row. */
 .traceLive {
   gap: 0.125rem;
+}
+
+/* The disclosure opens with the same quiet 3px lift its entries use; closing
+   stays immediate, so the row never leaves an empty box behind. */
+.traceOpen {
+  animation: reveal var(--motion-normal) var(--ease-standard) both;
 }
 
 .entry, .details {

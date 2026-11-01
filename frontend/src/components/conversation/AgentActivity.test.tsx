@@ -140,9 +140,10 @@ describe("AgentActivity live stream", () => {
     expect(screen.queryByText("Understanding your request and deciding what to do next")).not.toBeInTheDocument();
   });
 
-  it("renders one exploration group summary for consecutive reads", () => {
+  it("keeps consecutive reads flat instead of captioning them as a group", () => {
     render(<AgentActivity blocks={[tool("r1", "read", "done", { path: "one.ts" }), tool("r2", "read", "done", { path: "two.ts" })]} />);
-    expect(screen.getByText(/Exploring/)).toBeInTheDocument();
+    expect(screen.queryByText(/Exploring/)).not.toBeInTheDocument();
+    expect(document.querySelector("[data-activity-group-id]")).toBeNull();
     expect(screen.getByText("Reading one.ts")).toBeInTheDocument();
     expect(screen.getByText("Reading two.ts")).toBeInTheDocument();
   });
@@ -493,4 +494,48 @@ describe("AgentActivity settled display", () => {
 it("renders a stopped turn with its durable duration even when it produced no assistant or tool message", () => {
   render(<AgentActivity blocks={[]} lifecycle="aborted" turnStartedAt="2026-10-03T00:00:00.000Z" turnEndedAt="2026-10-03T00:00:29.000Z" />);
   expect(screen.getByText("Stopped · 29s")).toBeInTheDocument();
+});
+
+describe("Activity step glyphs and disclosure", () => {
+  it("gives each kind of step its own glyph", () => {
+    render(<AgentActivity blocks={[tool("r", "read"), tool("s", "grep"), tool("l", "glob"), tool("w", "edit"), tool("x", "bash"), tool("n", "web_search")]} />);
+    const glyphs = [...document.querySelectorAll("[data-activity-category]")];
+    expect(glyphs.map((node) => node.getAttribute("data-activity-category"))).toEqual(["read", "search", "list", "write", "run", "web"]);
+    // The marker itself has to differ per category, not only carry the attribute.
+    expect(new Set(glyphs.map((node) => node.innerHTML)).size).toBe(glyphs.length);
+  });
+
+  it("keeps the error marker instead of a category glyph", () => {
+    render(<AgentActivity blocks={[tool("e", "read", "error")]} />);
+    expect(document.querySelector("[data-activity-category]")).toBeNull();
+  });
+
+
+  it("names the panel a folded summary opens", () => {
+    const { container } = render(<AgentActivity blocks={[tool("t1", "read")]} lifecycle="aborted" turnStartedAt="2026-10-03T00:00:00.000Z" turnEndedAt="2026-10-03T00:00:04.000Z" />);
+    const summary = screen.getByRole("button", { name: /Stopped · 4\.0s/ });
+    expect(summary).toHaveAttribute("aria-expanded", "false");
+    const panelId = summary.getAttribute("aria-controls");
+    expect(panelId).toBeTruthy();
+    fireEvent.click(summary);
+    expect(summary).toHaveAttribute("aria-expanded", "true");
+    expect(container.querySelector(`[id="${panelId}"]`)).toBe(screen.getByLabelText("Execution trace"));
+  });
+
+  it("names the reasoning panel it opens", () => {
+    render(<AgentActivity blocks={[{ kind: "thinking", id: "reasoning", parts: [{ id: "reasoning-part", text: "Plan the edit" }] }]} />);
+    const row = screen.getByRole("button", { name: "Thinking" });
+    expect(row).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(row);
+    expect(row).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(row.getAttribute("aria-controls") ?? "")).toHaveTextContent("Plan the edit");
+  });
+
+  it("keeps a long step name on one line and offers it in full", () => {
+    const name = "conversation-activity-presenters-with-a-fairly-long-file-name.ts";
+    render(<AgentActivity blocks={[tool("long", "read", "done", { path: name })]} />);
+    const label = screen.getByText(`Reading ${name}`);
+    expect(label).toHaveClass("truncate");
+    expect(label).toHaveAttribute("title", `Reading ${name}`);
+  });
 });
