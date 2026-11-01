@@ -2,6 +2,8 @@ import type { ToolCallBlock } from "../../types/thread";
 
 export type ActivityTranslator = (key: string, values?: Record<string, unknown>) => string;
 
+export type ActivityToolCategory = "read" | "search" | "list" | "write" | "web" | "run" | "other";
+
 const DEFAULT_LABELS: Record<string, string> = {
   "conversation.activity.read": "Reading {{target}}", "conversation.activity.search": "Searching for {{target}}", "conversation.activity.list": "Listing {{target}}", "conversation.activity.write": "Updating {{target}}", "conversation.activity.run": "Running {{target}}", "conversation.activity.webSearch": "Searching the web for {{target}}", "conversation.activity.tool": "Running {{tool}}",
 };
@@ -26,6 +28,20 @@ export function presentToolActivity(block: ToolCallBlock, translate: ActivityTra
   if (WEB_SEARCH_TOOLS.has(tool)) return translate("conversation.activity.webSearch", { target: trim(text(input.query) || "sources") });
   if (RUN_TOOLS.has(tool)) return description || translate("conversation.activity.run", { target: programName(input) || tool });
   return description || translate("conversation.activity.tool", { tool: block.tool.replace(/[_-]+/g, " ").trim() || "tool" });
+}
+
+/** The glyph a finished step carries. It reads the same sets the wording reads,
+ *  so an icon can never contradict its label. `glob` and `web_fetch` have no
+ *  wording of their own yet, so they are mapped here for the glyph alone. */
+export function toolActivityCategory(tool: string): ActivityToolCategory {
+  const name = tool.trim().toLowerCase();
+  if (READ_TOOLS.has(name)) return "read";
+  if (SEARCH_TOOLS.has(name)) return "search";
+  if (LIST_TOOLS.has(name) || name === "glob") return "list";
+  if (WRITE_TOOLS.has(name)) return "write";
+  if (WEB_SEARCH_TOOLS.has(name) || name === "web_fetch" || name === "fetch") return "web";
+  if (RUN_TOOLS.has(name)) return "run";
+  return "other";
 }
 
 /** The row names the program being run, never the full command line: the
