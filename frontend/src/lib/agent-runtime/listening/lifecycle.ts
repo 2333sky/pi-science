@@ -2,10 +2,11 @@
 import type { PiScienceEvent, SessionStats } from "../../client/pi-science-client";
 import { markWorkspaceFilesChanged } from "../file-revision";
 import { resetTurnBuffer } from "../folding/state";
-import { bumpConversationGeneration, bumpPresentationMetadataGeneration, turnState } from "../generations";
+import { bumpConversationGeneration, bumpPresentationMetadataGeneration, generations, turnState } from "../generations";
 import { resyncCompletedHistory } from "../recovery/settled-history";
 import { loadSessionsInternal } from "../sessions";
 import { runtimeStore } from "../store-access";
+import type { ThreadBlock } from "../../../types/thread";
 import type { RuntimeState } from "../types";
 import { disarmTurnWatchdog, ensureTurnWatchdog } from "./watchdog";
 import { maybeRequestScienceReview } from "./science-review";
@@ -96,13 +97,67 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
       turnState.errored = true;
       runtimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       disarmTurnWatchdog();
-      // A terminal worker error stands in for operation.settled when recovery
-      // is exhausted: no settle event will follow, so the history re-read that
-      // settled normally triggers would never run and the durable answer
-      // would stay off screen. Keep the turn failed, but re-read once through
-      // the guarded path so what the worker already persisted still renders.
-      if (state.activeSessionId) void resyncCompletedHistory(state.activeSessionId, state.cwd);
+      // Only a terminal error stands in for operation.settled: recovery is
+      // exhausted, so no settle event will ever follow and the part of the
+      // turn the worker already persisted would stay off screen. Keep the turn
+      // failed, but re-read once through the guarded path. Non-terminal
+      // failures (model error, runtime error, idle empty reply, settings
+      // reload) keep the worker alive and their settled event already runs
+      // this re-read on success; re-reading here would replace the thread —
+      // dropping this error row and any in-flight partial — while the turn is
+      // still going.
+      if (event.terminal === true && state.activeSessionId) {
+        const sessionId = state.activeSessionId;
+        const { cwd } = state;
+        const conversationGeneration = generations.conversation;
+        const line = {
+          text: typeof event.message === "string" && event.message ? event.message : "Unknown error",
+          turnId: typeof event.turnId === "string" ? event.turnId : state.thread.foldState?.activeTurnId,
+          runId: typeof event.runId === "string" ? event.runId : state.thread.foldState?.activeRunId,
+        };
+        void resyncCompletedHistory(sessionId, cwd)
+          .then(() => restoreErrorRow(sessionId, cwd, conversationGeneration, line));
+      }
     }
   }
 
+}
+
+/** A history re-read replaces the thread wholesale, so the error row the fold
+ *  produced for this event would vanish and the user would see a failed turn
+ *  with an answer but no reason. Put it back once the re-read settles, unless
+ *  the tape has moved on: a newer conversation event owns the thread by then,
+ *  and the row belongs to the turn this error closed. */
+function restoreErrorRow(
+  sessionId: string,
+  cwd: string,
+  conversationGeneration: number,
+  line: { text: string; turnId?: string; runId?: string },
+): void {
+  const state = runtimeStore.getState();
+  if (state.activeSessionId !== sessionId || state.cwd !== cwd) return;
+  if (conversationGeneration !== generations.conversation) return;
+  const alreadyThere = state.thread.blocks.some((block) => block.kind === "status-line"
+    && block.level === "error" && block.text === line.text);
+  if (alreadyThere) return;
+  const foldState = state.thread.foldState;
+  const serial = foldState?.errorSerial ?? 0;
+  const id = `error-${serial}`;
+  const block: ThreadBlock = {
+    kind: "status-line",
+    id,
+    turnId: line.turnId,
+    runId: line.runId,
+    text: line.text,
+    level: "error",
+  };
+  const blocks = [...state.thread.blocks, block];
+  runtimeStore.setState({
+    thread: {
+      ...state.thread,
+      blocks,
+      index: { ...state.thread.index, [id]: blocks.length - 1 },
+      foldState: foldState ? { ...foldState, errorSerial: serial + 1 } : foldState,
+    },
+  });
 }
