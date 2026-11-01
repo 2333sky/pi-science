@@ -76,7 +76,12 @@ export function recover(context: Context, item: Live, force = false): Promise<vo
     }
     const opened = await context.open(cwd, sessionId, item.config);
     if ("success" in opened) {
-      await context.events.publish(cwd, sessionId, { type: "error", sessionId, code: "worker_recovery_failed", terminal: attempt >= 3, message: String(opened.error) });
+      // A failed reopen is retried below while an attempt remains, so the client
+      // must not treat it as fatal: a fatal record ends the turn and blocks the
+      // settled event a successful retry produces. Only the last attempt is
+      // terminal; earlier ones stay recoverable, like worker_recovering above.
+      await context.events.publish(cwd, sessionId, { type: "error", sessionId, code: "worker_recovery_failed",
+        ...(attempt < 3 ? { recoverable: true } : {}), terminal: attempt >= 3, message: String(opened.error) });
       if (attempt < 3) {
         const timer = setTimeout(() => { context.recoveryTimers.delete(key); void context.recover(item); }, 250 * attempt);
         timer.unref?.();
