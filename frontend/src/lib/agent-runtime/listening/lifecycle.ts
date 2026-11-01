@@ -96,6 +96,12 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
       turnState.errored = true;
       runtimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       disarmTurnWatchdog();
+      // A terminal worker error stands in for operation.settled when recovery
+      // is exhausted: no settle event will follow, so the history re-read that
+      // settled normally triggers would never run and the durable answer
+      // would stay off screen. Keep the turn failed, but re-read once through
+      // the guarded path so what the worker already persisted still renders.
+      if (state.activeSessionId) void resyncCompletedHistory(state.activeSessionId, state.cwd);
     }
   }
 
