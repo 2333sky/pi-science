@@ -569,3 +569,11 @@ describe("Activity step glyphs and disclosure", () => {
     expect(label).toHaveAttribute("title", `Reading ${name}`);
   });
 });
+
+describe("exploration group caption", () => {
+  it("keeps the micro type scale so the group caption stays a caption", () => {
+    render(<AgentActivity blocks={[tool("read-1", "read", "done", { path: "a.ts" }), tool("grep-1", "grep", "done", { pattern: "needle" })]} lifecycle="active" />);
+    const caption = screen.getByText(/Exploring · 2 of 2 operations/);
+    expect(caption.className).toContain("text-ui-micro");
+  });
+});
