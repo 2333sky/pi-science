@@ -140,9 +140,10 @@ describe("AgentActivity live stream", () => {
     expect(screen.queryByText("Understanding your request and deciding what to do next")).not.toBeInTheDocument();
   });
 
-  it("renders one exploration group summary for consecutive reads", () => {
+  it("keeps consecutive reads flat instead of captioning them as a group", () => {
     render(<AgentActivity blocks={[tool("r1", "read", "done", { path: "one.ts" }), tool("r2", "read", "done", { path: "two.ts" })]} />);
-    expect(screen.getByText(/Exploring/)).toBeInTheDocument();
+    expect(screen.queryByText(/Exploring/)).not.toBeInTheDocument();
+    expect(document.querySelector("[data-activity-group-id]")).toBeNull();
     expect(screen.getByText("Reading one.ts")).toBeInTheDocument();
     expect(screen.getByText("Reading two.ts")).toBeInTheDocument();
   });
@@ -509,10 +510,6 @@ describe("Activity step glyphs and disclosure", () => {
     expect(document.querySelector("[data-activity-category]")).toBeNull();
   });
 
-  it("leads an exploration group with its tally", () => {
-    render(<AgentActivity blocks={[tool("a", "read"), tool("b", "grep")]} />);
-    expect(document.querySelector("[data-activity-group-id]")?.firstElementChild).toHaveTextContent("Exploring · 2 of 2 operations");
-  });
 
   it("names the panel a folded summary opens", () => {
     const { container } = render(<AgentActivity blocks={[tool("t1", "read")]} lifecycle="aborted" turnStartedAt="2026-10-03T00:00:00.000Z" turnEndedAt="2026-10-03T00:00:04.000Z" />);
@@ -540,13 +537,5 @@ describe("Activity step glyphs and disclosure", () => {
     const label = screen.getByText(`Reading ${name}`);
     expect(label).toHaveClass("truncate");
     expect(label).toHaveAttribute("title", `Reading ${name}`);
-  });
-});
-
-describe("exploration group caption", () => {
-  it("keeps the micro type scale so the group caption stays a caption", () => {
-    render(<AgentActivity blocks={[tool("read-1", "read", "done", { path: "a.ts" }), tool("grep-1", "grep", "done", { pattern: "needle" })]} lifecycle="active" />);
-    const caption = screen.getByText(/Exploring · 2 of 2 operations/);
-    expect(caption.className).toContain("text-ui-micro");
   });
 });
