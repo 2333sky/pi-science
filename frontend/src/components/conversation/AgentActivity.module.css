@@ -117,9 +117,10 @@
 
 /* The step scale comes from `text-ui-label` on the row buttons: `cn()` registers
    the `ui-micro…ui-title` steps in tailwind-merge's font-size group (#234), so the
-   token survives next to `text-muted` and supplies the 13px/18px task line
-   recorded at docs/ui/deepseek-harness-reference.md:354. Only the colour
-   transition belongs here. */
+   token survives next to `text-muted` and supplies the line box the row cites —
+   "Step rows carry the 13px/18px task line"
+   (docs/ui/deepseek-harness-reference.md:354). Only the colour transition belongs
+   here. */
 .toolButton {
   transition: color var(--motion-normal) var(--ease-standard);
 }
