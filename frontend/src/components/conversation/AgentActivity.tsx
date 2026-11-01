@@ -253,7 +253,7 @@ function GroupSummary({ group, live }: { group: ActivityGroup; live: boolean }) 
   const label = live
     ? t("conversation.activity.exploreSummaryLive", { done, count: group.blocks.length })
     : t("conversation.activity.exploreSummary", { count: group.blocks.length });
-  return <div className={cn(styles.groupCaption, "text-ui-micro text-muted")}>{label}</div>;
+  return <div className={`${styles.groupCaption} text-ui-micro text-muted`}>{label}</div>;
 }
 
 function activityStyle(config: ProgressAppearance): CSSProperties {
