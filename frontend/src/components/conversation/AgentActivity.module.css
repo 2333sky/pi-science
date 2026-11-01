@@ -17,6 +17,16 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* The folded summary is the reopen affordance for the whole trace, so it tints
+   across its full row on hover/focus instead of carrying a permanent fill. */
+.summaryButton {
+  transition: background-color var(--motion-fast) var(--ease-standard);
+}
+
+.summaryButton:hover {
+  background-color: var(--surface-hover);
+}
+
 .glyph {
   display: inline-flex;
   width: 2rem;
@@ -87,6 +97,12 @@
   gap: 0.125rem;
 }
 
+/* The disclosure opens with the same quiet 3px lift its entries use; closing
+   stays immediate, so the row never leaves an empty box behind. */
+.traceOpen {
+  animation: reveal var(--motion-normal) var(--ease-standard) both;
+}
+
 .entry, .details {
   animation: reveal var(--motion-normal) var(--ease-standard) both;
 }
@@ -97,6 +113,21 @@
 
 .thinking {
   padding-block: 0.125rem;
+}
+
+/* A run of exploration steps leads with its own tally, and the entries step in
+   under it: the caption reads as a heading for the group rather than as one
+   more row of the list. Proximity does the grouping — no rail, no fill. */
+.group {
+  padding-top: 0.25rem;
+}
+
+.group > div:not(:first-child) {
+  padding-left: var(--space-compact);
+}
+
+.groupCaption {
+  padding-bottom: 0.25rem;
 }
 
 .toolButton {
