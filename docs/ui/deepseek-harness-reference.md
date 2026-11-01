@@ -343,15 +343,19 @@ keeps that treatment and uses a stacked hierarchy for the requested live status:
 - 6px between title and task, 8px vertical padding, no enclosing border or fill;
 - completed/stopped/error status contracts to a 14px title.
 
-Pi-Science implementation note (2026-11-01, measured in `frontend/harness/`
-at 320/375/1024 in both themes): inside the conversation thread the status row is
-one compact line, so it keeps a 15px/1.6 500 phase title rather than the 20px
+Pi-Science implementation note (2026-11-01; measured against the real component
+in Chromium at DPR 2, viewports 320/375/1024, both themes): inside the
+conversation thread the status row is one compact line, so it keeps a 15px/1.6
+500 phase title rather than the 20px
 stacked-stage title above — 20px would out-weigh the 14px/15px conversation text
 the row sits in, which the "quiet, borderless" treatment argues against. The row
 uses the same 14px marker slot and 8px gap as the step rows, so the phase title
 and every step label start on the shared x46 edge (24px gutter + 14px slot + 8px
 gap). Step rows carry the 13px/1.5 task line; with 8px vertical padding their
-line box still fits the 36px (pointer) / 40px (touch) density heights.
+line box still clears the row minimum, which is a viewport switch rather than a
+pointer/touch split: 40px below the `sm` breakpoint (`min-h-primary`) and 36px
+from `sm` up (`sm:min-h-control`), both static `--density-*` values
+(`frontend/src/index.css:210-211`). A touch screen 640px or wider is still 36px.
 
 The title holds a stable phase while the subtitle updates with each tool or
 plan event. Purpose comes from an explicit task description, current model

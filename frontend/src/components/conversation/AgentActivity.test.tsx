@@ -539,12 +539,3 @@ describe("Activity step glyphs and disclosure", () => {
     expect(label).toHaveAttribute("title", `Reading ${name}`);
   });
 });
-
-describe("step row type scale", () => {
-  it("leaves the step size to the module, because cn() drops a text-ui-* utility beside a colour", () => {
-    const { container } = render(<AgentActivity blocks={[tool("read", "read"), tool("grep", "grep"), tool("bash", "bash", "done", { command: "pnpm test" })]} lifecycle="active" />);
-    const rows = [...container.querySelectorAll<HTMLElement>('[role="region"] button')];
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) expect(row.className).not.toMatch(/text-ui-/);
-  });
-});

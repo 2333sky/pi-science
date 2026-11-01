@@ -117,9 +117,10 @@
 
 /* The step scale has to live here: tailwind-merge reads `text-ui-label` as a
    text colour and drops it next to `text-muted`, so the row silently inherited
-   15px and matched the phase title instead of sitting under it. 13px/1.5 is the
-   task line of docs/ui/deepseek-harness-reference.md:336; the 19.5px line box
-   plus 8px padding still fits the 36px/40px density height. */
+   15px and matched the phase title instead of sitting under it. This is the
+   step-row variant recorded at docs/ui/deepseek-harness-reference.md:354 — 13px
+   on a 1.5 line box (19.5px), so 8px padding still clears the row minimum:
+   40px below `sm`, 36px from `sm` up. */
 .toolButton {
   font-size: 0.8125rem;
   line-height: 1.5;
