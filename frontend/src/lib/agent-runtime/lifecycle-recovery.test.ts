@@ -81,6 +81,54 @@ describe("lifecycle recovery after a terminal worker error", () => {
     expect(useRuntimeStore.getState().turnLifecycle).toBe("failed");
   });
 
+  it("re-reads once when recoverable retry failures precede the terminal attempt", async () => {
+    // supervision retries while an attempt remains and marks only the last
+    // failure terminal (supervision.ts:79). The earlier ones must not end the
+    // turn, or the final failure and the settled event a successful retry
+    // produces are both swallowed by the failed-state guard.
+    let persisted: typeof answeredPage.messages = [];
+    vi.spyOn(getClient(), "getMessagesPage").mockImplementation(async () => ({
+      messages: persisted,
+      next_cursor: null,
+      has_more: false,
+      snapshot_version: "snapshot-live",
+    }));
+    const resync = vi.spyOn(settledHistory, "resyncCompletedHistory");
+    const { source } = await startTurn();
+
+    for (const event of [
+      { type: "error", sessionId: "session-recovery", code: "worker_recovering", recoverable: true,
+        message: "The agent worker stopped responding; restoring its durable operation." },
+      { type: "error", sessionId: "session-recovery", code: "worker_recovery_failed", recoverable: true, terminal: false,
+        message: "worker failed to start" },
+      { type: "error", sessionId: "session-recovery", code: "worker_recovering", recoverable: true,
+        message: "The agent worker stopped responding; restoring its durable operation." },
+    ]) {
+      source.emit("error", event);
+    }
+    expect(useRuntimeStore.getState()).toMatchObject({ working: true, turnLifecycle: "recovering" });
+    expect(resync).not.toHaveBeenCalled();
+
+    persisted = answeredPage.messages;
+    source.emit("error", {
+      type: "error",
+      sessionId: "session-recovery",
+      code: "worker_recovery_failed",
+      terminal: true,
+      message: "Agent worker recovery exhausted",
+    });
+
+    expect(useRuntimeStore.getState()).toMatchObject({ working: false, turnLifecycle: "failed" });
+    await vi.waitFor(() => {
+      const blocks = useRuntimeStore.getState().thread.blocks;
+      expect(blocks.some((block) => block.kind === "agent")).toBe(true);
+      expect(blocks.some((block) => block.kind === "status-line"
+        && block.level === "error"
+        && block.text === "Agent worker recovery exhausted")).toBe(true);
+    });
+    expect(resync).toHaveBeenCalledTimes(1);
+  });
+
   it("does not re-read history for a non-terminal error, whose settled event still arrives", async () => {
     vi.spyOn(getClient(), "getMessagesPage").mockResolvedValue({
       messages: [],
