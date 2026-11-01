@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolCallBlock } from "../../types/thread";
-import { presentToolActivity } from "./activity-presenters";
+import { presentToolActivity, toolActivityCategory } from "./activity-presenters";
 const block = (tool: string, input?: Record<string, unknown>, title?: string): ToolCallBlock => ({ kind: "tool", id: tool, callId: tool, tool, status: "running", input, title });
 describe("presentToolActivity", () => {
   it("prefers the server title", () => { expect(presentToolActivity(block("bash", {}, "Running tests"))).toBe("Running tests"); });
@@ -14,5 +14,17 @@ describe("presentToolActivity", () => {
     expect(presentToolActivity(block("bash", { command: "/usr/bin/pnpm --filter web test" }))).toBe("Running pnpm");
     expect(presentToolActivity(block("read", { path: "/repo/apps/server/src/a.ts", offset: 120, limit: 40 }))).toBe("Reading a.ts:120-159");
     expect(presentToolActivity(block("read", { path: "/repo/apps/server/src/a.ts" }))).toBe("Reading a.ts");
+  });
+});
+
+describe("toolActivityCategory", () => {
+  it("maps each kind of step to its glyph", () => {
+    expect(toolActivityCategory("read")).toBe("read");
+    expect(toolActivityCategory("Grep")).toBe("search");
+    expect(toolActivityCategory("glob")).toBe("list");
+    expect(toolActivityCategory("apply_patch")).toBe("write");
+    expect(toolActivityCategory("web_fetch")).toBe("web");
+    expect(toolActivityCategory("bash")).toBe("run");
+    expect(toolActivityCategory("plan")).toBe("other");
   });
 });
