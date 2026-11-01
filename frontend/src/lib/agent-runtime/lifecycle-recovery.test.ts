@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ThreadBlock } from "../../types/thread";
 import { getClient } from "../client/pi-science-client";
+import { foldEvent } from "./folding/reducer";
 import { useRuntimeStore } from "./index";
 import * as settledHistory from "./recovery/settled-history";
 import { FakeEventSource, installRuntimeTestEnvironment, jsonResponse, state } from "./test-helpers";
 
 installRuntimeTestEnvironment();
 afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); });
+
+type ErrorRow = Extract<ThreadBlock, { kind: "status-line" }>;
+
+function errorRows(blocks: ThreadBlock[]): ErrorRow[] {
+  return blocks.filter((block): block is ErrorRow => block.kind === "status-line" && block.level === "error");
+}
 
 const answeredPage = {
   messages: [{ id: "assistant-1", role: "assistant" as const, content: [{ type: "text" as const, text: "Recovered answer from the durable transcript" }] }],
@@ -133,5 +141,98 @@ describe("lifecycle recovery after a terminal worker error", () => {
       && block.level === "error"
       && block.text === "Agent worker recovery exhausted")).toBe(true);
     expect(useRuntimeStore.getState().turnLifecycle).toBe("failed");
+  });
+
+  it("keeps error block ids unique when another error follows the restored row", async () => {
+    // The recovery re-read drops the fold state, so the restored row must take
+    // its serial number from the block ids that survived: a later fold that
+    // starts from a fresh fold state would otherwise mint the same id again.
+    let persisted: typeof answeredPage.messages = [];
+    vi.spyOn(getClient(), "getMessagesPage").mockImplementation(async () => ({
+      messages: persisted,
+      next_cursor: null,
+      has_more: false,
+      snapshot_version: "snapshot-live",
+    }));
+    const { source } = await startTurn();
+
+    persisted = answeredPage.messages;
+    source.emit("error", {
+      type: "error",
+      sessionId: "session-recovery",
+      code: "worker_recovery_failed",
+      terminal: true,
+      message: "Agent worker recovery exhausted",
+    });
+    await vi.waitFor(() => {
+      const blocks = useRuntimeStore.getState().thread.blocks;
+      expect(blocks.some((block) => block.kind === "agent")).toBe(true);
+      expect(blocks.some((block) => block.kind === "status-line" && block.level === "error")).toBe(true);
+    });
+
+    // The terminal record closed the stream (the transport drops later
+    // records from the old source), so the next error is folded directly:
+    // the invariant under test is the thread state, not the socket.
+    const current = useRuntimeStore.getState().thread;
+    const next = foldEvent(current, {
+      type: "error",
+      sessionId: "session-recovery",
+      code: "model_error",
+      recoverable: false,
+      message: "The model call failed afterwards",
+    });
+    useRuntimeStore.setState({ thread: next });
+
+    const rows = errorRows(next.blocks);
+    expect(rows.map((block) => block.text)).toContain("The model call failed afterwards");
+    expect(rows.length).toBe(2);
+    const ids = rows.map((block) => block.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("re-adds the row when an older turn closed with the same message", async () => {
+    // A partial-overlap recovery keeps the blocks that precede the loaded
+    // window, so an older turn's identical error row can still be on screen
+    // while the current turn's row is gone. Matching by text would mistake it
+    // for the row this turn still owes the user.
+    vi.spyOn(getClient(), "getMessagesPage").mockResolvedValue({
+      messages: [],
+      next_cursor: null,
+      has_more: false,
+      snapshot_version: "snapshot-live",
+    });
+    await startTurn();
+    const olderRow = {
+      kind: "status-line" as const,
+      id: "error-0",
+      turnId: "turn-0",
+      text: "Agent worker recovery exhausted",
+      level: "error" as const,
+    };
+    // The merge that keeps the older prefix replaces everything after it — the
+    // row this turn folded for the same text included.
+    vi.spyOn(settledHistory, "resyncCompletedHistory").mockImplementation(async () => {
+      // Let the fold of the error record land first, then replace the window
+      // while dropping this turn's row: that is the merge's real end state.
+      await Promise.resolve();
+      useRuntimeStore.setState({
+        thread: { blocks: [olderRow], index: { [olderRow.id]: 0 }, loaded: true },
+      });
+    });
+
+    FakeEventSource.instances[0].emit("error", {
+      type: "error",
+      sessionId: "session-recovery",
+      code: "worker_recovery_failed",
+      terminal: true,
+      message: "Agent worker recovery exhausted",
+    });
+
+    await vi.waitFor(() => {
+      expect(errorRows(useRuntimeStore.getState().thread.blocks).length).toBe(2);
+    });
+    const rows = errorRows(useRuntimeStore.getState().thread.blocks);
+    expect(rows.map((block) => block.turnId)).toEqual(["turn-0", "turn-1"]);
+    expect(new Set(rows.map((block) => block.id)).size).toBe(2);
   });
 });

@@ -7,6 +7,7 @@ import { resyncCompletedHistory } from "../recovery/settled-history";
 import { loadSessionsInternal } from "../sessions";
 import { runtimeStore } from "../store-access";
 import type { ThreadBlock } from "../../../types/thread";
+import { createFoldState } from "../folding/state";
 import type { RuntimeState } from "../types";
 import { disarmTurnWatchdog, ensureTurnWatchdog } from "./watchdog";
 import { maybeRequestScienceReview } from "./science-review";
@@ -137,11 +138,22 @@ function restoreErrorRow(
   const state = runtimeStore.getState();
   if (state.activeSessionId !== sessionId || state.cwd !== cwd) return;
   if (conversationGeneration !== generations.conversation) return;
-  const alreadyThere = state.thread.blocks.some((block) => block.kind === "status-line"
-    && block.level === "error" && block.text === line.text);
-  if (alreadyThere) return;
+  const sameRow = (block: ThreadBlock) => block.kind === "status-line" && block.level === "error" && (
+    line.turnId !== undefined
+      ? block.turnId === line.turnId
+      : line.runId !== undefined
+        ? block.runId === line.runId
+        : block.text === line.text
+  );
+  if (state.thread.blocks.some(sameRow)) return;
   const foldState = state.thread.foldState;
-  const serial = foldState?.errorSerial ?? 0;
+  // The re-read drops the fold state, so its counter cannot be trusted to
+  // resume: take the serial from the ids that survived. A row still carrying
+  // the same id would make the React key and the block index ambiguous.
+  const serial = state.thread.blocks.reduce((max, block) => {
+    const match = /^error-(\d+)$/.exec(block.id);
+    return match ? Math.max(max, Number(match[1]) + 1) : max;
+  }, foldState?.errorSerial ?? 0);
   const id = `error-${serial}`;
   const block: ThreadBlock = {
     kind: "status-line",
@@ -157,7 +169,7 @@ function restoreErrorRow(
       ...state.thread,
       blocks,
       index: { ...state.thread.index, [id]: blocks.length - 1 },
-      foldState: foldState ? { ...foldState, errorSerial: serial + 1 } : foldState,
+      foldState: { ...(foldState ?? createFoldState()), errorSerial: serial + 1 },
     },
   });
 }
