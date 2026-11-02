@@ -42,7 +42,7 @@ export function buildApp(config: ServerConfig, modules: ServerModules = createSe
     genReqId: (request) => request.headers["x-request-id"]?.toString() || randomUUID(),
   });
 
-  nodeSessionService.configureLogging((level, message) => app.log[level](message));
+  nodeSessionService.configureLogging((level, message, fields) => app.log[level](fields ?? {}, message));
   events.configureLogging((level, message) => app.log[level](message));
 
   void app.register(cors, { credentials: true, origin: config.corsOrigins });
