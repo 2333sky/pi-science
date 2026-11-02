@@ -106,6 +106,13 @@ export interface ToolCallBlock extends ConversationBlockIdentity {
    *  this without needing live events. */
   details?: unknown;
   partialOutput?: string;
+  /** The server kept only the tail of this output because the full text
+   *  exceeded its per-event budget. The flag is authoritative: the visible
+   *  text may look short and complete, and a refreshed history that carries
+   *  the full output drops it. */
+  outputTruncated?: boolean;
+  /** Size of the untruncated output, when the server reports it. */
+  originalOutputBytes?: number;
   diff?: string;
   startedAt?: string;
   endedAt?: string;
