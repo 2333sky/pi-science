@@ -315,6 +315,49 @@ describe("SessionRepository messages streaming", () => {
     expect(older.next_cursor).toBeNull();
   });
 
+  it("starts the newest page at the user message that opened its oldest turn", async () => {
+    const cwd = await makeWorkspace();
+    const repo = new SessionRepository();
+    const lines = [
+      sessionHeader("boundary", cwd),
+      messageLine("m1", "user", "question"),
+      messageLine("m2", "assistant", "step"),
+      messageLine("m3", "assistant", "step"),
+      messageLine("m4", "user", "follow-up"),
+      messageLine("m5", "assistant", "step"),
+      messageLine("m6", "assistant", "step"),
+      messageLine("m7", "assistant", "answer"),
+    ];
+    await writeFile(join(cwd, ".pi-science", "sessions", "boundary.jsonl"), lines.join(""), "utf8");
+
+    const latest = await repo.messagesPage(cwd, "boundary", { limit: 3 });
+    expect(latest.messages.map((message) => message.id)).toEqual(["m4", "m5", "m6", "m7"]);
+    expect(latest.has_more).toBe(true);
+
+    const older = await repo.messagesPage(cwd, "boundary", { limit: 3, before: latest.next_cursor! });
+    expect(older.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3"]);
+    expect(older.has_more).toBe(false);
+    expect(older.next_cursor).toBeNull();
+  });
+
+  it("caps the newest page at 200 messages inside one oversized turn", async () => {
+    const cwd = await makeWorkspace();
+    const repo = new SessionRepository();
+    const lines = [sessionHeader("cap", cwd), messageLine("m1", "user", "question")];
+    for (let index = 2; index <= 251; index += 1) lines.push(messageLine(`m${index}`, "assistant", `step ${index}`));
+    await writeFile(join(cwd, ".pi-science", "sessions", "cap.jsonl"), lines.join(""), "utf8");
+
+    const latest = await repo.messagesPage(cwd, "cap", { limit: 50 });
+    expect(latest.messages).toHaveLength(200);
+    expect(latest.messages[0]).toMatchObject({ id: "m52", role: "assistant" });
+    expect(latest.has_more).toBe(true);
+
+    const older = await repo.messagesPage(cwd, "cap", { limit: 100, before: latest.next_cursor! });
+    expect(older.messages).toHaveLength(51);
+    expect(older.messages[0]).toMatchObject({ id: "m1", role: "user" });
+    expect(older.has_more).toBe(false);
+  });
+
   it("rejects a cursor when bytes before its boundary were rewritten", async () => {
     const cwd = await makeWorkspace();
     const repo = new SessionRepository();

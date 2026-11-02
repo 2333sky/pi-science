@@ -5,6 +5,7 @@ import { emptyThread, foldEvent, mergeHistoryWithLive, prependHistoryMessages, t
 import type { HistoryMessage, PiScienceEvent } from "../client/types";
 import type { ThreadBlock } from "../../types/thread";
 import { FakeEventSource, installRuntimeTestEnvironment, jsonResponse, state } from "./test-helpers";
+import { buildTurnPresentations } from "../conversation/turn-presentation";
 
 
 installRuntimeTestEnvironment();
@@ -966,6 +967,39 @@ describe("mergeHistoryWithLive", () => {
       { id: "O", role: "user", client_message_id: "new-status", content: [{ type: "text", text: "status" }] },
     ]));
     expect(mergeHistoryWithLive(durableCopy, live).blocks.map((block) => block.id)).toEqual(["A", "B", "O"]);
+  });
+
+  it("keeps a live prompt before a mid-turn window instead of appending it after that window", () => {
+    // History begins at a step: the user message that opened this turn is older
+    // than the window. The cached thread still holds it.
+    const history = threadOf(convertHistoryToBlocks([
+      { id: "step-1", role: "assistant", content: [{ type: "text", text: "working" }], timestamp: "2026-09-23T00:44:10.000Z" },
+      { id: "tool-1", role: "toolResult", toolCallId: "call-1", toolName: "bash", content: [{ type: "text", text: "ok" }], timestamp: "2026-09-23T00:44:11.000Z" },
+    ]));
+    const live = threadOf([optimisticUser("user-missing", "do the thing", "2026-09-23T00:44:00.000Z"), ...history.blocks]);
+    expect(mergeHistoryWithLive(history, live).blocks.map((block) => block.id)).toEqual(["step-1", "tool-call-1"]);
+    const turns = buildTurnPresentations(mergeHistoryWithLive(history, live).blocks, { lastTurnLifecycle: "settled" });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.user).toBeNull();
+  });
+
+  it("keeps a new prompt even when the window starts mid-turn", () => {
+    const history = threadOf(convertHistoryToBlocks([
+      { id: "step-1", role: "assistant", content: [{ type: "text", text: "working" }], timestamp: "2026-09-23T00:44:10.000Z" },
+    ]));
+    const live = threadOf([...history.blocks, optimisticUser("user-new", "next", "2026-09-23T00:45:00.000Z", "send-next")]);
+    expect(mergeHistoryWithLive(history, live).blocks.map((block) => block.id)).toEqual(["step-1", "user-new"]);
+  });
+
+  it("keeps a turn-boundary window as one group owned by its user message", () => {
+    const history = threadOf(convertHistoryToBlocks([
+      { id: "user-2", role: "user", content: [{ type: "text", text: "run" }], timestamp: "2026-09-23T00:44:00.000Z" },
+      { id: "step-1", role: "assistant", content: [{ type: "text", text: "working" }], timestamp: "2026-09-23T00:44:10.000Z" },
+    ]));
+    const live = threadOf([history.blocks[0]!, history.blocks[1]!]);
+    const turns = buildTurnPresentations(mergeHistoryWithLive(history, live).blocks, { lastTurnLifecycle: "active" });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]!.user?.id).toBe("user-2");
   });
 
   it("keeps identical text with two different explicit send IDs as two messages", () => {
