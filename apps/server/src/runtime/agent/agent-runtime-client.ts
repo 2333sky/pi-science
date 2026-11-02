@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { AgentRuntimeExitedError, AgentRuntimeTimeoutError } from "./agent-runtime-errors.js";
 import type { AgentRuntime, RuntimeResult, RuntimeSkillPolicy } from "./agent-runtime-types.js";
 import { workerEventSchema, type AgentRuntimeStartOptions, type WorkerCommand } from "./worker/protocol.js";
+import { devWorkerEntry } from "./worker/dev-build.js";
 import { decodeCommand, decodeNotification, validResultData, type RuntimeCommand, type RuntimeNotification, type RuntimeCommandName, type CommandParams, type CommandResult } from "./worker/command-contract.js";
 
 type Pending = {
@@ -44,6 +45,13 @@ const WORKSPACE_ENV_KEYS = new Set([
 function workerEntry(): { path: string; execArgv: string[] } {
   const compiled = fileURLToPath(new URL("./worker/main.js", import.meta.url));
   if (existsSync(compiled)) return { path: compiled, execArgv: [] };
+  // Development runs the control plane through tsx; fork a precompiled mirror
+  // when available so each session start does not transpile the worker graph.
+  const dev = devWorkerEntry({
+    serverRoot: fileURLToPath(new URL("../../../", import.meta.url)),
+    contractsRoot: fileURLToPath(new URL("../../../../../packages/contracts/", import.meta.url)),
+  });
+  if (dev) return { path: dev, execArgv: [] };
   return { path: fileURLToPath(new URL("./worker/main.ts", import.meta.url)), execArgv: ["--import", import.meta.resolve("tsx")] };
 }
 
@@ -64,6 +72,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
   private closed = false;
   private currentSessionId = "";
   private stderrTail = "";
+  private startupMsValue: number | null = null;
 
   private constructor(
     readonly child: ChildProcess,
@@ -99,6 +108,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
       modelConfigAllowPrivate: options.settings?.modelConfigAllowPrivate !== false && process.env.PI_SCIENCE_ALLOW_PRIVATE_PROVIDERS !== "0" } };
     const entry = workerEntry();
     const env = workerEnvironment({ ...options.env, ...modelEnvironment }, [...(options.credentialEnvNames ?? []), ...Object.keys(modelEnvironment)]);
+    const forkedAt = Date.now();
     const child = fork(entry.path, [], {
       cwd: options.cwd,
       env,
@@ -112,6 +122,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
       const sessionId = result.data && typeof result.data === "object" ? (result.data as { sessionId?: unknown }).sessionId : undefined;
       if (typeof sessionId !== "string" || !sessionId) throw new Error("agent runtime returned no session ID");
       client.currentSessionId = sessionId;
+      client.startupMsValue = Date.now() - forkedAt;
       if (!options.deferActivation) {
         const activated = await client.sendCommand("activate");
         if (!activated.success) throw new Error(activated.error ?? "agent runtime activation failed");
@@ -124,6 +135,8 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
   }
 
   get sessionId(): string { return this.currentSessionId; }
+  /** Time from fork to the worker's `ready` handshake; null when it never completed. */
+  get startupMs(): number | null { return this.startupMsValue; }
   get isClosed(): boolean { return this.closed; }
 
   sendCommand<K extends RuntimeCommandName>(type: K, params?: CommandParams<K>, timeoutMs?: number): Promise<CommandResult<K>>;
