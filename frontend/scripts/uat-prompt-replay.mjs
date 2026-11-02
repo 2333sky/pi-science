@@ -110,7 +110,12 @@ try {
   if ((messages[0]?.content?.[0]?.text ?? "") !== TEXT) throw new Error("The persisted prompt text does not match what was typed");
   if (promptPosts.length !== 1) throw new Error(`Expected exactly one prompt POST, got ${promptPosts.length}`);
 
-  console.log(`PASS session=${created[0].id} promptPosts=${promptPosts.length} messages=${messages.length}`);
+  // A replay that only paints the text on the landing page is not a recovery:
+  // the user must end up on the conversation the prompt landed in.
+  const opened = await waitFor(() => sessionIdFromUrl(page.url()), 60_000, `the replayed prompt never opened its conversation (url ${page.url()})`);
+  if (opened !== created[0].id) throw new Error(`The page opened session ${opened}, not the replayed session ${created[0].id}`);
+
+  console.log(`PASS session=${created[0].id} promptPosts=${promptPosts.length} messages=${messages.length} url=${new URL(page.url()).pathname}`);
 } finally {
   await browser.close();
   if (pageErrors.length || consoleErrors.length) {
