@@ -190,7 +190,7 @@ export async function forkSession(baseUrl: string, sessionId: string, cwd: strin
 
 export async function sendPrompt(baseUrl: string, sessionId: string, message: string, clientMessageId: string, cwd?: string): Promise<PromptRequestStatus> {
   const params = cwd ? `?${new URLSearchParams({ cwd })}` : "";
-  const res = await request(`${baseUrl}/api/sessions/${sessionId}/prompt${params}`, {
+  const res = await request(`${baseUrl}/api/sessions/${sessionId}/prompts${params}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ message, client_message_id: clientMessageId }),

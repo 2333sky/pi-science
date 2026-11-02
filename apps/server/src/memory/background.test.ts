@@ -1,3 +1,6 @@
+import assert from "node:assert/strict";
+import { SessionRepository } from "../runtime/node/session-repository.js";
+import { ExecutionRepository } from "../runtime/executions/execution-repository.js";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,10 +18,7 @@ let root: string,
 let busy = false;
 let model: ReturnType<typeof vi.fn<BackgroundModel>>;
 async function configure(fn: (s: MemorySettings) => void) {
-  const { revision, ...s } = await memory.command<MemorySettings>(
-    ctx,
-    "settings",
-  );
+  const { revision, ...s } = await memory.command(ctx, "settings");
   fn(s as MemorySettings);
   await memory.command(ctx, "settings.update", {
     expectedRevision: revision,
@@ -42,7 +42,12 @@ beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "memory-background-"));
   await mkdir(join(root, ".pi-science"));
   store = new SqliteStateStore({ path: join(root, "state.sqlite") });
-  memory = new MemoryService(store, new WorkspaceRepository(store));
+  memory = new MemoryService(
+    store,
+    new WorkspaceRepository(store),
+    new SessionRepository(),
+    new ExecutionRepository(),
+  );
   ctx = (await memory.context(root)).context;
   busy = false;
   model = vi.fn(async () => ({
@@ -55,6 +60,7 @@ beforeEach(async () => {
     memory,
     { hasActiveOperations: async () => busy },
     { list: async () => [] },
+    memory.sessions,
     model,
   );
   await memory.command(ctx, "touch", { cwd: root });
@@ -101,9 +107,7 @@ it("Dream works without Extraction, claims one automatic logical run per window 
     automatic: true,
   });
   await vi.waitFor(async () =>
-    expect(
-      (await memory.command(ctx, "run.get", { id: first.id })).status,
-    ).toBe("completed"),
+    expect((await memory.command(ctx, "run.get", { id: first.id })).status).toBe("completed"),
   );
   expect(model).toHaveBeenCalledOnce();
   expect(await memory.command(ctx, "run.get", { id: first.id })).toMatchObject({
@@ -116,9 +120,7 @@ it("Dream works without Extraction, claims one automatic logical run per window 
     confirmedForceScan: true,
   });
   expect(again.id).toBe(first.id);
-  expect((await memory.command(ctx, "settings")).extraction.enabled).toBe(
-    false,
-  );
+  expect((await memory.command(ctx, "settings")).extraction.enabled).toBe(false);
 });
 it("disabling a running worker cancels the durable run and blocks late output", async () => {
   await seed();
@@ -136,15 +138,13 @@ it("disabling a running worker cancels the durable run and blocks late output", 
   });
   finish({ outputs: [], tokens: 10, costUsd: 0, model: "fixture" });
   await vi.waitFor(async () =>
-    expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe(
-      "cancelled",
-    ),
+    expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("cancelled"),
   );
   expect((await memory.command(ctx, "reviews")).proposals).toEqual([]);
 });
 it("collects bounded sources and emits reviewable changes without rewriting manual records", async () => {
   await seed();
-  const original = (await memory.command(ctx, "list")).records[0];
+  const original = (await memory.command(ctx, "list")).records[0]!;
   model.mockResolvedValueOnce({
     outputs: [
       {
@@ -168,13 +168,9 @@ it("collects bounded sources and emits reviewable changes without rewriting manu
   });
   const run = await background.enqueue(ctx, root, "dream");
   await vi.waitFor(async () =>
-    expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe(
-      "completed",
-    ),
+    expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("completed"),
   );
-  expect(
-    (await memory.command(ctx, "read", { id: original.id })).record.body,
-  ).toBe(original.body);
+  expect((await memory.command(ctx, "read", { id: original.id })).record.body).toBe(original.body);
   expect((await memory.command(ctx, "reviews")).proposals).toHaveLength(1);
 });
 it("recovers an expired lease under the same logical run and prevents a second worker from claiming it", async () => {
@@ -191,6 +187,7 @@ it("recovers an expired lease under the same logical run and prevents a second w
     [run.id],
   );
   const b = await memory.command(ctx, "run.claim", { id: run.id });
+  assert(a && b);
   expect(b.id).toBe(a.id);
   expect(b.leaseToken).not.toBe(a.leaseToken);
   await expect(
@@ -201,7 +198,7 @@ it("recovers an expired lease under the same logical run and prevents a second w
       tokens: 1,
       costUsd: 0,
     }),
-  ).rejects.toMatchObject({ statusCode: 409 });
+  ).rejects.toMatchObject({ kind: "conflict" });
 });
 
 it("validates file sources through workspace aliases without exposing private files", async () => {
@@ -217,15 +214,15 @@ it("validates file sources through workspace aliases without exposing private fi
     evidenceLevel: "user_stated",
     sources: [{ kind: "file", locator: "preference.txt" }],
   };
-  expect(
-    (await memory.validateContent(alias, ctx, content)).sources[0]?.digest,
-  ).toMatch(/^[a-f0-9]{64}$/);
+  expect((await memory.validateContent(alias, ctx, content)).sources[0]?.digest).toMatch(
+    /^[a-f0-9]{64}$/,
+  );
   await expect(
     memory.validateContent(alias, ctx, {
       ...content,
       sources: [{ kind: "file", locator: ".env" }],
     }),
-  ).rejects.toMatchObject({ statusCode: 403 });
+  ).rejects.toMatchObject({ kind: "forbidden" });
 });
 
 it("preserves Profile source-project identity and stops recall when source evidence changes", async () => {
@@ -239,34 +236,26 @@ it("preserves Profile source-project identity and stops recall when source evide
     sources: [{ kind: "file", locator: "preference.txt" }],
   });
   const record = (await memory.command(ctx, "write", { content })).record;
+  assert(record);
   const other = join(root, "other");
   await mkdir(join(other, ".pi-science"), { recursive: true });
   const otherCtx = (await memory.context(other)).context;
-  expect(
-    (await memory.recall(other, otherCtx, { q: "中文" })).records.map(
-      (r) => r.id,
-    ),
-  ).toContain(record.id);
-  await writeFile(join(root, "preference.txt"), "English replies");
-  expect((await memory.recall(other, otherCtx, { q: "中文" })).records).toEqual(
-    [],
+  expect((await memory.recall(other, otherCtx, { q: "中文" })).records.map((r) => r.id)).toContain(
+    record.id,
   );
-  expect(
-    (await memory.command(ctx, "read", { id: record.id })).record.status,
-  ).toBe("needs_review");
+  await writeFile(join(root, "preference.txt"), "English replies");
+  expect((await memory.recall(other, otherCtx, { q: "中文" })).records).toEqual([]);
+  expect((await memory.command(ctx, "read", { id: record.id })).record.status).toBe("needs_review");
 });
 
 it("bounds extraction input and advances only the portion of the transcript actually collected", async () => {
-  const { sessionRepository } =
-    await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const messages = Array.from({ length: 50 }, (_, index) => ({
     id: "message-" + index,
     role: index % 3 === 0 ? "tool" : "user",
     content: [{ type: "text", text: "用户偏好中文回答。".repeat(500) }],
   }));
-  const spy = vi
-    .spyOn(sessionRepository, "messages")
-    .mockResolvedValue(messages);
+  const spy = vi.spyOn(sessionRepository, "messages").mockResolvedValue(messages);
   try {
     await configure((s) => {
       s.extraction.enabled = true;
@@ -276,16 +265,14 @@ it("bounds extraction input and advances only the portion of the transcript actu
       automatic: true,
     });
     await vi.waitFor(async () =>
-      expect(
-        (await memory.command(ctx, "run.get", { id: run.id })).status,
-      ).toBe("completed"),
+      expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("completed"),
     );
     const saved = await memory.command(ctx, "run.get", { id: run.id });
     expect(saved.watermark).toBeLessThan(messages.length);
     expect(JSON.stringify(saved.messages).length).toBeLessThan(4500);
-    expect(
-      await memory.command(ctx, "cursor", { sessionId: "bounded-session" }),
-    ).toBe(saved.watermark);
+    expect(await memory.command(ctx, "cursor", { sessionId: "bounded-session" })).toBe(
+      saved.watermark,
+    );
   } finally {
     spy.mockRestore();
   }
@@ -300,23 +287,19 @@ it("records known spend for failed model output and carries it into the same-run
   );
   const requested = await background.enqueue(ctx, root, "dream");
   await vi.waitFor(async () =>
-    expect(
-      (await memory.command(ctx, "run.get", { id: requested.id })).status,
-    ).toBe("failed"),
+    expect((await memory.command(ctx, "run.get", { id: requested.id })).status).toBe("failed"),
   );
-  expect(
-    await memory.command(ctx, "run.get", { id: requested.id }),
-  ).toMatchObject({ tokens: 420, costUsd: 0.001, reservedTokens: 0 });
+  expect(await memory.command(ctx, "run.get", { id: requested.id })).toMatchObject({
+    tokens: 420,
+    costUsd: 0.001,
+    reservedTokens: 0,
+  });
   const retried = await background.retry(ctx, root, requested.id);
   expect(retried.id).toBe(requested.id);
   await vi.waitFor(async () =>
-    expect(
-      (await memory.command(ctx, "run.get", { id: requested.id })).status,
-    ).toBe("completed"),
+    expect((await memory.command(ctx, "run.get", { id: requested.id })).status).toBe("completed"),
   );
-  expect(
-    await memory.command(ctx, "run.get", { id: requested.id }),
-  ).toMatchObject({
+  expect(await memory.command(ctx, "run.get", { id: requested.id })).toMatchObject({
     priorReservedTokens: 420,
     priorReservedCostUsd: 0.001,
     tokens: 10,
@@ -324,11 +307,8 @@ it("records known spend for failed model output and carries it into the same-run
 });
 
 it("Dream can review collected historical-message evidence but cannot widen its source range", async () => {
-  const { sessionRepository } =
-    await import("../runtime/node/session-repository.js");
-  const path = vi
-    .spyOn(sessionRepository, "findPath")
-    .mockResolvedValue("/fixture/session.jsonl");
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
       id: "known",
@@ -352,6 +332,7 @@ it("Dream can review collected historical-message evidence but cannot widen its 
       sources: [{ kind: "message", locator: "historical@known" }],
     });
     const original = (await memory.command(ctx, "write", { content })).record;
+    assert(original);
     const output = {
       id: original.id,
       expectedRevision: original.revision,
@@ -367,9 +348,7 @@ it("Dream can review collected historical-message evidence but cannot widen its 
     });
     const first = await background.enqueue(ctx, root, "dream");
     await vi.waitFor(async () =>
-      expect(
-        (await memory.command(ctx, "run.get", { id: first.id })).status,
-      ).toBe("completed"),
+      expect((await memory.command(ctx, "run.get", { id: first.id })).status).toBe("completed"),
     );
     expect((await memory.command(ctx, "reviews")).proposals).toHaveLength(1);
     model.mockResolvedValueOnce({
@@ -391,13 +370,11 @@ it("Dream can review collected historical-message evidence but cannot widen its 
       confirmedForceScan: true,
     });
     await vi.waitFor(async () =>
-      expect(
-        (await memory.command(ctx, "run.get", { id: second.id })).status,
-      ).toBe("failed"),
+      expect((await memory.command(ctx, "run.get", { id: second.id })).status).toBe("failed"),
     );
-    expect(
-      (await memory.command(ctx, "run.get", { id: second.id })).error,
-    ).toContain("Dream evidence outside collected range");
+    expect((await memory.command(ctx, "run.get", { id: second.id })).error).toContain(
+      "Dream evidence outside collected range",
+    );
     expect((await memory.command(ctx, "reviews")).proposals).toHaveLength(1);
   } finally {
     path.mockRestore();
@@ -407,7 +384,7 @@ it("Dream can review collected historical-message evidence but cannot widen its 
 
 it("normalizes null optional LLM fields while keeping required content validation strict", async () => {
   await seed();
-  const original = (await memory.command(ctx, "list")).records[0];
+  const original = (await memory.command(ctx, "list")).records[0]!;
   const candidate = {
     id: original.id,
     expectedRevision: original.revision,
@@ -431,13 +408,9 @@ it("normalizes null optional LLM fields while keeping required content validatio
   });
   const first = await background.enqueue(ctx, root, "dream");
   await vi.waitFor(async () =>
-    expect(
-      (await memory.command(ctx, "run.get", { id: first.id })).status,
-    ).toBe("completed"),
+    expect((await memory.command(ctx, "run.get", { id: first.id })).status).toBe("completed"),
   );
-  expect(
-    (await memory.command(ctx, "reviews")).proposals[0].candidate.categoryId,
-  ).toBeUndefined();
+  expect((await memory.command(ctx, "reviews")).proposals[0]!.candidate.categoryId).toBeUndefined();
   model.mockResolvedValueOnce({
     outputs: [{ ...candidate, content: { ...candidate.content, title: null } }],
     tokens: 10,
@@ -449,9 +422,7 @@ it("normalizes null optional LLM fields while keeping required content validatio
     confirmedForceScan: true,
   });
   await vi.waitFor(async () =>
-    expect(
-      (await memory.command(ctx, "run.get", { id: second.id })).status,
-    ).toBe("failed"),
+    expect((await memory.command(ctx, "run.get", { id: second.id })).status).toBe("failed"),
   );
   expect((await memory.command(ctx, "reviews")).proposals).toHaveLength(1);
 });
