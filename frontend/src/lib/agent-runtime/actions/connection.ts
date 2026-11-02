@@ -10,6 +10,7 @@ import { generations, turnState } from "../generations";
 import { registerEventListener } from "../listening/subscription";
 import { backfillSessionName } from "../naming";
 import { recoverMissingSession } from "../recovery/missing-session";
+import { replayPendingPrompts } from "../recovery/prompt-replay";
 import { reconcileAfterConnectionLoss, reconcileRestoredSession } from "../recovery/connection";
 import { restoredActivityState, rememberRuntimeState, suppressConnectionRecovery } from "../recovery/runtime-state";
 import { loadSessionsInternal } from "../sessions";
@@ -82,6 +83,11 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
           turnLifecycle: "settled",
         });
         void loadSessionsInternal();
+        // A refresh while the first prompt was still creating its session
+        // leaves the text in the local ledger (and the server with an empty
+        // session). Re-send it with the same client message id so a duplicate
+        // replay cannot dispatch a second turn.
+        void replayPendingPrompts(cwd, get);
         return;
       }
       const targetSessionId = sessionId;
