@@ -79,3 +79,15 @@ test("format ratchet permits untouched legacy text and rejects edits or new unfo
     assert.equal(check("check-format", root, "--write").status, 0);
     assert.equal(check("check-format", root).status, 0);
   }));
+
+test("format checks and legacy hashes tolerate CRLF while rejecting content edits", () =>
+  fixture(async (root, put) => {
+    const legacy = "apps/server/src/legacy.ts";
+    await put(legacy, "export const value=1;\n");
+    assert.equal(check("check-format", root, "--baseline").status, 0);
+    await put(legacy, "export const value=1;\r\n");
+    await put("apps/server/src/formatted.ts", "export const value = 1;\r\n");
+    assert.equal(check("check-format", root).status, 0);
+    await put(legacy, "export const value=2;\r\n");
+    assert.equal(check("check-format", root).status, 1);
+  }));

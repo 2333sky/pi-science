@@ -152,15 +152,6 @@ export class ExecutionRepository {
     return (await this.query(cwd, options)).executions;
   }
 
-  /** One unsorted snapshot pass; include terminal projections that may be incorrect. */
-  async jobIds(cwd: string): Promise<string[]> {
-    const ids = new Set<string>();
-    for (const record of (await this.snapshot(cwd)).records.values()) {
-      if (record.kind === "job" && record.correlation.job_id) ids.add(record.correlation.job_id);
-    }
-    return [...ids];
-  }
-
   async query(cwd: string, options: ExecutionQuery = {}) {
     let records = await this.records(cwd);
     if (options.session_id)

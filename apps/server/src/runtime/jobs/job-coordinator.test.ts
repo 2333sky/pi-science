@@ -1,3 +1,4 @@
+import { knownWorkspacePaths } from "../../http/routes/catalog-routes.js";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { availableParallelism, tmpdir, totalmem } from "node:os";
@@ -1605,7 +1606,6 @@ it.each(["managed", "registered", "pinned"])(
     vi.stubEnv("PI_SCIENCE_WORKSPACES", managed);
     const cwd = source === "managed" ? join(managed, "old-project") : await workspace();
     const { configPath, writeJsonAtomic } = await import("../../storage/persistence.js");
-    const { knownWorkspacePaths } = await import("../../http/routes/catalog-routes.js");
     const { ExecutionRepository, executionIdFor } = await import(
       "../executions/execution-repository.js"
     );

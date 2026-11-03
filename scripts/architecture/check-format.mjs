@@ -14,7 +14,8 @@ const baseline = JSON.parse(await readFile(baselinePath, "utf8").catch(() => "{}
 const remaining = {};
 const failures = [];
 for (const file of files) {
-  const text = await readFile(file, "utf8");
+  // Git autocrlf and editors must not invalidate legacy hashes or formatting.
+  const text = (await readFile(file, "utf8")).replaceAll("\r\n", "\n");
   const options = { ...(await prettier.resolveConfig(file)), filepath: file };
   if (await prettier.check(text, options)) continue;
   const hash = createHash("sha256").update(text).digest("hex");

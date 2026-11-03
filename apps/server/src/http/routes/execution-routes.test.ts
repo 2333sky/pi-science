@@ -249,7 +249,7 @@ describe("execution history and previews", () => {
 });
 
 it.each(["status=succeeded&limit=1", "limit=1&offset=1", "status=succeeded&prior=failed"])(
-  "reconciles jobs before filters and pagination: %s",
+  "lists reconciled projections after background recovery: %s",
   async (query) => {
     const cwd = await workspace();
     const { JobCoordinator } = await import("../../runtime/jobs/job-coordinator.js");
@@ -295,6 +295,12 @@ it.each(["status=succeeded&limit=1", "limit=1&offset=1", "status=succeeded&prior
     const app = Fastify();
     registerExecutionRoutes(app, jobs);
     try {
+      // A plain list must not scan Jobs to repair this stale projection.
+      const stale = await app.inject(
+        `/api/executions?cwd=${encodeURIComponent(cwd)}&status=succeeded`,
+      );
+      expect(stale.json().executions).toHaveLength(0);
+      await jobs.startReconciliation(async () => [cwd]);
       const response = await app.inject(`/api/executions?cwd=${encodeURIComponent(cwd)}&${query}`);
       expect(response.statusCode).toBe(200);
       expect(response.json()).toMatchObject({
@@ -308,53 +314,51 @@ it.each(["status=succeeded&limit=1", "limit=1&offset=1", "status=succeeded&prior
   },
 );
 
-it("uses one candidate pass and one query with bounded concurrent job reads", async () => {
-  const cwd = await workspace();
-  const { writeFile } = await import("node:fs/promises");
-  const { ExecutionRepository } = await import("../../runtime/executions/execution-repository.js");
-  const repository = new ExecutionRepository();
-  const rows = Array.from({ length: 2500 }, (_, index) => ({
-    schema_version: 1,
-    event_id: `event-${index}`,
-    execution_id: `exec-${index}`,
-    sequence: 1,
-    event_type: "execution.started",
-    kind: index < 1500 ? "job" : "tool",
-    surface: "local",
-    workspace_id: cwd,
-    created_at: new Date(0).toISOString(),
-    producer: "test",
-    payload: { correlation: index < 1500 ? { job_id: `job-${index}` } : {} },
-  }));
-  await writeFile(
-    join(cwd, ".pi-science", "execution-events-v1.jsonl"),
-    rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
-  );
-  const query = vi.spyOn(repository, "query");
-  const candidates = vi.spyOn(repository, "jobIds");
-  let active = 0;
-  let peak = 0;
-  const get = vi.fn(async () => {
-    active++;
-    peak = Math.max(peak, active);
-    await new Promise<void>((resolve) => setImmediate(resolve));
-    active--;
-    return null;
-  });
-  const app = Fastify();
-  registerExecutionRoutes(app, { logs: async () => null, get }, repository);
-  try {
-    const response = await app.inject(
-      `/api/executions?cwd=${encodeURIComponent(cwd)}&kind=tool&limit=20`,
+it.each(["kind=tool&limit=20", "status=succeeded&limit=20", "limit=20&offset=100"])(
+  "does not read historical Jobs for a large list: %s",
+  async (queryString) => {
+    const cwd = await workspace();
+    const { writeFile } = await import("node:fs/promises");
+    const { ExecutionRepository } = await import(
+      "../../runtime/executions/execution-repository.js"
     );
-    expect(response.statusCode).toBe(200);
-    expect(response.json().executions).toHaveLength(20);
-    expect(query).toHaveBeenCalledTimes(1);
-    expect(candidates).toHaveBeenCalledTimes(1);
-    expect(get).toHaveBeenCalledTimes(1500);
-    expect(peak).toBeGreaterThan(1);
-    expect(peak).toBeLessThanOrEqual(8);
-  } finally {
-    await app.close();
-  }
-});
+    const repository = new ExecutionRepository();
+    const rows = Array.from({ length: 22000 }, (_, index) => ({
+      schema_version: 1,
+      event_id: `event-${index}`,
+      execution_id: `exec-${index}`,
+      sequence: 1,
+      event_type: "execution.started",
+      kind: index < 20000 ? "job" : "tool",
+      surface: "local",
+      workspace_id: cwd,
+      created_at: new Date(0).toISOString(),
+      producer: "test",
+      payload: { correlation: index < 20000 ? { job_id: `job-${index}` } : {} },
+    }));
+    await writeFile(
+      join(cwd, ".pi-science", "execution-events-v1.jsonl"),
+      rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
+    );
+    const query = vi.spyOn(repository, "query");
+    // Any Job read would introduce request cost proportional to historical Jobs.
+    const get = vi.fn(async () => {
+      throw new Error("List must not read Jobs");
+    });
+    const app = Fastify();
+    registerExecutionRoutes(app, { logs: async () => null, get }, repository);
+    try {
+      const response = await app.inject(
+        `/api/executions?cwd=${encodeURIComponent(cwd)}&${queryString}`,
+      );
+      expect(response.statusCode).toBe(200);
+      expect(response.json().executions).toHaveLength(
+        queryString.includes("status=succeeded") ? 0 : 20,
+      );
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(get).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  },
+);

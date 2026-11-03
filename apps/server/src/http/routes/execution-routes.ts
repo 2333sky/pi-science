@@ -106,20 +106,8 @@ export function registerExecutionRoutes(
       ...(kind?.success ? { kind: kind.data } : {}),
       ...(status?.success ? { status: status.data } : {}),
     };
-    if (jobs?.get) {
-      const candidates = await executions.jobIds(cwd);
-      // A fixed worker pool bounds storage pressure without serializing all jobs.
-      let next = 0;
-      await Promise.all(
-        Array.from({ length: Math.min(8, candidates.length) }, async () => {
-          while (next < candidates.length) {
-            const id = candidates[next++];
-            if (id === undefined) return;
-            await jobs.get!(cwd, id);
-          }
-        }),
-      );
-    }
+    // Lists read the projection only. Full Job reconciliation runs at startup and
+    // on the background timer; detail reads can repair one explicitly requested Job.
     return executionListResponseSchema.parse(await executions.query(cwd, options));
   });
 
