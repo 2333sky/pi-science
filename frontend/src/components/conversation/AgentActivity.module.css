@@ -115,7 +115,15 @@
   padding-block: 0.125rem;
 }
 
+/* The step scale has to live here: tailwind-merge reads `text-ui-label` as a
+   text colour and drops it next to `text-muted`, so the row silently inherited
+   15px and matched the phase title instead of sitting under it. This is the
+   step-row variant recorded at docs/ui/deepseek-harness-reference.md:354 —
+   "Step rows carry the 13px/1.5 task line" — so the line box is 19.5px and 8px
+   padding still clears the row minimum: 40px below `sm`, 36px from `sm` up. */
 .toolButton {
+  font-size: 0.8125rem;
+  line-height: 1.5;
   transition: color var(--motion-normal) var(--ease-standard);
 }
 
@@ -128,8 +136,11 @@
   color: var(--activity-color);
 }
 
+/* Full opacity: the muted ink is 5.8:1 on white and 12.1:1 on the dark
+   surface, while the old 0.6 blend measured 2.6:1 — under the 3:1 floor for a
+   non-text control. Step rows still hide their own chevron at rest. */
 .chevron {
-  opacity: 0.6;
+  opacity: 1;
   transition: transform var(--motion-normal) var(--ease-standard), opacity var(--motion-normal) var(--ease-standard);
 }
 
@@ -148,6 +159,16 @@
 .thinking > button:focus-visible > .chevron,
 .thinking > button[aria-expanded="true"] > .chevron {
   opacity: 1;
+}
+
+/* A touch device never hovers, so the hover-only chevron never appeared there
+   and the row gave no hint that it opens. Reveal it at rest on those devices
+   only; the muted ink measures 5.8:1 on either theme. */
+@media (hover: none) {
+  .tool > button > .chevron,
+  .thinking > button > .chevron {
+    opacity: 1;
+  }
 }
 
 button:hover > .chevron, button:focus-visible > .chevron {
