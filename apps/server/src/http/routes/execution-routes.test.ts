@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { executionRepository } from "../../runtime/executions/execution-repository.js";
 import { registerExecutionRoutes } from "./execution-routes.js";
 
@@ -248,7 +248,7 @@ describe("execution history and previews", () => {
   });
 });
 
-it.each(["status=succeeded&limit=1", "limit=1&offset=1"])(
+it.each(["status=succeeded&limit=1", "limit=1&offset=1", "status=succeeded&prior=failed"])(
   "reconciles jobs before filters and pagination: %s",
   async (query) => {
     const cwd = await workspace();
@@ -263,6 +263,12 @@ it.each(["status=succeeded&limit=1", "limit=1&offset=1"])(
       created_at: "2026-01-01T00:00:00Z",
       correlation: { job_id: id },
     });
+    if (query.includes("prior=failed"))
+      await executionRepository.finish(cwd, "stale-job", {
+        status: "failed",
+        producer: "test",
+        result: { error: "admission failed" },
+      });
     await writeJsonAtomic(join(cwd, ".pi-science", "jobs", `${id}.json`), {
       job_id: id,
       execution_id: "stale-job",
@@ -294,9 +300,61 @@ it.each(["status=succeeded&limit=1", "limit=1&offset=1"])(
       expect(response.json()).toMatchObject({
         executions: [{ execution_id: "stale-job", status: "succeeded" }],
       });
+      expect(response.json().executions[0].result.error).toBeUndefined();
     } finally {
       await app.close();
       await jobs.shutdown();
     }
   },
 );
+
+it("uses one candidate pass and one query with bounded concurrent job reads", async () => {
+  const cwd = await workspace();
+  const { writeFile } = await import("node:fs/promises");
+  const { ExecutionRepository } = await import("../../runtime/executions/execution-repository.js");
+  const repository = new ExecutionRepository();
+  const rows = Array.from({ length: 2500 }, (_, index) => ({
+    schema_version: 1,
+    event_id: `event-${index}`,
+    execution_id: `exec-${index}`,
+    sequence: 1,
+    event_type: "execution.started",
+    kind: index < 1500 ? "job" : "tool",
+    surface: "local",
+    workspace_id: cwd,
+    created_at: new Date(0).toISOString(),
+    producer: "test",
+    payload: { correlation: index < 1500 ? { job_id: `job-${index}` } : {} },
+  }));
+  await writeFile(
+    join(cwd, ".pi-science", "execution-events-v1.jsonl"),
+    rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
+  );
+  const query = vi.spyOn(repository, "query");
+  const candidates = vi.spyOn(repository, "jobIds");
+  let active = 0;
+  let peak = 0;
+  const get = vi.fn(async () => {
+    active++;
+    peak = Math.max(peak, active);
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    active--;
+    return null;
+  });
+  const app = Fastify();
+  registerExecutionRoutes(app, { logs: async () => null, get }, repository);
+  try {
+    const response = await app.inject(
+      `/api/executions?cwd=${encodeURIComponent(cwd)}&kind=tool&limit=20`,
+    );
+    expect(response.statusCode).toBe(200);
+    expect(response.json().executions).toHaveLength(20);
+    expect(query).toHaveBeenCalledTimes(1);
+    expect(candidates).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledTimes(1500);
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+  } finally {
+    await app.close();
+  }
+});

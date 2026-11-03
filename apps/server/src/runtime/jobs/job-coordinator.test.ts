@@ -1596,3 +1596,53 @@ describe("job projection recovery and admission", () => {
     });
   });
 });
+
+it.each(["managed", "registered", "pinned"])(
+  "backfills legacy %s workspace jobs without a new submission",
+  async (source) => {
+    vi.stubEnv("PI_SCIENCE_SQLITE_STATE", "0");
+    const managed = await workspace();
+    vi.stubEnv("PI_SCIENCE_WORKSPACES", managed);
+    const cwd = source === "managed" ? join(managed, "old-project") : await workspace();
+    const { configPath, writeJsonAtomic } = await import("../../storage/persistence.js");
+    const { knownWorkspacePaths } = await import("../../http/routes/catalog-routes.js");
+    const { ExecutionRepository, executionIdFor } = await import(
+      "../executions/execution-repository.js"
+    );
+    const executions = new ExecutionRepository();
+    const id = "job_1234567890abcdef";
+    await writeStoredJob(cwd, id, "succeeded", new Date(0).toISOString());
+    if (source !== "managed")
+      await writeJsonAtomic(
+        configPath(source === "registered" ? "registered-workspaces.json" : "pinned.json"),
+        [cwd],
+      );
+    const executionId = executionIdFor("job", cwd, id);
+    await executions.start(cwd, {
+      execution_id: executionId,
+      kind: "job",
+      surface: "local",
+      producer: "test",
+      correlation: { job_id: id },
+    });
+    const coordinator = new JobCoordinator(undefined, {}, executions);
+    jobs.push(coordinator);
+    await coordinator.startReconciliation(() => knownWorkspacePaths());
+    expect((await executions.get(cwd, executionId))?.status).toBe("succeeded");
+    await coordinator.shutdown();
+    // Remove discovery sources: a second restart must use the backfilled index.
+    await rm(configPath(source === "registered" ? "registered-workspaces.json" : "pinned.json"), {
+      force: true,
+    });
+    const nextExecutions = new ExecutionRepository();
+    const finish = vi.spyOn(nextExecutions, "finish");
+    const reopened = new JobCoordinator(undefined, {}, nextExecutions);
+    jobs.push(reopened);
+    await reopened.startReconciliation(async () => []);
+    expect(finish).toHaveBeenCalledWith(
+      cwd,
+      executionId,
+      expect.objectContaining({ status: "succeeded" }),
+    );
+  },
+);

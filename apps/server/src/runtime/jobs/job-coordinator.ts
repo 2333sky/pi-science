@@ -106,7 +106,8 @@ export class JobCoordinator {
           ...(await this.persistedWorkspaces()),
         ])) {
           try {
-            await this.list(cwd, Number.MAX_SAFE_INTEGER);
+            const records = await this.list(cwd, Number.MAX_SAFE_INTEGER);
+            if (!this.repository && records.length) await this.rememberWorkspace(cwd);
           } catch (error) {
             this.log("Job reconciliation failed", { cwd, error: String(error) });
           }
@@ -470,6 +471,12 @@ export class JobCoordinator {
     this.leases.stopAllHeartbeats();
   }
 
+  private async rememberWorkspace(workspace: string): Promise<void> {
+    const cwd = resolve(workspace);
+    const key = createHash("sha256").update(cwd).digest("hex");
+    await writeJsonAtomic(configPath(join("job-workspaces", `${key}.json`)), cwd);
+  }
+
   private async persistedWorkspaces(): Promise<string[]> {
     if (this.repository) return [];
     const root = configPath("job-workspaces");
@@ -505,9 +512,7 @@ export class JobCoordinator {
       return;
     }
     // Register before persisting the first job so a crash cannot hide durable work.
-    const cwd = resolve(record.cwd);
-    const key = createHash("sha256").update(cwd).digest("hex");
-    await writeJsonAtomic(configPath(join("job-workspaces", `${key}.json`)), cwd);
+    await this.rememberWorkspace(record.cwd);
     await writeJsonAtomic(this.jobPath(record.cwd, record.job_id), record);
   }
   private async readCurrent(record: JobRecord): Promise<JobRecord | null> {

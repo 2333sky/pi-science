@@ -152,6 +152,15 @@ export class ExecutionRepository {
     return (await this.query(cwd, options)).executions;
   }
 
+  /** One unsorted snapshot pass; include terminal projections that may be incorrect. */
+  async jobIds(cwd: string): Promise<string[]> {
+    const ids = new Set<string>();
+    for (const record of (await this.snapshot(cwd)).records.values()) {
+      if (record.kind === "job" && record.correlation.job_id) ids.add(record.correlation.job_id);
+    }
+    return [...ids];
+  }
+
   async query(cwd: string, options: ExecutionQuery = {}) {
     let records = await this.records(cwd);
     if (options.session_id)
@@ -317,6 +326,15 @@ export class ExecutionRepository {
           current.correlation.job_id !== authoritativeJobId)
       )
         return null;
+      // Persist replacement semantics only after validating the authoritative identity
+      // under the append lock, so cold replay produces the same corrected result.
+      if (
+        current?.kind === "job" &&
+        authoritativeJobId &&
+        authoritativeJobId === current.correlation.job_id &&
+        eventType !== "execution.started"
+      )
+        payload = { ...payload, replace_result: true };
       const sequence = (snapshot.sequences.get(executionId) ?? 0) + 1;
       const event = executionEventSchema.parse({
         schema_version: 1,
@@ -393,7 +411,10 @@ function applyExecutionEvent(records: Map<string, ExecutionRecord>, event: Execu
     correlation: { ...previous.correlation, ...objectValue(payload.correlation) },
     request: { ...previous.request, ...objectValue(payload.request) },
     runtime: { ...previous.runtime, ...objectValue(payload.runtime) },
-    result: { ...previous.result, ...objectValue(payload.result) },
+    result: {
+      ...(payload.replace_result === true ? {} : previous.result),
+      ...objectValue(payload.result),
+    },
     files: mergeFiles(previous.files, filesValue(payload.files)),
     artifacts: mergeArtifacts(previous.artifacts, artifactRefs(payload.artifacts)),
     usage: { ...(previous.usage ?? {}), ...objectValue(payload.usage) },

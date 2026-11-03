@@ -21,7 +21,11 @@ import { registerModelResourceRoutes } from "../http/routes/model-resource-route
 import { registerExecutionRoutes } from "../http/routes/execution-routes.js";
 import { registerKernelExecutionRoutes } from "../http/routes/kernel-execution-routes.js";
 import { registerNotebookRoutes } from "../http/routes/notebook-routes.js";
-import { registerCatalogRoutes, rootDir } from "../http/routes/catalog-routes.js";
+import {
+  registerCatalogRoutes,
+  rootDir,
+  knownWorkspacePaths,
+} from "../http/routes/catalog-routes.js";
 import { registerProjectRoutes } from "../http/routes/project-routes.js";
 import { registerMcpRoutes } from "../http/routes/mcp-routes.js";
 import { createServerModules, type ServerModules } from "./server-modules.js";
@@ -305,7 +309,9 @@ export function buildApp(
     }
     if (!sqliteEnabled || stateReady) {
       await jobs.startReconciliation(async () =>
-        sqliteEnabled ? (await workspaces.listKnown()).map((workspace) => workspace.path) : [],
+        sqliteEnabled
+          ? (await workspaces.listKnown()).map((workspace) => workspace.path)
+          : await knownWorkspacePaths(),
       );
       memoryBackground.start();
     }

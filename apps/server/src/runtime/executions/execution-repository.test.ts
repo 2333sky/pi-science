@@ -145,7 +145,11 @@ describe("ExecutionRepository", () => {
     await repository.start(cwd, input);
     await repository.start(cwd, input);
     await repository.finish(cwd, input.execution_id, { status: "succeeded", producer: "test" });
-    await repository.finish(cwd, input.execution_id, { status: "failed", producer: "test" });
+    await repository.finish(cwd, input.execution_id, {
+      status: "failed",
+      producer: "test",
+      result: { error: "admission failed", stderr_preview: "old error" },
+    });
 
     expect(received).toEqual(["execution.started", "execution.completed"]);
     unsubscribe();
@@ -279,7 +283,11 @@ it("lets only the authoritative job repair an earlier terminal projection", asyn
     correlation: { job_id: "job-authority" },
   };
   await repository.start(cwd, input);
-  await repository.finish(cwd, input.execution_id, { status: "failed", producer: "test" });
+  await repository.finish(cwd, input.execution_id, {
+    status: "failed",
+    producer: "test",
+    result: { error: "admission failed", stderr_preview: "old error" },
+  });
   expect(
     (
       await repository.finish(cwd, input.execution_id, {
@@ -295,6 +303,7 @@ it("lets only the authoritative job repair an earlier terminal projection", asyn
         status: "succeeded",
         producer: "test",
         authoritative_job_id: "job-authority",
+        result: { exit_code: 0, stdout_preview: "done" },
       })
     )?.status,
   ).toBe("succeeded");
@@ -304,4 +313,12 @@ it("lets only the authoritative job repair an earlier terminal projection", asyn
     authoritative_job_id: "job-authority",
   });
   expect(await repository.events(cwd)).toHaveLength(3);
+  expect((await repository.get(cwd, input.execution_id))?.result).toEqual({
+    exit_code: 0,
+    stdout_preview: "done",
+  });
+  expect((await new ExecutionRepository().get(cwd, input.execution_id))?.result).toEqual({
+    exit_code: 0,
+    stdout_preview: "done",
+  });
 });
