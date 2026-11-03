@@ -19,7 +19,10 @@ const jobs: JobCoordinator[] = [];
 const TERMINAL: JobStatus[] = ["succeeded", "failed", "cancelled", "timed_out"];
 // Lifecycle fixtures exercise the host backend. Required-mode jobs have real
 // isolation acceptance in platform-acceptance.test.ts.
-beforeEach(() => vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host"));
+beforeEach(async () => {
+  vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");
+  vi.stubEnv("PI_SCIENCE_HOME", await workspace());
+});
 
 afterEach(async () => {
   await Promise.allSettled(jobs.splice(0).map((coordinator) => coordinator.shutdown()));
@@ -1508,6 +1511,8 @@ describe("job coordinator", () => {
 
 describe("job projection recovery and admission", () => {
   it("repairs a durable terminal job after projection failure and coordinator restart", async () => {
+    vi.stubEnv("PI_SCIENCE_HOME", await workspace());
+    vi.stubEnv("PI_SCIENCE_SQLITE_STATE", "0");
     const cwd = await workspace();
     const { ExecutionRepository } = await import("../executions/execution-repository.js");
     const executions = new ExecutionRepository();
@@ -1539,8 +1544,8 @@ describe("job projection recovery and admission", () => {
       new ExecutionRepository(),
     );
     jobs.push(reopened);
-    const repaired = await reopened.get(cwd, submitted.job_id);
-    expect((await executions.get(cwd, submitted.execution_id!))?.status).toBe(repaired?.status);
+    await reopened.startReconciliation(async () => []);
+    expect((await executions.get(cwd, submitted.execution_id!))?.status).toBe(stored.status);
   });
 
   it("deduplicates concurrent submissions durably and rejects changed content", async () => {

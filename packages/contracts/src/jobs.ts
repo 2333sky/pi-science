@@ -53,7 +53,7 @@ export const approvalInteractionRequestSchema = z.object({
 
 export const jobRecordSchema = z
   .object({
-    id: z.string().min(1),
+    job_id: z.string().min(1),
     status: z.enum([
       "queued",
       "pending",

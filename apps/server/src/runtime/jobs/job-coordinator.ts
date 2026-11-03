@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { readdir, realpath } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
+  configPath,
   metadataRoot,
   readJson,
   withFileWriteLock,
@@ -99,7 +100,11 @@ export class JobCoordinator {
     const reconcile = () => {
       if (this.reconciling || this.closing) return this.reconciling ?? Promise.resolve();
       this.reconciling = (async () => {
-        for (const cwd of new Set([...this.knownWorkspaces, ...(await workspaces())])) {
+        for (const cwd of new Set([
+          ...this.knownWorkspaces,
+          ...(await workspaces()),
+          ...(await this.persistedWorkspaces()),
+        ])) {
           try {
             await this.list(cwd, Number.MAX_SAFE_INTEGER);
           } catch (error) {
@@ -465,6 +470,24 @@ export class JobCoordinator {
     this.leases.stopAllHeartbeats();
   }
 
+  private async persistedWorkspaces(): Promise<string[]> {
+    if (this.repository) return [];
+    const root = configPath("job-workspaces");
+    let names: string[];
+    try {
+      names = await readdir(root);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    }
+    const paths: string[] = [];
+    for (const name of names.filter((name) => name.endsWith(".json"))) {
+      const cwd = await readJson<unknown>(join(root, name), null);
+      if (typeof cwd === "string" && isAbsolute(cwd)) paths.push(cwd);
+    }
+    return paths;
+  }
+
   private jobsDir(cwd: string) {
     return join(metadataRoot(cwd), "jobs");
   }
@@ -481,6 +504,10 @@ export class JobCoordinator {
       await this.repository.save(record);
       return;
     }
+    // Register before persisting the first job so a crash cannot hide durable work.
+    const cwd = resolve(record.cwd);
+    const key = createHash("sha256").update(cwd).digest("hex");
+    await writeJsonAtomic(configPath(join("job-workspaces", `${key}.json`)), cwd);
     await writeJsonAtomic(this.jobPath(record.cwd, record.job_id), record);
   }
   private async readCurrent(record: JobRecord): Promise<JobRecord | null> {

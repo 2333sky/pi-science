@@ -106,19 +106,22 @@ export function registerExecutionRoutes(
       ...(kind?.success ? { kind: kind.data } : {}),
       ...(status?.success ? { status: status.data } : {}),
     };
-    const page = await executions.query(cwd, options);
-    const activeJobs = page.executions.filter(
-      (record) => record.kind === "job" && ["running", "pending"].includes(record.status),
-    );
-    if (jobs?.get && activeJobs.length) {
-      await Promise.all(
-        activeJobs.map((record) =>
-          record.correlation.job_id ? jobs.get!(cwd, record.correlation.job_id) : null,
-        ),
-      );
-      return executionListResponseSchema.parse(await executions.query(cwd, options));
+    if (jobs?.get) {
+      // Discover candidates before healing: repairs change status and page membership.
+      const candidates = [];
+      for (let offset = 0; ; offset += 1000) {
+        const page = await executions.query(cwd, { kind: "job", limit: 1000, offset });
+        candidates.push(
+          ...page.executions.filter((record) => ["running", "pending"].includes(record.status)),
+        );
+        if (offset + page.executions.length >= page.filtered_total) break;
+      }
+      // Bound concurrent storage work even for large histories.
+      for (const record of candidates) {
+        if (record.correlation.job_id) await jobs.get(cwd, record.correlation.job_id);
+      }
     }
-    return executionListResponseSchema.parse(page);
+    return executionListResponseSchema.parse(await executions.query(cwd, options));
   });
 
   app.get<{ Params: { execution_id: string } }>(
