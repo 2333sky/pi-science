@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, operationResult } from "@earendil-works/pi-agent-core/node";
 import { AgentSessionRepository } from "./agent-session-repository.js";
 
-it("restores aborted and completed turns from durable results, including pages without their user message", async () => {
+it("restores aborted and completed turns from durable results, including cursor pages without their user message", async () => {
   const cwd = await mkdtemp(join(tmpdir(), "core-history-"));
   const env = new NodeExecutionEnv({ cwd });
   const ctx = BACKGROUND_CONTEXT;
@@ -24,9 +24,99 @@ it("restores aborted and completed turns from durable results, including pages w
     const history = new AgentSessionRepository();
     expect((await history.messages(cwd, id)).find((m) => m.id === first)).toMatchObject({ turnStatus: "aborted", turnStartedAt: "1970-01-01T00:00:01.000Z", turnEndedAt: "1970-01-01T00:00:03.000Z" });
     const latest = await history.messagesPage(cwd, id, { limit: 1 });
-    expect(latest.messages[0]).toMatchObject({ id: final, turnId: "completed-run", turnStatus: "completed" });
+    // The newest page grows back to the user message that opened its turn.
+    expect(latest.messages.map((m) => m.role)).toEqual(["user", "toolResult"]);
+    expect(latest.messages.at(-1)).toMatchObject({ id: final, turnId: "completed-run", turnStatus: "completed" });
+    // Pages requested with a cursor may still begin mid-turn and keep the
+    // durable result attached by ancestry, without their user message.
+    const midTurn = await history.messagesPage(cwd, id, { limit: 1, before: latest.next_cursor! });
+    expect(midTurn.messages).toHaveLength(1);
+    expect(midTurn.messages[0]).toMatchObject({ id: tool, turnId: "stopped-run", turnStatus: "aborted" });
     const previous = await history.messagesPage(cwd, id, { limit: 2, before: latest.next_cursor! });
+    expect(previous.messages.map((m) => m.id)).toEqual([first, tool]);
     expect(previous.messages.find((m) => m.id === tool)).toMatchObject({ turnId: "stopped-run", turnStatus: "aborted" });
+  } finally { await repo.close(ctx); await env.cleanup(ctx); await rm(cwd, { recursive: true, force: true }); }
+});
+
+/** Append `turns` turns of one user message followed by `steps` assistant messages. */
+async function appendTurns(branch: Awaited<ReturnType<Awaited<ReturnType<JsonlSessionRepo["create"]>>["createBranch"]>>, turns: number, steps: number, at = 1000): Promise<string[]> {
+  const ids: string[] = [];
+  for (let turn = 0; turn < turns; turn += 1) {
+    ids.push(await branch.appendMessage({ role: "user", content: `q${turn}`, timestamp: (at += 1000) }, BACKGROUND_CONTEXT));
+    for (let step = 0; step < steps; step += 1) {
+      ids.push(await branch.appendMessage({ role: "toolResult", toolName: "read", toolCallId: `call-${turn}-${step}`, isError: false, content: [{ type: "text", text: `a${turn}.${step}` }], timestamp: (at += 1000) }, BACKGROUND_CONTEXT));
+    }
+  }
+  return ids;
+}
+
+it("starts the newest page at the user message that opened its oldest turn", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "core-history-boundary-"));
+  const env = new NodeExecutionEnv({ cwd });
+  const ctx = BACKGROUND_CONTEXT;
+  const repo = new JsonlSessionRepo({ fileSystem: env, sessionsRoot: join(cwd, ".pi-science", "agent-sessions") });
+  try {
+    const session = await repo.create({ cwd }, ctx);
+    const branch = await session.createBranch("main", null, ctx);
+    const ids = await appendTurns(branch, 3, 29);
+    const id = session.metadata.id;
+    await session.close(ctx); await repo.close(ctx);
+    const history = new AgentSessionRepository();
+    const latest = await history.messagesPage(cwd, id, { limit: 50 });
+    // 50 newest end mid-turn, so the page grows back to the third turn's user message.
+    expect(latest.messages).toHaveLength(60);
+    expect(latest.messages[0]).toMatchObject({ id: ids[30], role: "user" });
+    expect(latest.has_more).toBe(true);
+    const older = await history.messagesPage(cwd, id, { limit: 50, before: latest.next_cursor! });
+    expect(older.messages).toHaveLength(30);
+    expect(older.messages[0]).toMatchObject({ id: ids[0], role: "user" });
+    expect(older.has_more).toBe(false);
+    expect(older.next_cursor).toBeNull();
+    // Consecutive pages cover every message exactly once.
+    expect([...older.messages, ...latest.messages].map((message) => message.id)).toEqual(ids);
+  } finally { await repo.close(ctx); await env.cleanup(ctx); await rm(cwd, { recursive: true, force: true }); }
+});
+
+it("returns one page without a cursor when the history ends on a turn boundary", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "core-history-exact-"));
+  const env = new NodeExecutionEnv({ cwd });
+  const ctx = BACKGROUND_CONTEXT;
+  const repo = new JsonlSessionRepo({ fileSystem: env, sessionsRoot: join(cwd, ".pi-science", "agent-sessions") });
+  try {
+    const session = await repo.create({ cwd }, ctx);
+    const branch = await session.createBranch("main", null, ctx);
+    const ids = await appendTurns(branch, 25, 1);
+    const id = session.metadata.id;
+    await session.close(ctx); await repo.close(ctx);
+    const history = new AgentSessionRepository();
+    const latest = await history.messagesPage(cwd, id, { limit: 50 });
+    expect(latest.messages.map((message) => message.id)).toEqual(ids);
+    expect(latest.has_more).toBe(false);
+    expect(latest.next_cursor).toBeNull();
+  } finally { await repo.close(ctx); await env.cleanup(ctx); await rm(cwd, { recursive: true, force: true }); }
+});
+
+it("caps the turn-boundary extension at 200 messages for a pathological turn", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "core-history-cap-"));
+  const env = new NodeExecutionEnv({ cwd });
+  const ctx = BACKGROUND_CONTEXT;
+  const repo = new JsonlSessionRepo({ fileSystem: env, sessionsRoot: join(cwd, ".pi-science", "agent-sessions") });
+  try {
+    const session = await repo.create({ cwd }, ctx);
+    const branch = await session.createBranch("main", null, ctx);
+    const ids = await appendTurns(branch, 1, 250);
+    const id = session.metadata.id;
+    await session.close(ctx); await repo.close(ctx);
+    const history = new AgentSessionRepository();
+    const latest = await history.messagesPage(cwd, id, { limit: 50 });
+    expect(latest.messages).toHaveLength(200);
+    expect(latest.messages[0]).toMatchObject({ id: ids[51], role: "toolResult" });
+    expect(latest.has_more).toBe(true);
+    const older = await history.messagesPage(cwd, id, { limit: 100, before: latest.next_cursor! });
+    expect(older.messages).toHaveLength(51);
+    expect(older.messages[0]).toMatchObject({ id: ids[0], role: "user" });
+    expect(older.has_more).toBe(false);
+    expect([...older.messages, ...latest.messages].map((message) => message.id)).toEqual(ids);
   } finally { await repo.close(ctx); await env.cleanup(ctx); await rm(cwd, { recursive: true, force: true }); }
 });
 
