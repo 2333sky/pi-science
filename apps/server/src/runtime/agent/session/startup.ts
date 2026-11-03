@@ -86,6 +86,7 @@ export async function attach(context: Context, key: string, runtime: AgentCoreRu
   });
   context.events.bind(runtime.cwd, runtime, {
     activeSessionId: () => runtime.sessionId,
+    startupMs: runtime.startupMs ?? undefined,
     observe: async (event, sessionId, turn) => {
       context.hooks.observe?.(runtime.cwd, sessionId, event);
       await observeAgentEvent(runtime.cwd, item.model, event, sessionId,

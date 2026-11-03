@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-kernel-bridges.mjs && node scripts/copy-sqlite-assets.mjs && node scripts/build-web-core.mjs",
-    "dev": "tsx watch src/app/main.ts",
+    "dev": "tsx src/runtime/agent/worker/dev-build.ts && tsx watch src/app/main.ts",
+    "build:dev-worker": "tsx src/runtime/agent/worker/dev-build.ts",
     "start": "node dist/app/main.js",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",

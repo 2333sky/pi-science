@@ -69,3 +69,4 @@ _tmp_*
 
 # Orchestration intermediates
 .pi-subagents/
+.dev-dist/

@@ -43,6 +43,7 @@ export class ConversationBindings {
     if (this.bound.has(process)) return;
     this.bound.add(process);
     const boundAt = Date.now();
+    if (typeof options.startupMs === "number") this.operations.log("info", `Agent worker ready in ${options.startupMs}ms`);
     let turnNumber = 0;
     let turnStartedAt = boundAt;
     let eventQueue = Promise.resolve();
