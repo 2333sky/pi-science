@@ -25,7 +25,7 @@ import {
   type MarkdownFencedCodeBlock,
   type MarkdownSourceRange,
 } from "./markdown-code-ranges";
-import { prepareStreamingMarkdown, type MarkdownRenderMode } from "./streaming-markdown";
+import { prepareStreamingMarkdown, exceedsStreamingMarkdownBudget, type MarkdownRenderMode } from "./streaming-markdown";
 
 export type { MarkdownRenderMode } from "./streaming-markdown";
 
@@ -442,12 +442,21 @@ export function MarkdownViewer({
   const openInspector = useUiStore((s) => s.openInspector);
   const { t } = useTranslation();
   const visibleValue = useFrameCoalescedValue(children, mode === "streaming");
+  // A long message keeps streaming line by line: re-parsing the whole buffer on
+  // every frame is what makes it stall, so past the budget the same characters
+  // render as plain text and the settled message renders Markdown once.
+  const plainStreaming = mode === "streaming" && exceedsStreamingMarkdownBudget(visibleValue);
   const prepared = useMemo(
-    () => (mode === "streaming" ? prepareStreamingMarkdown(visibleValue) : { text: visibleValue, codeRanges: undefined }),
-    [mode, visibleValue],
+    () => (plainStreaming || mode !== "streaming" ? { text: visibleValue, codeRanges: undefined } : prepareStreamingMarkdown(visibleValue)),
+    [mode, plainStreaming, visibleValue],
   );
-  const renderedValue = useMemo(() => normalizeMathInput(prepared.text, prepared.codeRanges), [prepared]);
-  const fenceIdentities = useStableFenceIdentities(renderedValue);
+  const renderedValue = useMemo(
+    () => (plainStreaming ? prepared.text : normalizeMathInput(prepared.text, prepared.codeRanges)),
+    [plainStreaming, prepared],
+  );
+  // Plain text exposes no fences, so keeping the old identities around would
+  // only cost a full scan of the buffer on every frame.
+  const fenceIdentities = useStableFenceIdentities(plainStreaming ? "" : renderedValue);
   const [codeExecutions, setCodeExecutions] = useState<Record<string, CodeExecution>>({});
   const inFlightExecutions = useRef(new Set<string>());
   const executionSerial = useRef(0);
@@ -635,6 +644,15 @@ export function MarkdownViewer({
     th: ({ children, style }) => <th className={s.th} style={style}>{children}</th>,
     td: ({ children, style }) => <td className={s.td} style={style}>{children}</td>,
   }), [closeCodeResult, codeChrome, codeExecutions, context, cwd, fenceIdentities, handleFileLink, runCode, s, sessionId, t, textScale, variant]);
+  if (plainStreaming) {
+    // Same characters, no Markdown pipeline. The wrapper keeps the settled
+    // layout's font metrics so the switch does not resize the reading column.
+    return (
+      <div className={cn(s.root, className)} style={variant === "inspector" ? { fontSize: 15 * textScale } : undefined}>
+        <pre data-streaming="plain" className="whitespace-pre-wrap break-words font-mono text-[13px] leading-5">{visibleValue}</pre>
+      </div>
+    );
+  }
   return (
     <div className={cn(s.root, className)} style={variant === "inspector" ? { fontSize: 15 * textScale } : undefined}>
       <MemoizedMarkdownRenderer value={renderedValue} components={components} renderMode={mode} />

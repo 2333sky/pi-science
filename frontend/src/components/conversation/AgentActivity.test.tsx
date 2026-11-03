@@ -485,3 +485,18 @@ it("renders a stopped turn with its durable duration even when it produced no as
   render(<AgentActivity blocks={[]} lifecycle="aborted" turnStartedAt="2026-10-03T00:00:00.000Z" turnEndedAt="2026-10-03T00:00:29.000Z" />);
   expect(screen.getByText("Stopped · 29s")).toBeInTheDocument();
 });
+
+describe("truncated tool output", () => {
+  it("marks a tool whose output the server kept only the tail of", () => {
+    render(<AgentActivity blocks={[{ ...tool("bash", "bash"), output: "tail only", outputTruncated: true, originalOutputBytes: 123_456 }]} />);
+    expect(screen.getByText("Truncated (tail shown)")).toBeInTheDocument();
+  });
+
+  it("leaves a complete output unmarked", () => {
+    const { rerender } = render(<AgentActivity blocks={[tool("bash", "bash")]} />);
+    expect(screen.queryByText("Truncated (tail shown)")).toBeNull();
+    // A tool block rebuilt from old data has no flag at all: it must render.
+    rerender(<AgentActivity blocks={[{ kind: "tool", id: "legacy", callId: "legacy-call", tool: "bash", status: "done", output: "complete" }]} />);
+    expect(screen.queryByText("Truncated (tail shown)")).toBeNull();
+  });
+});
