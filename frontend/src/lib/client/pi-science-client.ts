@@ -188,6 +188,11 @@ export class PiScienceClient {
     return rest.generateSessionTitle(this.baseUrl, sessionId, cwd);
   }
 
+  /** Request science review; skipped responses include a reason. */
+  async requestScienceReview(sessionId: string, cwd: string, trigger: "manual" | "auto" = "manual", turnId?: string): Promise<{ id: string; status: string; reason?: string }> {
+    return rest.requestScienceReview(this.baseUrl, sessionId, cwd, trigger, turnId);
+  }
+
   // ── SSE ──
 
   connect(sessionId: string, cwd?: string, reason?: TransportReason): void {

@@ -340,3 +340,15 @@ export async function generateSessionTitle(baseUrl: string, sessionId: string, c
   }
   return typeof data.title === "string" && data.title ? data.title : null;
 }
+
+/** Request a review and return its queue status or skip reason. */
+export async function requestScienceReview(baseUrl: string, sessionId: string, cwd: string, trigger: "manual" | "auto", turnId?: string): Promise<{ id: string; status: string; reason?: string }> {
+    const response = await request(`${baseUrl}/api/project-knowledge/science-review`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd, session_id: sessionId, trigger, ...(turnId ? { turn_id: turnId } : {}) }),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(responseError(data, `Science review failed: ${response.statusText}`));
+    return data;
+}

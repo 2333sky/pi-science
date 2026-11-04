@@ -82,6 +82,6 @@ export function createServerModules(config?: ServerConfig, options: ServerModule
   if (sqliteEnabled) sessions.configureBeforeRuntimeStart((cwd) => mcp.materializeWorkspace(cwd));
   const jobs = new JobCoordinator(environments, {}, undefined, sqliteEnabled ? jobRepository : undefined);
   const memoryBackground = new MemoryBackground(memory, sessions, jobs);
-  sessions.configureMemory({ settled: (cwd, sessionId) => memoryBackground.turnCompleted(cwd, sessionId), deleted: async (cwd, sessionId) => { const {context} = await memory.context(cwd); await memory.command(context, "frame.delete", {sessionId}); } });
+  sessions.configureMemory({ settled: (cwd, sessionId, turnId, status) => memoryBackground.turnCompleted(cwd, sessionId, turnId, status), deleted: async (cwd, sessionId) => { const {context} = await memory.context(cwd); await memory.command(context, "frame.delete", {sessionId}); } });
   return { sessions, events, sessionRepository, runtimeCatalog, settings, modelResources, jobs, memory, memoryBackground, environments, kernels, notebooks, stateStore, workspaces, environmentRepository, jobRepository, sqliteEnabled, mcp, configureBackendUrl: (url: string) => { coreServer.backendUrl = url; sessionServer.backendUrl = url; } };
 }

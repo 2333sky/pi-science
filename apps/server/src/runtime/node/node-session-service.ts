@@ -5,6 +5,7 @@ import { ModelConfigService } from "../../model-config/model-config-service.js";
 import type { CreateSessionRequest, PiConfig, SessionState, SessionStats } from "@pi-science/contracts";
 import { resolve } from "node:path";
 import { ConversationEventHub, conversationEventHub } from "../events/conversation-event-hub.js";
+import { CitationAutoVerifyService } from "../citations/citation-auto-verify.js";
 import { durableEventStore } from "../events/event-store.js";
 import type { RuntimeResult, RuntimeSkillPolicy } from "../agent/agent-runtime-types.js";
 import { AgentCoreSessionService } from "../agent/agent-core-session-service.js";
@@ -47,7 +48,8 @@ function effectiveConfig(requested?: Partial<PiConfig>): PiConfig {
 /** The product session facade uses Agent Core exclusively. Legacy JSONL is data, never a runtime fallback. */
 export class NodeSessionService {
   private readonly agentCore: AgentCoreSessionService;
-  private memoryHooks?: {settled:(cwd:string,sessionId:string)=>Promise<void>;deleted:(cwd:string,sessionId:string)=>Promise<void>};
+  private readonly citationsAutoVerify = new CitationAutoVerifyService();
+  private memoryHooks?: {settled:(cwd:string,sessionId:string,turnId:string,status:string)=>Promise<void>;deleted:(cwd:string,sessionId:string)=>Promise<void>};
   configureMemory(hooks:NonNullable<NodeSessionService["memoryHooks"]>){this.memoryHooks=hooks;}
   private readonly statsProjector = new SessionStatsProjector();
   private log: (level: "info" | "warn" | "error", message: string) => void = () => {};
@@ -63,7 +65,10 @@ export class NodeSessionService {
     this.agentCore = new AgentCoreSessionService(eventHub, environments, agentCoreServer);
     this.agentCore.configureProductLifecycle({
       observe: (cwd, sessionId, event) => this.statsProjector.track(runtimeKey(cwd, sessionId), event, Date.now()),
-      settled: (cwd, sessionId) => { if(this.memoryHooks) void this.memoryHooks.settled(cwd,sessionId).catch(error=>this.log("warn",String(error))); },
+      settled: (cwd, sessionId, turnId, status) => {
+        this.citationsAutoVerify.schedule(cwd, sessionId, turnId, this.log);
+        if (this.memoryHooks) void this.memoryHooks.settled(cwd, sessionId, turnId, status).catch(error => this.log("warn", String(error)));
+      },
       stats: async (cwd, sessionId, counters) => {
         const checkpoint = await loadSessionStats(cwd, sessionId).catch(() => null);
         const timing = this.statsProjector.timingWithCheckpoint(runtimeKey(cwd, sessionId), timingFromStats(checkpoint));

@@ -19,6 +19,7 @@ import { resolveMcpConfig } from "../../catalog/mcp-config.js";
 import type { McpConnectorService } from "../../mcp/connector-service.js";
 import { storedSkillPolicy } from "../../catalog/skill-policy.js";
 import { registerSettingsSkillRoutes } from "./settings-skill-routes.js";
+import { citationAutoVerifyEnabled } from "../../runtime/citations/citation-auto-verify.js";
 import { respondWithRuntimeReload, query } from "./settings-response.js";
 
 function compactionThreshold(config: Settings, available: Array<Record<string, unknown>>, configured: string): number {
@@ -80,7 +81,7 @@ export function registerSettingsRoutes(app: FastifyInstance, nodeSessionService:
     const effectiveProgressAppearance = progressAppearance.success ? progressAppearance.data : defaultProgressAppearance;
     const providers = await providerInventory(nodeSessionService, cwdValue, runtimeCatalog, snapshot);
     const apiKeys = Object.fromEntries(providers.map((provider) => [provider.id, provider.has_key]));
-    return { api_keys: apiKeys, model: configured, unavailable_model: unavailableModel, thinking, model_context_window: config.model_context_window ?? null, model_context_window_override: config.model_context_window_override ?? null, model_max_output_tokens: Number(selected?.max_output_tokens ?? 0) || null, progress_appearance: effectiveProgressAppearance, compaction_enabled: config.compaction_enabled !== false, compaction_threshold_percent: compactionThreshold(config, available, configured), allow_private_providers: config.allow_private_providers !== false, providers, custom_providers: [], available_models: available, model_catalog_source: catalog.source };
+    return { api_keys: apiKeys, model: configured, unavailable_model: unavailableModel, thinking, model_context_window: config.model_context_window ?? null, model_context_window_override: config.model_context_window_override ?? null, model_max_output_tokens: Number(selected?.max_output_tokens ?? 0) || null, progress_appearance: effectiveProgressAppearance, compaction_enabled: config.compaction_enabled !== false, compaction_threshold_percent: compactionThreshold(config, available, configured), citation_auto_verify: await citationAutoVerifyEnabled(), citation_inline_style: config.citation_inline_style === "identifier" ? "identifier" : "number", allow_private_providers: config.allow_private_providers !== false, providers, custom_providers: [], available_models: available, model_catalog_source: catalog.source };
   });
   app.get("/api/settings/web-access", async () => ({ web_access: publicWebSettings(await webSettingsFromConfig(await load())) }));
   app.put("/api/settings/web-access", async (request, reply) => {
@@ -102,6 +103,17 @@ export function registerSettingsRoutes(app: FastifyInstance, nodeSessionService:
     if (!parsed.success) return reply.code(400).send({ error: "Invalid progress appearance settings", details: parsed.error.flatten() });
     await mutate((config) => { config.progress_appearance = parsed.data; });
     return reply.send({ ok: true, progress_appearance: parsed.data });
+  });
+  // Reads the value back from the stored config instead of echoing the body,
+  // so a caller can tell a saved switch from a requested one.
+  app.put("/api/settings/citation-auto-verify", async (request, reply) => { const body = (request.body ?? {}) as { enabled?: unknown }; if (typeof body.enabled !== "boolean") return reply.code(400).send({ error: "enabled must be a boolean" }); const stored = await mutate((config) => { config.citation_auto_verify = body.enabled as boolean; return config.citation_auto_verify; }); return { ok: true, citation_auto_verify: stored === true }; });
+  // Same read-back rule as the switch above: the answer reports what the stored
+  // config now holds, so a caller can tell a saved style from a requested one.
+  app.put("/api/settings/citation-inline-style", async (request, reply) => {
+    const body = (request.body ?? {}) as { style?: unknown };
+    if (body.style !== "number" && body.style !== "identifier") return reply.code(400).send({ error: "style must be number or identifier" });
+    const stored = await mutate((config) => { config.citation_inline_style = body.style as "number" | "identifier"; return config.citation_inline_style; });
+    return { ok: true, citation_inline_style: stored === "identifier" ? "identifier" : "number" };
   });
   app.put("/api/settings/private-providers", async (request, reply) => { const body = (request.body ?? {}) as { enabled?: unknown }; const enabled = body.enabled !== false; await mutate((config) => { config.allow_private_providers = enabled; }); return respondWithReload(nodeSessionService, reply, { ok: true, allow_private_providers: enabled }); });
   registerModelSelectionRoutes(app, nodeSessionService, settingsStore, modelResources, async (cwd) => (await modelCatalog(nodeSessionService, cwd, runtimeCatalog)).available);
