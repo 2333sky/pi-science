@@ -112,7 +112,12 @@ is still checked by the existing resolved-address guard at connection time.
 
 MCP discovery begins before the first model generation of an admitted operation,
 after the session is registered and can receive browser responses. Admission and
-abort remain responsive during discovery. Each local MCP connection carries a
+abort remain responsive during discovery. Pending MCP tool selections remain in
+the durable lane configuration across opens without prompts; the executable
+registry contains only discovered, permitted tools. Discovery reconciles those
+selections before model generation. Only newly created sessions opt into initial
+MCP defaults; missing runtime settings on an imported session do not imply opt-in.
+Each local MCP connection carries a
 private context ID: discovery and RPC active-time limits pause only while that
 connection waits for network approval. The 120-second authorization wait and the
 host task deadline still apply; unrelated connectors do not receive extra time.

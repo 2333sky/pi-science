@@ -99,13 +99,13 @@ describe("agent-core product tools", () => {
         `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
         'import { request } from "node:http";',
         'const proxy = new URL(process.env.PI_SCIENCE_SANDBOX_HTTP_PROXY);',
-        `const read = () => new Promise((resolve,reject) => { const req=request({hostname:proxy.hostname,port:proxy.port,path:${JSON.stringify(url)},method:"GET"},res => { let body="";res.on("data",chunk=>body+=chunk);res.on("end",()=>res.statusCode===200?resolve(body):reject(new Error(body))); });req.on("error",reject);req.end(); });`,
+        'const read = () => new Promise((resolve,reject) => { const req=request({hostname:proxy.hostname,port:proxy.port,path:process.argv[2],method:"GET"},res => { let body="";res.on("data",chunk=>body+=chunk);res.on("end",()=>res.statusCode===200?resolve(body):reject(new Error(body))); });req.on("error",reject);req.end(); });',
         'const server = new McpServer({name:"network",version:"1"});',
         `server.registerTool("fetch_data", {}, async () => ({content:[{type:"text",text:await read()}]}));`,
         'await server.connect(new StdioServerTransport());',
       ].join("\n"));
       await writeFile(join(fixture.cwd, ".pi-science/mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "network-project", mcpServers: {
-        "delegated-network": { command: process.execPath, args: [script], approveTools: false, __piScienceAllowedTools: ["fetch_data"], __piScienceConnectorId: "network-connector", __piScienceConnectorRevision: 1, __piScienceSettingsRevision: 1 },
+        "delegated-network": { command: process.execPath, args: [script, url], approveTools: false, __piScienceAllowedTools: ["fetch_data"], __piScienceConnectorId: "network-connector", __piScienceConnectorRevision: 1, __piScienceSettingsRevision: 1 },
       } }));
     }
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());

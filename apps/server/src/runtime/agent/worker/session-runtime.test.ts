@@ -773,6 +773,65 @@ it.each(["allow", "deny_once"])("forwards workspace child network approval to Pa
   expect(await requestNetworkApproval(endpoint!, "another.example.org", "analysis", AbortSignal.timeout(1000))).toBe(false);
 });
 
+it.each([false, true])("preserves MCP selection across opens without prompts (legacy settings: %s)", async (legacy) => {
+  const { instance, parts } = await runtime();
+  const mcp = new AgentMcpTools();
+  const read = (await parts.harness.getTools(context)).find(tool => tool.name === "read")!;
+  mcp.tools.push(...["search", "fetch", "revoked"].map(name => ({ ...read, name: `mcp__papers__${name}` })));
+  const discover = vi.spyOn(AgentMcpTools, "open").mockResolvedValue(mcp);
+  await ensureMcp(instance);
+  await parts.lane.setActiveTools(["read", "mcp__papers__search", "mcp__papers__revoked"], context);
+  if (legacy) {
+    const { appliedRuntimeSettings } = await import("../agent-runtime-settings.js");
+    const { value } = await import("@earendil-works/pi-agent-core/node");
+    const session = (instance as unknown as { session: import("@earendil-works/pi-agent-core/node").Session }).session;
+    await session.deleteValue(appliedRuntimeSettings, context);
+    await session.deleteValue(value("pi-science", "initial-mcp-discovery"), context);
+  }
+  const options = { cwd: parts.executionEnv.cwd, sessionsRoot: join(parts.executionEnv.cwd, ".pi-science/agent-sessions"),
+    sessionId: instance.sessionId, model: { provider: "openai", modelId: "gpt-4.1-mini" } };
+  await instance.close();
+  discover.mockClear();
+  for (let count = 0; count < 2; count++) {
+    const opened = await SessionRuntime.open(options, () => {}, error => { throw error; }); runtimes.push(opened);
+    expect(await opened.command("get_state", {})).toMatchObject({ data: { activeTools: expect.arrayContaining(["mcp__papers__search", "mcp__papers__revoked"]) } });
+    expect((await (opened as unknown as { harness: AgentHarness }).harness.getTools(context)).some(tool => tool.name.startsWith("mcp__"))).toBe(false);
+    if (legacy) {
+      const { appliedRuntimeSettings } = await import("../agent-runtime-settings.js");
+      await (opened as unknown as { session: import("@earendil-works/pi-agent-core/node").Session }).session.deleteValue(appliedRuntimeSettings, context);
+    }
+    await opened.close();
+  }
+  expect(discover).not.toHaveBeenCalled();
+  // A discovered-but-disabled tool stays disabled; an unavailable tool is
+  // reconciled only after discovery, before any model generation can run.
+  mcp.tools.splice(2, 1);
+  const reopened = await SessionRuntime.open(options, () => {}, error => { throw error; }); runtimes.push(reopened);
+  await ensureMcp(reopened);
+  const state = await reopened.command("get_state", {});
+  expect((state.data as { activeTools: string[] }).activeTools.filter(name => name.startsWith("mcp__"))).toEqual(["mcp__papers__search"]);
+});
+
+it("retains new-session MCP defaults when closed before the first discovery", async () => {
+  const { instance, parts } = await runtime();
+  const mcp = new AgentMcpTools();
+  const read = (await parts.harness.getTools(context)).find(tool => tool.name === "read")!;
+  mcp.tools.push({ ...read, name: "mcp__papers__search" });
+  const discover = vi.spyOn(AgentMcpTools, "open").mockResolvedValue(mcp);
+  const options = { cwd: parts.executionEnv.cwd, sessionsRoot: join(parts.executionEnv.cwd, ".pi-science/agent-sessions"),
+    sessionId: instance.sessionId, model: { provider: "openai", modelId: "gpt-4.1-mini" } };
+  await instance.close();
+  const reopened = await SessionRuntime.open(options, () => {}, error => { throw error; }); runtimes.push(reopened);
+  expect(discover).not.toHaveBeenCalled();
+  await ensureMcp(reopened);
+  expect(await reopened.command("get_state", {})).toMatchObject({ data: { activeTools: expect.arrayContaining(["mcp__papers__search"]) } });
+  await (reopened as unknown as { lane: AgentLane }).lane.setActiveTools(["read"], context);
+  await reopened.close();
+  const disabled = await SessionRuntime.open(options, () => {}, error => { throw error; }); runtimes.push(disabled);
+  await ensureMcp(disabled);
+  expect(((await disabled.command("get_state", {})).data as { activeTools: string[] }).activeTools).not.toContain("mcp__papers__search");
+});
+
 it("keeps prompt admission and abort reachable during deferred MCP discovery", async () => {
   const discover = vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _env, _budget, _tools, _restricted, _authorize, _sessionId, _clock, signal) => {
     return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }));

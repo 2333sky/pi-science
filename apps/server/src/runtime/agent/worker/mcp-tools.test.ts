@@ -1,5 +1,5 @@
 import { writeJsonAtomic } from "../../../storage/persistence.js";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "node:http";
@@ -344,7 +344,7 @@ it("continues local MCP initialization and a tool call after network approvals e
   const transportModule = await import("../../../mcp/sandbox-transport.js");
   const original = transportModule.localMcpTransport;
   const clock = new McpExecutionClock();
-  const cwd = await mkdtemp(join(tmpdir(), "mcp-network-wait-"));
+  const cwd = await realpath(await mkdtemp(join(tmpdir(), "mcp-network-wait-")));
   vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "service"));
   await mkdir(join(cwd, ".pi-science"));
   let cancelledCard!: () => void;
@@ -389,7 +389,7 @@ it("continues local MCP initialization and a tool call after network approvals e
   vi.useFakeTimers({ toFake: ["Date"] });
   try {
     const opening = AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" }, undefined, undefined, false, undefined, "parent", clock);
-    const initial = await Promise.race([requested, opening.then(() => { throw new Error("MCP discovery completed without requesting network approval"); })]);
+    const initial = await Promise.race([requested, opening.then(result => { throw new Error(`MCP discovery completed without requesting network approval: ${result.diagnostics.join("; ")}`); })]);
     vi.setSystemTime(Date.now() + 90_000);
     bridge.notify("extension_ui_response", { id: initial.id, value: "allow" });
     mcp = await opening; expect(mcp.diagnostics).toEqual([]);

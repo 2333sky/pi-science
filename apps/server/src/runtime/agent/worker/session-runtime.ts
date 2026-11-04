@@ -1,4 +1,5 @@
 import { McpExecutionClock } from "./mcp-execution-clock.js";
+import { value } from "@earendil-works/pi-agent-core/node";
 import { networkApprovalEndpoint } from "../../sandbox/network-approval-channel.js";
 import { requestNetworkApproval } from "../../sandbox/network-approval-client.js";
 import { AgentMemoryClient } from "./memory-tools.js";
@@ -45,6 +46,7 @@ import { toolEnvironment } from "../agent-runtime-environment.js";
 import { loadPromptTemplates, formatPromptTemplateInvocation, parseCommandArgs, formatSkillInvocation, type PromptTemplate } from "@earendil-works/pi-agent-core/node";
 
 const context = BACKGROUND_CONTEXT;
+const initialMcpDiscovery = value<boolean>("pi-science", "initial-mcp-discovery");
 
 function failure(error: unknown): RuntimeResult {
   return { success: false, code: "agent_runtime_error", error: error instanceof Error ? error.message : String(error) };
@@ -177,7 +179,8 @@ export class SessionRuntime {
       // authority, not the product-settings record, because an imported session can have a
       // lane and no applied settings. The service reports the mismatch on the next configure
       // instead of the session being unreachable.
-      const laneModel = (await session.getValue(laneConfig("main"), context))?.value?.model;
+      const priorLaneConfig = (await session.getValue(laneConfig("main"), context))?.value;
+      const laneModel = priorLaneConfig?.model;
       const durable = laneModel ?? (saved?.model && saved.model.includes("/")
         ? { provider: saved.model.slice(0, saved.model.indexOf("/")), modelId: saved.model.slice(saved.model.indexOf("/") + 1) }
         : null);
@@ -212,6 +215,10 @@ export class SessionRuntime {
         });
       }
       const mcpEligible = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some(name => name.startsWith("mcp__")));
+      // Only a new lane opts into all initially discovered MCP tools. Hidden
+      // tasks pre-create their session file before the first runtime opens it.
+      // Keep this intent durable if the lane closes before its first prompt.
+      if (!priorLaneConfig && mcpEligible) await session.setValue(initialMcpDiscovery, true, context);
       // Discovery is deferred until an admitted operation: the session and Parent
       // are then reachable by browser responses, including child initialization.
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
@@ -281,11 +288,12 @@ export class SessionRuntime {
       runtime.runtimeEpoch = runtimeEpoch;
       runtime.eventSequence = () => eventSequence;
       const snapshot = await watch.resnapshot(context);
-      // Durable tool selection is a preference, never a capability grant. Strip
-      // revoked tools before recovery; add supervision for existing delegates.
+      // Keep pending MCP preferences in the lane until discovery can reconcile
+      // them. The separate Harness registry contains only executable tools, and
+      // driveWhenReady prevents generation before discovery finishes.
       const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
-      const savedMcpTools = snapshot.configuration.activeToolNames.filter(name => name.startsWith("mcp__"));
-      const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
+      const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name)
+        || mcpEligible && name.startsWith("mcp__") && (!options.allowedTools || options.allowedTools.includes(name)));
       for (const name of ["web_search", "web_fetch", "search_memory", "read_memory", "write_memory"]) if (available.has(name) && !activeTools.includes(name)) activeTools.push(name);
       if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
       if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
@@ -302,8 +310,11 @@ export class SessionRuntime {
           signal.throwIfAborted();
           await harness.setTools([...(await harness.getTools(context)).filter(tool => !tool.name.startsWith("mcp__")), ...tools], context);
           const current = await watch.resnapshot(context);
-          await lane.setActiveTools([...new Set([...current.configuration.activeToolNames,
-            ...tools.filter(tool => !saved || savedMcpTools.includes(tool.name)).map(tool => tool.name)])], context);
+          const discoveredNames = new Set(tools.map(tool => tool.name));
+          const selected = current.configuration.activeToolNames.filter(name => !name.startsWith("mcp__") || discoveredNames.has(name));
+          if ((await session.getValue(initialMcpDiscovery, context))?.value) selected.push(...discoveredNames);
+          await lane.setActiveTools([...new Set(selected)], context);
+          await session.setValue(initialMcpDiscovery, false, context);
           signal.throwIfAborted();
           runtime.mcp = discoveredMcp;
         } catch (error) { await discoveredMcp.close(); throw error; }
