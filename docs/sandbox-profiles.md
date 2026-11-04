@@ -155,7 +155,10 @@ accepted ClientHello prefix before upstream connection; bare plaintext connectio
 and UDP remain blocked. Normal HTTPS clients validate certificates themselves.
 Clients must use the provided proxy variables; applications that bypass them
 receive OS denials. Node's environment proxy support is enabled, and the system
-CA bundle is copied into private scratch for curl, Python and Node.
+CA bundle in private scratch combines Node's bundled Mozilla roots, platform
+trust-store roots and the existing OS certificate file for curl, Python and Node.
+This avoids relying solely on macOS's potentially older `/etc/ssl/cert.pem`;
+normal certificate and hostname verification remain enabled.
 
 General workloads receive a rebuilt environment without model keys or internal
 tokens. MCP receives only its own explicit credential bindings. Web Access gets

@@ -1,6 +1,7 @@
+import { writeSandboxCaBundle } from "./certificates.js";
 import { networkApprovalEndpoint } from "./network-approval-channel.js";
 import { networkGrantsPath } from "./network-grants.js";
-import { mkdtemp, mkdir, rm, writeFile, stat, realpath, copyFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, stat, realpath } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -38,14 +39,10 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     for (const path of dependencies) if ((await stat(path)).isDirectory()) bins.push(join(path, "bin"));
     if (dependencies.includes(process.execPath)) bins.unshift(dirname(process.execPath));
     const scoped = Object.fromEntries(Object.entries(scopedEnvironment).filter(([key]) => !/^(?:(?:https?|all|no)_proxy|PI_SCIENCE_SANDBOX_HTTP_PROXY)$/i.test(key)));
-    let certificate: string | undefined;
-    for (const source of process.platform === "darwin" ? ["/etc/ssl/cert.pem"] : ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt"]) {
-      try { certificate = join(scratch, "system-ca.pem"); await copyFile(source, certificate); break; }
-      catch (error) { certificate = undefined; if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-    }
+    const certificate = await writeSandboxCaBundle(scratch);
     const env = { ...scoped, PATH: [...bins, "/usr/bin", "/bin"].join(":"), HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch,
       XDG_CACHE_HOME: scratch, MPLCONFIGDIR: scratch, LANG: "C.UTF-8", OPENBLAS_NUM_THREADS: "1", OMP_NUM_THREADS: "1", PYTHONNOUSERSITE: "1", NODE_USE_ENV_PROXY: "1",
-      ...(certificate ? { SSL_CERT_FILE: certificate, CURL_CA_BUNDLE: certificate, REQUESTS_CA_BUNDLE: certificate, NODE_EXTRA_CA_CERTS: certificate, ...(policy.profile === "install" ? { MAMBA_SSL_VERIFY: certificate, CONDA_SSL_VERIFY: certificate } : {}) } : {}) };
+      SSL_CERT_FILE: certificate, CURL_CA_BUNDLE: certificate, REQUESTS_CA_BUNDLE: certificate, NODE_EXTRA_CA_CERTS: certificate, ...(policy.profile === "install" ? { MAMBA_SSL_VERIFY: certificate, CONDA_SSL_VERIFY: certificate } : {}) };
     const settingsPath = join(control, "settings.json"); const manifest = join(control, "launch.json"); const shell = join(control, "bash");
     await writeFile(settingsPath, JSON.stringify(settings), { mode: 0o600 });
     const supervisor = await prepareMacosSupervisor(control);
