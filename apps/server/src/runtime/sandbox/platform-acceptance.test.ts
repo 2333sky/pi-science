@@ -139,13 +139,15 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     const config = join(control, "profiles.json");
     await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { analysis: { allowedDomains: [upstream.endpoint] } } }), { mode: 0o600 });
     vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", config);
-    const untrusted = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "5", upstream.url]);
+    // SRT's NO_PROXY may cover private addresses. Force this fixture through
+    // the policy proxy, just as the explicit CONNECT in the Python case does.
+    const untrusted = await execute(cwd, ["curl", "--noproxy", "", "-sS", "--fail", "--max-time", "5", upstream.url]);
     expect(untrusted.code, untrusted.stderr).toBe(60);
-    const result = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "5", "--cacert", upstream.ca, upstream.url]);
+    const result = await execute(cwd, ["curl", "--noproxy", "", "-sS", "--fail", "--max-time", "5", "--cacert", upstream.ca, upstream.url]);
     expect(result, result.stderr).toMatchObject({ code: 0, stdout: "sandbox-fixture-ok\n" });
     // The other endpoint is listening with the same valid certificate. A failed
     // connection is insufficient: prove the policy rejected CONNECT with 403.
-    const denied = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "5", "--cacert", upstream.ca, upstream.deniedUrl]);
+    const denied = await execute(cwd, ["curl", "--noproxy", "", "-sS", "--fail", "--max-time", "5", "--cacert", upstream.ca, upstream.deniedUrl]);
     expect(denied.code).not.toBe(0); expect(denied.stderr).toContain("403");
   }, 40_000);
   it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("runs persistent Python cells and isolates the installed environment", async () => {
@@ -217,7 +219,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     const granted = await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\nprobe_https()\nprint('connected')" });
     expect(granted, JSON.stringify(granted)).toMatchObject({ ok: true, stdout: "connected\n" });
     for (const profile of ["mcp", "control"] as const) {
-      const confined = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "2", "--cacert", upstream.ca, upstream.url], [], 5, profile);
+      const confined = await execute(cwd, ["curl", "--noproxy", "", "-sS", "--fail", "--max-time", "2", "--cacert", upstream.ca, upstream.url], [], 5, profile);
       expect(confined.code).not.toBe(0); expect(confined.stderr).toContain("403");
     }
     await revokeNetworkGrant("analysis", upstream.endpoint);
