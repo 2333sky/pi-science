@@ -11,6 +11,15 @@ function connection() {
   return { child, client };
 }
 describe("worker contract validation", () => {
+  it("distinguishes shared interactive roles from isolated system prompts", () => {
+    const options = { cwd: "/workspace", sessionsRoot: "/workspace/.pi-science/agent-sessions", model: { provider: "p", modelId: "m" } };
+    const request = (prompt: unknown) => workerRequestSchema.safeParse({ type: "initialize", requestId: "init", options: { ...options, prompt } }).success;
+    expect(request({ mode: "interactive", role: "Review assigned evidence" })).toBe(true);
+    expect(request({ mode: "isolated", system: "Return JSON" })).toBe(true);
+    expect(request({ mode: "interactive", system: "Replace the core" })).toBe(false);
+    expect(request({ mode: "isolated", role: "Ambiguous override" })).toBe(false);
+    expect(workerRequestSchema.safeParse({ type: "initialize", requestId: "init", options: { ...options, systemPrompt: "Legacy override" } }).success).toBe(false);
+  });
   it("rejects invalid command and notification bodies without returning their contents", () => {
     expect(decodeCommand("prompt", { message: " ", client_message_id: "secret-value" })).toMatchObject({ ok: false, result: { code: "invalid_message" } });
     expect(JSON.stringify(decodeCommand("configure", { provider: "p", modelId: "m", apiKey: "secret-value" }))).not.toContain("secret-value");

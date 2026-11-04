@@ -12,6 +12,8 @@ type LegacyNotebookTool = {
   name: string;
   label: string;
   description: string;
+  promptSnippet?: string;
+  promptGuidelines?: string[];
   parameters: TSchema;
   execute: (id: string, params: unknown, signal: AbortSignal | undefined, onUpdate: unknown, context: { cwd: string; sessionId: string; sandboxGrant?: string }) => Promise<{ content: Array<{ type: "text"; text: string }>; details?: unknown; isError?: boolean }>;
 };
@@ -23,7 +25,7 @@ export function notebookHarnessTools(cwd: string, sessionId: string, identity?: 
   return registered.map((tool) => ({
     name: tool.name,
     label: tool.label,
-    description: tool.description,
+    description: [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])].filter(Boolean).join("\n"),
     parameters: tool.parameters,
     async execute(toolCallId, params, onUpdate, _context, invocation, context) {
       let sandboxGrant: string | undefined;

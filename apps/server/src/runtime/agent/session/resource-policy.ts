@@ -1,14 +1,5 @@
-import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import { configPath as globalConfigPath, readJson } from "../../../storage/persistence.js";
 import type { RuntimeSkillPolicy } from "../agent-runtime-types.js";
-
-export const SYSTEM_PROMPT_PATH = resolve(dirname(fileURLToPath(import.meta.url)), "../../../../../../harness/AGENTS.md");
-
-export async function systemPrompt(): Promise<string> {
-  return readFile(SYSTEM_PROMPT_PATH, "utf8");
-}
 
 export async function globalSkillPolicy(): Promise<RuntimeSkillPolicy> {
   const settings = await readJson<{ skill_policy?: RuntimeSkillPolicy }>(globalConfigPath("config.json"), {});

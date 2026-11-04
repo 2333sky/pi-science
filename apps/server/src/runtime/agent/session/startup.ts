@@ -12,7 +12,7 @@ import type { RuntimeResult } from "../agent-runtime-types.js";
 import { seedWorkspaceAssets } from "../runtime-config.js";
 import type { Live } from "./types.js";
 import { identity, OPERATION_PROGRESS_EVENTS, configPath, splitModel, thinking, failed } from "./identity.js";
-import { systemPrompt, globalSkillPolicy } from "./resource-policy.js";
+import { globalSkillPolicy } from "./resource-policy.js";
 import type { SessionContext } from "./context.js";
 
 type Context = Pick<SessionContext, "approvalRetirements" | "attach" | "beforeStart" | "createAdmitted" | "credentialEnvNames" | "events" | "hooks" | "live" | "manager" | "openOnce" | "opening" | "recover" | "recoveryAttempts" | "registry" | "repository" | "scheduleWatchdog" | "stopForReload" | "stopping" | "turns" | "workerEnvironment">;
@@ -36,7 +36,7 @@ export async function createAdmitted(context: Context, cwd: string, config: PiCo
       model,
       thinking: thinking(config.thinking),
       settings: config,
-      systemPrompt: await systemPrompt(),
+      prompt: { mode: "interactive" },
       skillPaths: config.skills,
       skillPolicy: await globalSkillPolicy(),
       env: await context.workerEnvironment(cwd),
@@ -179,7 +179,7 @@ export async function openOnce(context: Context, cwd: string, sessionId: string,
       thinking: thinking(persisted?.thinkingLevel ?? config.thinking),
       settings: { ...config, model_context_window_override: config.model_context_window_override?.model === `${model.provider}/${model.modelId}`
         ? config.model_context_window_override : saved?.model_context_window_override },
-      systemPrompt: await systemPrompt(),
+      prompt: { mode: "interactive" },
       skillPaths: saved?.skills ?? config.skills,
       skillPolicy: await globalSkillPolicy(),
       env: await context.workerEnvironment(cwd),

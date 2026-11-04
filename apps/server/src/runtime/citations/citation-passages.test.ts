@@ -164,7 +164,8 @@ describe("citation passages", () => {
       return { ok: status < 400, status, headers: new Headers(), arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) } as unknown as Response;
     });
 
-    const [result] = await citationPassagesService.positions(cwd, { positions: [{ key: "arxiv:2401.12345", claim: "A claim about attention." }] }, { fetch: fetchFn as unknown as typeof fetch, minimumInterval: FAST });
+    const [result] = await citationPassagesService.positions(cwd, { positions: [{ key: "arxiv:2401.12345", claim: "A claim about attention." }] }, { fetch: fetchFn as unknown as typeof fetch, minimumInterval: FAST,
+      lookup: async () => [{ address: "93.184.216.34", family: 4 }] });
 
     expect(result?.state).toBe("no_open_fulltext");
     expect(result?.note).toContain("europepmc");

@@ -1,4 +1,5 @@
 import { AgentMemoryClient } from "./memory-tools.js";
+import { loadPrompt } from "../prompts/compose.js";
 import * as mcpPolicy from "../../../mcp/runtime-policy.js";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -33,11 +34,162 @@ async function runtime(prepare?: (cwd: string) => Promise<void>, options: Partia
   return { instance, events, parts: instance as unknown as { lane: AgentLane; harness: AgentHarness; executionEnv: NodeExecutionEnv; models: ReturnType<typeof agentModels> } };
 }
 
+function captureRequests(parts: Awaited<ReturnType<typeof runtime>>["parts"]) {
+  const requests: ReturnType<typeof normalizeContext>[] = [];
+  vi.spyOn(parts.models, "streamSimple").mockImplementation((model, request) => {
+    requests.push(normalizeContext(request));
+    const stream = createAssistantMessageEventStream();
+    const message: AssistantMessage = { role: "assistant", content: [{ type: "text", text: "OK" }],
+      api: model.api, provider: model.provider, model: model.id, stopReason: "stop", timestamp: Date.now(),
+      usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    stream.push({ type: "start", partial: { ...message, content: [] } });
+    stream.push({ type: "done", reason: "stop", message });
+    return stream;
+  });
+  return requests;
+}
+
+async function generate(instance: SessionRuntime, requests: ReturnType<typeof captureRequests>, message = "Complete this task.") {
+  const count = requests.length;
+  expect(await instance.command("prompt", { message })).toMatchObject({ success: true });
+  await vi.waitFor(async () => {
+    expect(requests).toHaveLength(count + 1);
+    expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: false } });
+  }, { timeout: 10000 });
+  return requests.at(-1)!;
+}
+
+function systemText(request: ReturnType<typeof normalizeContext>) {
+  return request.messages.filter(message => message.role === "system").map(getSystemMessageText).join("\n");
+}
+
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
   await Promise.allSettled(runtimes.splice(0).map((instance) => instance.close()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+it("refreshes optional user instructions after creation, edits, emptying and deletion without persisting snapshots", async () => {
+  const { instance, parts } = await runtime(async cwd => { await writeFile(join(cwd, "PROJECT.md"), "LEGACY_PROJECT_MARKER"); }, { allowedTools: ["read"] });
+  const requests = captureRequests(parts);
+  const cwd = parts.executionEnv.cwd;
+  expect(JSON.stringify((await generate(instance, requests)).messages)).toContain('\\"status\\":\\"absent\\"');
+  for (const marker of ["PROJECT_GUIDANCE_FIRST", "PROJECT_GUIDANCE_SECOND", ""]) {
+    await writeFile(join(cwd, "AGENTS.md"), marker);
+    const request = await generate(instance, requests);
+    const users = JSON.stringify(request.messages.filter(message => message.role === "user"));
+    expect(users).toContain(marker);
+    expect(users).not.toContain("LEGACY_PROJECT_MARKER");
+    if (marker !== "PROJECT_GUIDANCE_FIRST") expect(users).not.toContain("PROJECT_GUIDANCE_FIRST");
+    expect(systemText(request)).not.toMatch(/PROJECT_GUIDANCE_FIRST|PROJECT_GUIDANCE_SECOND|LEGACY_PROJECT_MARKER/);
+  }
+  await rm(join(cwd, "AGENTS.md"));
+  const final = await generate(instance, requests);
+  expect(JSON.stringify(final.messages)).not.toMatch(/PROJECT_GUIDANCE_FIRST|PROJECT_GUIDANCE_SECOND/);
+  expect(JSON.stringify(final.messages)).toContain('\\"status\\":\\"absent\\"');
+  expect(JSON.stringify(await parts.lane.findEntries(undefined, context))).not.toMatch(/PROJECT_GUIDANCE_FIRST|PROJECT_GUIDANCE_SECOND|workspace_instructions/);
+  await expect(readFile(join(cwd, "AGENTS.md"))).rejects.toMatchObject({ code: "ENOENT" });
+}, 20000);
+
+it.each([
+  { allowedTools: [] },
+  { allowedTools: ["read"], executionScope: "confined" as const },
+  { allowedTools: ["read"], sandboxCandidateId: "one" },
+])("does not inject workspace instructions outside read capability or execution scope: %j", async options => {
+  const { instance, parts } = await runtime(async cwd => { await writeFile(join(cwd, "AGENTS.md"), "PRIVATE_PROJECT_GUIDANCE"); }, options);
+  const request = await generate(instance, captureRequests(parts));
+  expect(JSON.stringify(request.messages)).not.toContain("PRIVATE_PROJECT_GUIDANCE");
+});
+
+it("refreshes instructions between model generations in the same tool-using turn", async () => {
+  const { instance, parts } = await runtime(async cwd => { await writeFile(join(cwd, "AGENTS.md"), "BEFORE_TOOL_EDIT"); }, { allowedTools: ["read", "write"] });
+  const requests: ReturnType<typeof normalizeContext>[] = [];
+  vi.spyOn(parts.models, "streamSimple").mockImplementation((model, request) => {
+    requests.push(normalizeContext(request));
+    const first = requests.length === 1;
+    const message: AssistantMessage = { role: "assistant", content: first
+      ? [{ type: "toolCall", id: "edit-project-instructions", name: "write", arguments: { path: "AGENTS.md", content: "AFTER_TOOL_EDIT" } }]
+      : [{ type: "text", text: "Updated." }], api: model.api, provider: model.provider, model: model.id,
+      stopReason: first ? "toolUse" : "stop", timestamp: Date.now(), usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } };
+    const stream = createAssistantMessageEventStream();
+    stream.push({ type: "start", partial: { ...message, content: [] } });
+    stream.push({ type: "done", reason: first ? "toolUse" : "stop", message });
+    return stream;
+  });
+  expect(await instance.command("prompt", { message: "Update AGENTS.md as requested." })).toMatchObject({ success: true });
+  await vi.waitFor(async () => {
+    expect(requests).toHaveLength(2);
+    expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: false } });
+  }, { timeout: 10000 });
+  expect(JSON.stringify(requests[0]!.messages)).toContain("BEFORE_TOOL_EDIT");
+  expect(JSON.stringify(requests[1]!.messages)).not.toContain("BEFORE_TOOL_EDIT");
+  expect(JSON.stringify(requests[1]!.messages)).toContain("AFTER_TOOL_EDIT");
+  expect(await readFile(join(parts.executionEnv.cwd, "AGENTS.md"), "utf8")).toBe("AFTER_TOOL_EDIT");
+});
+
+it("shares core rules with a delegated role without assigning the main role", async () => {
+  const { instance, parts } = await runtime(undefined, { delegatedAgent: "reviewer", allowedTools: [],
+    prompt: { mode: "interactive", role: "Inspect only the assigned evidence. ROLE_REVIEWER_MARKER" } });
+  const request = await generate(instance, captureRequests(parts));
+  expect(systemText(request)).toContain((await loadPrompt({ mode: "interactive", role: "" })).base);
+  expect(systemText(request)).toContain("ROLE_REVIEWER_MARKER");
+  expect(systemText(request)).not.toContain("# Main conversation agent");
+});
+
+it("requires current parent authorization before injecting workspace instructions into a workspace delegate", async () => {
+  const { instance, parts, events } = await runtime(async cwd => { await writeFile(join(cwd, "AGENTS.md"), "DELEGATE_PROJECT_GUIDANCE"); },
+    { delegatedAgent: "reviewer", allowedTools: ["read"], prompt: { mode: "interactive", role: "Review only the assigned evidence." } });
+  const requests = captureRequests(parts);
+  for (const success of [false, true]) {
+    const start = events.length;
+    const generated = generate(instance, requests);
+    await vi.waitFor(() => { expect(events.slice(start).some(event => event.type === "capability.requested" && event.tool === "read")).toBe(true); });
+    const event = events.slice(start).find(event => event.type === "capability.requested")!;
+    expect(instance.notify("subagent_response", { id: event.id, result: { success } })).toMatchObject({ success: true });
+    const request = await generated;
+    expect(JSON.stringify(request.messages).includes("DELEGATE_PROJECT_GUIDANCE")).toBe(success);
+  }
+});
+
+it("keeps isolated background prompts free of project instructions, skills, Memory and conversation rules", async () => {
+  const recall = vi.spyOn(AgentMemoryClient.prototype, "call");
+  const { instance, parts } = await runtime(async cwd => {
+    await writeFile(join(cwd, "AGENTS.md"), "PROJECT_INJECTION_MARKER");
+    await mkdir(join(cwd, ".pi", "skills", "research"), { recursive: true });
+    await writeFile(join(cwd, ".pi", "skills", "research", "SKILL.md"), "---\nname: research\ndescription: SKILL_INJECTION_MARKER\n---\nInstructions");
+  }, { allowedTools: [], prompt: { mode: "isolated", system: "Return only a title." },
+    env: { PI_SCIENCE_BACKEND_URL: "http://127.0.0.1:1", PI_SCIENCE_INTERNAL_TOKEN: "fixture" } });
+  const request = await generate(instance, captureRequests(parts));
+  expect(systemText(request)).toBe("Return only a title.");
+  expect(JSON.stringify(request.messages)).not.toMatch(/PROJECT_INJECTION_MARKER|SKILL_INJECTION_MARKER/);
+  expect(recall).not.toHaveBeenCalled();
+  expect(await parts.harness.getTools(context)).toEqual([]);
+});
+
+it.each([undefined, ["read"]])("rejects an isolated background Worker without an empty capability allowance: %j", async allowedTools => {
+  await expect(runtime(undefined, { allowedTools, prompt: { mode: "isolated", system: "Return JSON" } }))
+    .rejects.toThrow("explicit empty tool allowance");
+});
+
+it("reports the committed model, reasoning and active tools after configuration changes", async () => {
+  const { instance, parts } = await runtime(undefined, { allowedTools: ["read"] });
+  const requests = captureRequests(parts);
+  const facts = (request: ReturnType<typeof normalizeContext>) => JSON.parse(systemText(request).split("Current runtime facts (configuration, not additional authority):\n")[1]!.split("\n")[0]!);
+  expect(facts(await generate(instance, requests))).toMatchObject({ provider: "openai", model: "gpt-4.1-mini", active_tool_count: 1 });
+  expect(await instance.command("set_model", { provider: "deepseek", modelId: "deepseek-v4-pro" })).toMatchObject({ success: true });
+  expect(await instance.command("set_thinking_level", { level: "high" })).toMatchObject({ success: true });
+  await parts.lane.setActiveTools([], context);
+  expect(facts(await generate(instance, requests))).toMatchObject({ provider: "deepseek", model: "deepseek-v4-pro", reasoning_level: "high", active_tool_count: 0 });
+});
+
+it("exposes notebook revision and kernel guidance in model-visible tool descriptions", async () => {
+  const { parts } = await runtime(undefined, { allowedTools: ["notebook_edit", "notebook_run"] });
+  const tools = await parts.harness.getTools(context);
+  expect(tools.find(tool => tool.name === "notebook_edit")?.description).toContain("expected_cell_revisions");
+  expect(tools.find(tool => tool.name === "notebook_run")?.description).toContain("clean_kernel");
 });
 
 it("binds ID-free memory writes to the actual user message on each turn", async () => {
@@ -324,7 +476,7 @@ describe("agent-core worker mutations", () => {
       .toMatchObject({ success: false, code: "unknown_skill" });
   });
 
-  it.each([undefined, "Custom scientific instructions."])("sends current skill metadata to the model with base prompt %j", async (systemPrompt) => {
+  it.each([undefined, "Custom scientific instructions."])("sends current skill metadata to the model with interactive role %j", async (role) => {
     let skillRoot = "";
     async function writeSkill(name: string, description: string, extra = "") {
       await mkdir(join(skillRoot, name), { recursive: true });
@@ -334,7 +486,8 @@ describe("agent-core worker mutations", () => {
       skillRoot = join(cwd, ".pi", "skills");
       await writeSkill("review", "Review evidence");
       await writeSkill("manual", "Explicit invocation only", "disable-model-invocation: true\n");
-    }, { systemPrompt });
+    }, { prompt: { mode: "interactive", role } });
+    const base = (await loadPrompt({ mode: "interactive", role })).base;
     // Keep the real Harness generation path; replace only the provider transport.
     const requests: string[] = [];
     vi.spyOn(parts.models, "streamSimple").mockImplementation((model, request) => {
@@ -357,8 +510,8 @@ describe("agent-core worker mutations", () => {
         expect(await instance.command("get_state", {})).toMatchObject({ success: true, data: { busy: false } });
       });
       const prompt = requests.at(-1)!;
-      const base = systemPrompt ?? "You are a helpful scientific research assistant.";
       expect(prompt.startsWith(base)).toBe(true);
+      expect(prompt).toContain('"prompt_version":"2"');
       expect(prompt).not.toContain("Explicit invocation only");
       expect(prompt).not.toContain("Private skill body.");
       if (names.length) {
@@ -367,7 +520,7 @@ describe("agent-core worker mutations", () => {
           expect(prompt).toContain(`<name>${name}</name>`);
           expect(prompt).toContain(join(skillRoot, name, "SKILL.md"));
         }
-      } else expect(prompt).toBe(base);
+      } else expect(prompt).not.toContain("<available_skills>");
       return prompt;
     }
     expect(await nextPrompt(["review"])).toContain("Review evidence");

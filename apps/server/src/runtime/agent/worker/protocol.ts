@@ -1,4 +1,5 @@
 import { productInputSchema } from "../../events/product-input.js";
+import type { PromptConfiguration } from "../prompts/compose.js";
 import { z } from "zod";
 import { initialSessionApprovalSchema, type CreateSessionRequest } from "@pi-science/contracts";
 import { resultSchema, skillPolicySchema, type RuntimeCommand, type RuntimeNotification } from "./command-contract.js";
@@ -28,7 +29,8 @@ export interface AgentRuntimeStartOptions {
   model: { provider: string; modelId: string };
   thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   settings?: RuntimeSettings;
-  systemPrompt?: string;
+  /** Interactive roles share application rules; isolated background tasks replace them. */
+  prompt?: PromptConfiguration;
   skillPaths?: string[];
   skillPolicy?: RuntimeSkillPolicy;
   env?: Record<string, string>;
@@ -63,7 +65,10 @@ const startOptionsSchema = z.object({
   thinking: z.enum(["off", "minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
   settings: z.object({ compaction_enabled: z.boolean().optional(), compaction_threshold_percent: z.number().min(50).max(95).optional(),
     model_context_window_override: z.object({ model: z.string(), context_window: z.number().int().positive() }).optional(),
-  }).passthrough().optional(), systemPrompt: z.string().optional(), skillPaths: z.array(z.string()).optional(),
+  }).passthrough().optional(), prompt: z.discriminatedUnion("mode", [
+    z.object({ mode: z.literal("interactive"), role: z.string().optional() }).strict(),
+    z.object({ mode: z.literal("isolated"), system: z.string() }).strict(),
+  ]).optional(), skillPaths: z.array(z.string()).optional(),
   skillPolicy: skillPolicySchema.optional(), env: z.record(z.string(), z.string()).optional(), credentialEnvNames: z.array(z.string()).optional(),
   deferActivation: z.boolean().optional(), initialApproval: initialSessionApprovalSchema.optional(),
 }).strict();

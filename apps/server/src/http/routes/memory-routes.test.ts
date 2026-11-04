@@ -199,25 +199,20 @@ it("scope ownership and review cannot be supplied by the model", async () => {
     ).statusCode,
   ).toBe(409);
 });
-it("keeps project documents independent of Memory and exports history", async () => {
-  await app.inject({
-    method: "PUT",
-    url: "/api/project/document?cwd=" + encodeURIComponent(cwd),
-    payload: { content: "# Project goal" },
-  });
-  expect(
-    (
-      await app.inject({
-        method: "GET",
-        url: "/api/project/document?cwd=" + encodeURIComponent(cwd),
-      })
-    ).json().content,
-  ).toBe("# Project goal");
+it("keeps user-owned AGENTS.md independent of Memory and exports history", async () => {
+  await writeFile(join(cwd, "AGENTS.md"), "# Project instructions\n");
+  await writeFile(join(cwd, "PROJECT.md"), "# Legacy user document\n");
+  for (const method of ["GET", "PUT"] as const) {
+    expect((await app.inject({ method, url: "/api/project/document?cwd=" + encodeURIComponent(cwd),
+      ...(method === "PUT" ? { payload: { content: "Must not overwrite user files" } } : {}) })).statusCode).toBe(404);
+  }
   const r = (await request("POST", "/records", { content: content() })).json()
     .record;
   const data = (await request("GET", "/export")).json();
   expect(data.records).toHaveLength(1);
   expect(data.history[0].revisions[0].id).toBe(r.id);
+  expect(await readFile(join(cwd, "AGENTS.md"), "utf8")).toBe("# Project instructions\n");
+  expect(await readFile(join(cwd, "PROJECT.md"), "utf8")).toBe("# Legacy user document\n");
 });
 
 it("loads and saves owner-wide Memory settings without a project or a phantom schedule", async () => {

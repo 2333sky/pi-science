@@ -38,8 +38,8 @@ try {
   await mkdir(path.join(workspace, ".pi-science"), { recursive: true });
   await mkdir(outputs, { recursive: true });
   await writeFile(
-    path.join(workspace, "PROJECT.md"),
-    "# Ordinary project documentation\n",
+    path.join(workspace, "AGENTS.md"),
+    "# User-owned project instructions\n",
   );
   await writeFile(
     path.join(workspace, "result.csv"),
@@ -118,8 +118,8 @@ try {
   assert.equal(approved.approvedContentHash, approved.contentHash);
   assert.equal(approved.revision, records[1].revision);
   assert.equal(
-    await readFile(path.join(workspace, "PROJECT.md"), "utf8"),
-    "# Ordinary project documentation\n",
+    await readFile(path.join(workspace, "AGENTS.md"), "utf8"),
+    "# User-owned project instructions\n",
   );
   // Exercise user CRUD through the real editor and more-actions menu.
   await page.getByRole("button", { name: "Memories", exact: true }).click();
@@ -553,7 +553,7 @@ try {
     fullPage: true,
   });
   console.log(
-    "PASS: Memory UI, exact-version scientific approval, settings CAS, unchanged PROJECT.md, desktop/mobile layout",
+    "PASS: Memory UI, exact-version scientific approval, settings CAS, unchanged AGENTS.md, desktop/mobile layout",
   );
 } finally {
   await browser?.close();

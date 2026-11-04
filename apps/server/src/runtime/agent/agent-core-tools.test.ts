@@ -415,7 +415,7 @@ describe("agent-core product tools", () => {
       { details: { mode: "parallel", results: [{ agent: "auto-research/researcher", exitCode: 0 }, { agent: "auto-research/researcher", exitCode: 0 }] } },
       { details: { results: [{ agent: "auto-research/reviewer", output: expect.stringContaining("PARTIAL") }] } },
     ]);
-    const children = observed.filter((item) => item.system.includes("subagent") || item.system.includes("independent reviewer"));
+    const children = observed.filter((item) => item.system.includes("You are a research subagent") || item.system.includes("You are an independent reviewer"));
     expect(children).toHaveLength(3);
     for (const child of children) expect(child.tools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(expect.arrayContaining(["read", "subagent", "execution_budget"]));
   }, 30000);
