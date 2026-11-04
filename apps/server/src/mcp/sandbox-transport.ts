@@ -41,7 +41,7 @@ export async function localMcpTransport(workspace: string, command: string, args
   }));
 
   // Only this connector's explicitly bound environment is passed to its child.
-  const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd, writeDenyPaths: [...(policy.writeDenyPaths ?? []), ...executableDependencies] }), [executable, ...prefix, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment);
+  const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd, writeDenyPaths: [...(policy.writeDenyPaths ?? []), ...executableDependencies] }), [executable, ...prefix, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment, sessionId ? { cwd: workspace, sessionId } : undefined);
   return new SandboxedMcpTransport(prepared, cwd);
 }
 

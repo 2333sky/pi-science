@@ -185,7 +185,7 @@ MCP 定义、启用状态、发现元数据和全局/项目工具策略由控制
 
 Session Notebook 展示智能体和用户的执行历史。文件型 `.ipynb` 使用 `notebook_read`、`notebook_edit` 和 `notebook_run`。编辑检查文件 SHA-256 或指定 cell revision；源代码变更清除旧输出。执行原子写回受限输出，并记录执行/产物谱系；产物发布失败保留为可见的执行证据。
 
-Auto Research 是当前对话 Agent 执行的技能，由 Agent 规划、委派、迭代和决定停止，协议、评价与检查点保存在普通研究文件中。通用 `execution_budget` 约束持久的工具调用/时间预算，既有内核、任务和连接器超时继续生效，不再提供独立 Research API、监督者或调度器。历史记录与引用产物在运行历史的只读归档及 `/api/project/archives` 中查看，旧 Memory/Knowledge API 返回 404。迁移与恢复边界见 [Auto Research](auto-research.md)。
+Auto Research 是当前对话 Agent 执行的技能，由 Agent 规划、委派、迭代和决定停止，协议、评价与检查点保存在普通研究文件中。宿主层执行控制约束工具调用次数、超时和取消，无需模型调用预算工具，既有内核、任务和连接器超时继续生效，不再提供独立 Research API、监督者或调度器。历史记录与引用产物在运行历史的只读归档及 `/api/project/archives` 中查看，旧 Memory/Knowledge API 返回 404。迁移与恢复边界见 [Auto Research](auto-research.md)。
 
 ## 信任、诊断与实现参考
 

@@ -183,3 +183,47 @@ it.skipIf(!privateHost)("refuses bare plaintext before opening a private IP tunn
     expect(connections).toBe(0);
   } finally { await proxy?.close(); proxy = undefined; await new Promise<void>((resolve) => target.close(() => resolve())); }
 });
+
+it("waits for host approval and continues the original CONNECT without a second model/tool call", async () => {
+  let allowed = false, release!: () => void;
+  const decision = new Promise<void>(resolve => { release = resolve; });
+  const requests: unknown[] = [];
+  proxy = await startSandboxNetwork({ mode: "none" }, async () => ({ mode: "allowlist", allowedDomains: allowed ? ["example.com:443"] : [], deniedDomains: [] }), async (host, port, transport) => {
+    requests.push({ host, port, transport }); await decision; allowed = true; return true;
+  });
+  const pending = exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n");
+  const { vi } = await import("vitest");
+  await vi.waitFor(() => expect(requests).toEqual([{ host: "example.com", port: 443, transport: "https" }]));
+  release();
+  expect((await pending).toString()).toContain("200 Connection Established");
+});
+
+it("never asks the host to override explicit denials or unsupported public HTTP", async () => {
+  const { vi } = await import("vitest");
+  const approve = vi.fn(async () => true);
+  proxy = await startSandboxNetwork({ mode: "allowlist", allowedDomains: [], deniedDomains: ["example.com"] }, undefined, approve);
+  expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
+  expect((await exchange(proxy.httpPort, "GET http://other.example/ HTTP/1.1\r\nHost: other.example\r\n\r\n")).toString()).toContain("403");
+  expect(approve).not.toHaveBeenCalled();
+});
+
+it("refuses a declined or stale approval instead of trusting the approval response alone", async () => {
+  for (const granted of [false, true]) {
+    proxy = await startSandboxNetwork({ mode: "none" }, async () => ({ mode: "none" }), async () => granted);
+    expect((await exchange(proxy.httpPort, "CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n")).toString()).toContain("403");
+    await proxy.close(); proxy = undefined;
+  }
+});
+
+it("cancels the pending approval when the original connection closes", async () => {
+  let started!: () => void;
+  const ready = new Promise<void>(resolve => { started = resolve; });
+  let cancelled!: () => void;
+  const aborted = new Promise<void>(resolve => { cancelled = resolve; });
+  proxy = await startSandboxNetwork({ mode: "none" }, undefined, async (_host, _port, _transport, signal) => {
+    started(); return new Promise(resolve => signal.addEventListener("abort", () => { cancelled(); resolve(false); }, { once: true }));
+  });
+  const client = connect(proxy.httpPort, "127.0.0.1");
+  client.once("connect", () => client.write("CONNECT example.com:443 HTTP/1.1\r\nHost: example.com\r\n\r\n"));
+  await ready; client.destroy(); await aborted;
+});

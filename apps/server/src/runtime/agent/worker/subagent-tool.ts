@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Type } from "@earendil-works/pi-ai";
 import type { AgentHarnessTool, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
-import { localBudgetParameters } from "./execution-budget.js";
 import type { RuntimeEvent, RuntimeResult } from "../agent-runtime-types.js";
 
 export class SubagentBridge {
@@ -39,14 +38,14 @@ export class SubagentBridge {
 const sandboxSelectionParameters = Type.Object({ cwd: Type.String(), read_paths: Type.Array(Type.String(), { maxItems: 8 }), write_paths: Type.Array(Type.String(), { minItems: 1, maxItems: 8 }) });
 export function subagentHarnessTool(bridge: SubagentBridge): AgentHarnessTool<{ env: NodeExecutionEnv }> {
   return {
-    name: "subagent", label: "Subagent", description: "A role without tools inherits the Parent's eligible active tools; optional task tools only narrows them ([] means none). Scope/grant restrictions and per-call approvals still apply. Delegate a task to a named workspace agent (single), a sequential chain, or a bounded parallel group. The parent synthesizes the results. For confined execution, provide sandbox={cwd,read_paths,write_paths}; the server validates these selections against your existing permissions and binds an immutable grant. Child/model paths never authorize access directly. candidate_id is optional correlation metadata; candidate-only requests retain the legacy research adapter. wait_seconds bounds only waiting (0 dispatches in the background). Execution deadlines and local budgets still apply; use subagent_control to inspect, collect, resume or stop your tasks.",
+    name: "subagent", label: "Subagent", description: "A role without tools inherits the Parent's eligible active tools; optional task tools only narrows them ([] means none). Scope/grant restrictions and per-call approvals still apply. Delegate a task to a named workspace agent (single), a sequential chain, or a bounded parallel group. The parent synthesizes the results. For confined execution, provide sandbox={cwd,read_paths,write_paths}; the server validates these selections against your existing permissions and binds an immutable grant. Child/model paths never authorize access directly. candidate_id is optional correlation metadata; candidate-only requests retain the legacy research adapter. wait_seconds bounds only waiting (0 dispatches in the background). Host execution limits still apply; use subagent_control to inspect, collect, resume or stop your tasks.",
     parameters: Type.Object({
       wait_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 600 })),
-      tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters),
+      tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })),
       sandbox: Type.Optional(sandboxSelectionParameters),
       agent: Type.Optional(Type.String()), task: Type.Optional(Type.String()), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })),
-      chain: Type.Optional(Type.Array(Type.Object({ sandbox: Type.Optional(sandboxSelectionParameters), agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 8 })),
-      tasks: Type.Optional(Type.Array(Type.Object({ sandbox: Type.Optional(sandboxSelectionParameters), agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), budget: Type.Optional(localBudgetParameters), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 4 })),
+      chain: Type.Optional(Type.Array(Type.Object({ sandbox: Type.Optional(sandboxSelectionParameters), agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 8 })),
+      tasks: Type.Optional(Type.Array(Type.Object({ sandbox: Type.Optional(sandboxSelectionParameters), agent: Type.String(), task: Type.String(), tools: Type.Optional(Type.Array(Type.String(), { maxItems: 500 })), candidate_id: Type.Optional(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$" })) }), { maxItems: 4 })),
     }),
     async execute(_id, params, onUpdate, _ctx, invocation, context) {
       const cached = await invocation.getMemo("subagent-result");
@@ -66,7 +65,7 @@ export function subagentHarnessTool(bridge: SubagentBridge): AgentHarnessTool<{ 
 /** Observation/cleanup remains available even after an execution quota is spent. */
 export function subagentControlTool(bridge: SubagentBridge): AgentHarnessTool<{ env: NodeExecutionEnv }> {
   return {
-    name: "subagent_control", label: "Subagent tasks", description: "List, inspect, collect, resume or stop this session's own child tasks. Waiting can expire while execution continues. Collection resumes interrupted tasks under their original budget and current permissions. Stopping cancels descendants. Observation and cleanup do not consume execution slots.",
+    name: "subagent_control", label: "Subagent tasks", description: "List, inspect, collect, resume or stop this session's own child tasks. Waiting can expire while execution continues. Collection resumes interrupted tasks under their original deadline and current permissions. Stopping cancels descendants. Observation and cleanup do not consume execution slots.",
     parameters: Type.Object({ action: Type.Union([Type.Literal("list"), Type.Literal("status"), Type.Literal("collect"), Type.Literal("stop")]), task_id: Type.Optional(Type.String({ pattern: "^[a-f0-9]{64}$" })), wait_seconds: Type.Optional(Type.Number({ minimum: 0, maximum: 600 })) }),
     async execute(_id, params, _update, _ctx, _invocation, context) {
       const response = await bridge.request({ params }, context.abortSignal, "subagent.control");

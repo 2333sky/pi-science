@@ -1,3 +1,4 @@
+import { networkApprovalEndpoint } from "./network-approval-channel.js";
 import { networkGrantsPath } from "./network-grants.js";
 import { mkdtemp, mkdir, rm, writeFile, stat, realpath, copyFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -14,9 +15,11 @@ import { prepareMacosSupervisor } from "./platform.js";
 export const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 export const launcherPath = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./launcher.ts" : "./launcher.js", import.meta.url));
 export interface PreparedSandbox { manifest: string; shell: string; env: Record<string, string>; cleanup(): Promise<void> }
-export async function prepareSandbox(policy: SandboxPolicy, argv: string[], dependencies: string[], timeoutSeconds: number, kernelBridge?: string, installation?: RuntimeInstallation, scopedEnvironment: Record<string, string> = {}): Promise<PreparedSandbox> {
+export async function prepareSandbox(policy: SandboxPolicy, argv: string[], dependencies: string[], timeoutSeconds: number, kernelBridge?: string, installation?: RuntimeInstallation, scopedEnvironment: Record<string, string> = {}, approvalIdentity?: { cwd: string; sessionId: string }): Promise<PreparedSandbox> {
   const networkGrants = policy.scope === "workspace" && (policy.profile === "analysis" || policy.profile === "mcp") ? { path: networkGrantsPath(), profile: policy.profile } : undefined;
   if (networkGrants && policy.writePaths.some((root) => isWithin(root, dirname(networkGrants.path))) && !policy.denyPaths.some((root) => isWithin(root, dirname(networkGrants.path)))) throw new Error("Network permissions must be outside writable sandbox paths");
+  const identity = approvalIdentity ?? (policy.approval ? { cwd: policy.cwd, sessionId: policy.approval.sessionId } : undefined);
+  const networkApproval = networkGrants && identity ? await networkApprovalEndpoint(identity.cwd, identity.sessionId) : undefined;
   // Reject unsupported platforms before allocating a control directory. On
   // Windows TEMP is inside HOME, which a full-access policy intentionally grants.
   requireSandboxPlatform();
@@ -46,7 +49,7 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     const settingsPath = join(control, "settings.json"); const manifest = join(control, "launch.json"); const shell = join(control, "bash");
     await writeFile(settingsPath, JSON.stringify(settings), { mode: 0o600 });
     const supervisor = await prepareMacosSupervisor(control);
-    await writeFile(manifest, JSON.stringify({ cli: srtCli, settings: settingsPath, argv, env, timeoutSeconds, kernelBridge, supervisor, lifecycleTag, deniedLifecycleTag, networkGrants, networkPolicy: policy.network, executionGrant: policy.executionGrant }), { mode: 0o600 });
+    await writeFile(manifest, JSON.stringify({ cli: srtCli, settings: settingsPath, argv, env, timeoutSeconds, kernelBridge, supervisor, lifecycleTag, deniedLifecycleTag, networkGrants, networkApproval, networkPolicy: policy.network, executionGrant: policy.executionGrant }), { mode: 0o600 });
     await writeFile(shell, `#!/bin/sh\nexec ${shellQuote(process.execPath)} ${shellQuote(launcherPath)} ${shellQuote(manifest)} "$@"\n`, { mode: 0o700 });
     // srt's own temporary/proxy state is separate from the code's scratch directory.
     return { manifest, shell, env: { PATH: "/usr/bin:/bin", HOME: control, TMPDIR: control, LANG: "C.UTF-8" }, cleanup: () => rm(control, { recursive: true, force: true }) };

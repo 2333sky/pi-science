@@ -1,3 +1,7 @@
+import { connect } from "node:net";
+import { startSandboxNetwork } from "../../sandbox/network.js";
+import { networkGrantSource } from "../../sandbox/network-grant-state.js";
+import { requestNetworkApproval } from "../../sandbox/network-approval-client.js";
 import { AgentMemoryClient } from "./memory-tools.js";
 import * as mcpPolicy from "../../../mcp/runtime-policy.js";
 import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
@@ -12,10 +16,12 @@ import * as discoveryBackend from "./workspace-discovery-contract.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { AgentMcpTools } from "./mcp-tools.js";
 import { networkGrantsPath, readNetworkGrants } from "../../sandbox/network-grants.js";
+import { networkApprovalEndpoint } from "../../sandbox/network-approval-channel.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 
 const roots: string[] = [];
 const runtimes: SessionRuntime[] = [];
+const proxies: Array<Awaited<ReturnType<typeof startSandboxNetwork>>> = [];
 const context = BACKGROUND_CONTEXT;
 
 async function runtime(prepare?: (cwd: string) => Promise<void>, options: Partial<AgentRuntimeStartOptions> = {}) {
@@ -36,6 +42,7 @@ async function runtime(prepare?: (cwd: string) => Promise<void>, options: Partia
 afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllEnvs();
+  await Promise.all(proxies.splice(0).map(proxy => proxy.close()));
   await Promise.allSettled(runtimes.splice(0).map((instance) => instance.close()));
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -224,14 +231,24 @@ describe("agent-core worker mutations", () => {
     const { instance, parts, events } = await runtime();
     const mainTools = await parts.harness.getTools(context);
     expect(mainTools.some((tool) => tool.name === "ask_user_question")).toBe(true);
-    const tool = mainTools.find((tool) => tool.name === "request_network_access")!;
-    expect(tool).toBeDefined();
-    const pending = tool.execute("network-1", { domain: "api.example.org", reason: "Read research data" }, () => {}, { env: parts.executionEnv }, {} as never, context);
+    expect(mainTools.map(tool => tool.name)).not.toContain("request_network_access");
+    expect(mainTools.map(tool => tool.name)).not.toContain("execution_budget");
+    const endpoint = await networkApprovalEndpoint(parts.executionEnv.cwd, instance.sessionId);
+    expect(endpoint).toBeDefined();
+    const proxy = await startSandboxNetwork({ mode: "none" }, networkGrantSource({ mode: "none" }, networkGrantsPath(), "analysis"),
+      (host, _port, _transport, signal) => requestNetworkApproval(endpoint!, host, "analysis", signal));
+    proxies.push(proxy);
+    const pending = new Promise<string>((resolve, reject) => {
+      const client = connect(proxy.httpPort, "127.0.0.1");
+      client.once("error", reject); client.setTimeout(5000, () => client.destroy(new Error("Network approval timed out")));
+      client.once("connect", () => client.write("CONNECT api.example.org:443 HTTP/1.1\r\nHost: api.example.org\r\n\r\n"));
+      client.once("data", chunk => { resolve(chunk.toString()); client.destroy(); });
+    });
     await vi.waitFor(() => expect(events.some((event) => event.type === "interaction.requested")).toBe(true));
     const event = events.find((event) => event.type === "interaction.requested")!;
     expect(await instance.command("get_state", {})).toMatchObject({ data: { pendingInteraction: true } });
     expect(instance.notify("extension_ui_response", { id: event.id, value: "allow" })).toMatchObject({ success: true });
-    expect(await pending).toMatchObject({ details: { status: "granted" } });
+    expect(await pending).toContain("200 Connection Established");
     expect((await readNetworkGrants()).rules).toMatchObject([{ profile: "analysis", domain: "api.example.org", decision: "allow" }]);
     expect(networkGrantsPath()).toContain(home);
   });
@@ -242,6 +259,7 @@ describe("agent-core worker mutations", () => {
       model: { provider: "openai", modelId: "gpt-4.1-mini" } }, () => {}, (error) => { throw error; });
     runtimes.push(instance);
     expect(await instance.command("get_state", {})).toMatchObject({ data: { activeTools: ["read"] } });
+    expect(await networkApprovalEndpoint(cwd, instance.sessionId)).toBeUndefined();
   });
 
   it("keeps abort reachable while a configuration mutation is waiting", async () => {

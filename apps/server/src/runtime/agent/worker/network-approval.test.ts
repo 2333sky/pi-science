@@ -2,20 +2,18 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { BACKGROUND_CONTEXT } from "@earendil-works/pi-agent-core/node";
 import { workerEventSchema } from "./protocol.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 import { saveSessionApproval } from "../../sandbox/session-approval.js";
-import { networkAccessTool } from "./network-access-tool.js";
+import { requestNetworkAccess } from "./network-approval.js";
 import { changeNetworkGrant, readNetworkGrants, revokeNetworkGrant } from "../../sandbox/network-grants.js";
 let root: string;
 beforeEach(async () => { root = await realpath(await mkdtemp(join(tmpdir(), "network-approval-"))); vi.stubEnv("PI_SCIENCE_HOME", root); vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", ""); });
 afterEach(async () => { vi.unstubAllEnvs(); await rm(root, { recursive: true, force: true }); });
-function request(domain = "api.example.org", profile: "analysis" | "mcp" = "analysis", sessionId?: string) {
+function request(domain = "api.example.org", profile: "analysis" | "mcp" = "analysis") {
   const events: Array<Record<string, unknown>> = [];
   const bridge = new InteractionBridge((event) => events.push(event));
-  const tool = networkAccessTool(bridge, sessionId ? root : undefined, sessionId);
-  const run = (signal?: AbortSignal) => tool.execute("request", { domain, profile, reason: "Download study data" }, () => {}, {} as never, {} as never, { ...BACKGROUND_CONTEXT, abortSignal: signal });
+  const run = (signal?: AbortSignal) => requestNetworkAccess(bridge, { domain, profile, reason: "Download study data" }, signal);
   return { events, bridge, run };
 }
 it.each(["allow", "deny"])("rechecks duplicate requests across workers after %s is saved", async (answer) => {
@@ -43,19 +41,6 @@ it("does not share a one-request network denial with a waiting caller", async ()
   expect(await b).toMatchObject({ details: { status: "granted" } });
 });
 
-it("does not block a session-authorized caller behind another session's approval", async () => {
-  const waiting = request();
-  const pending = waiting.run();
-  try {
-    await vi.waitFor(() => expect(waiting.events).toHaveLength(1));
-    await saveSessionApproval(root, "already-authorized", "auto", 0);
-    const authorized = request("api.example.org", "analysis", "already-authorized");
-    expect(await authorized.run()).toMatchObject({ details: { status: "session_allowed" } });
-    expect(authorized.events).toEqual([]);
-    waiting.bridge.notify("extension_ui_response", { id: waiting.events[0]!.id, value: "deny_once" });
-    await pending;
-  } finally { waiting.bridge.close(); await Promise.allSettled([pending]); }
-});
 it.each(["api.example.org", "192.168.1.10:8080"])("persists %s only after approval and avoids reprompting", async (domain) => {
   const { events, bridge, run } = request(domain); const result = run();
   await vi.waitFor(() => expect(events).toHaveLength(1));
@@ -121,7 +106,7 @@ it("respects a standing IP denial for port-specific requests", async () => {
 
 it("still asks for an unapproved private IP in auto mode", async () => {
   await saveSessionApproval(root, "private-session", "auto", 0);
-  const item = request("192.168.1.10:8080", "analysis", "private-session");
+  const item = request("192.168.1.10:8080", "analysis");
   const result = item.run();
   await vi.waitFor(() => expect(item.events).toHaveLength(1));
   expect(item.events[0]).toMatchObject({ message: expect.stringContaining("HTTP and a TCP tunnel on port 8080") });

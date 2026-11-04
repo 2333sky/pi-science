@@ -98,12 +98,23 @@ Blocks override configured allows. Removing a decision
 restores the operator baseline. Operator and built-in deny rules always win.
 Candidate, install, control and BYOC processes do not inherit these decisions.
 
-The main agent exposes `request_network_access({ domain, profile?, reason? })`.
-Its browser permission card offers **Always allow**, **Deny this request**, and
-**Never allow**. The profile defaults to `analysis`. Candidate and delegated
+When a workspace Bash/kernel or local MCP process reaches an unapproved
+proxy destination, the trusted launcher sends an authenticated request to the
+owning session's approval channel. The browser permission card offers **Always allow**, **Deny this request**, and
+**Never allow**. The launch profile selects `analysis` or `mcp`; the model does not choose it. Candidate and delegated
 workers cannot request their own network approvals. Invalid targets, URLs,
 wildcards, non-RFC1918 IP literals, invalid ports and internal hostnames are rejected. DNS resolution
 is still checked by the existing resolved-address guard at connection time.
+
+There is no model-facing `request_network_access` tool. Approval holds the
+original proxy request; after approval, the proxy reloads policy before continuing
+that connection. No Bash command or MCP operation is replayed. Denials, closed
+connections, missing session channels and unreadable policy fail closed. The
+channel token lives only in service-owned state and the private launcher manifest,
+never in workload arguments or environment. Remote MCP services' own internal
+network traffic is outside the local proxy's visibility. Approval scope remains
+persistent across projects, explicitly stated on the card; temporary grants are
+not introduced by this change.
 
 Decisions are atomically persisted to the service-owned `network-permissions/grants.json`
 in `PI_SCIENCE_HOME`, with cross-process locking and revision fencing. A settings
@@ -273,7 +284,7 @@ while `/proc` is read.
 
 ### Private IPv4 services
 
-Settings → Network and `request_network_access` accept exact RFC1918 IPv4
+Settings → Network and network permission cards accept exact RFC1918 IPv4
 addresses (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) with an optional
 port, for example `192.168.1.10:8080`. These entries allow HTTP and a
 destination-bounded TCP tunnel after TLS ClientHello inspection on that port;

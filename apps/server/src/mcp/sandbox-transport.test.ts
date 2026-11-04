@@ -30,6 +30,7 @@ it.skipIf(!supported).each(["paper-search", "literature-graph"])("keeps %s outsi
   vi.stubEnv("PI_SCIENCE_SANDBOX_PYTHON_ROOT", grant);
   await saveSessionApproval(cwd, "session", "full", 0);
   await localMcpTransport(cwd, process.execPath, [], cwd, {}, name, "session");
+  expect(vi.mocked(prepareSandbox).mock.calls[0]![7]).toEqual({ cwd, sessionId: "session" });
   const [policy, , dependencies] = vi.mocked(prepareSandbox).mock.calls[0]!;
   expect(policy.readPaths).toEqual([]); expect(policy.writePaths).toEqual([]);
   expect(policy.cwd).not.toBe(cwd);

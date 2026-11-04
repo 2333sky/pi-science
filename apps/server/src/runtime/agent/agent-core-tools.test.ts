@@ -1,3 +1,5 @@
+import { promptOperationId } from "./agent-message.js";
+import { ExecutionBudgetLedger, type BudgetLimits } from "../executions/execution-budget.js";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
@@ -29,6 +31,10 @@ async function workspace() {
   cleanup.push(() => rm(settings, { recursive: true, force: true }));
   vi.stubEnv("PI_SCIENCE_HOME", settings);
   return cwd;
+}
+
+async function hostLimits(parent: { sessionId: string }, cwd: string, clientId: string, limits: BudgetLimits, researchId?: string) {
+  return new ExecutionBudgetLedger(cwd, promptOperationId(parent.sessionId, clientId)).configure(limits, researchId);
 }
 
 type ModelAnswer = string | { name: string; args: unknown } | null;
@@ -90,8 +96,7 @@ describe("agent-core product tools", () => {
         expect(results.at(-1)!.content).toContain("draft-isolated");
         return "Draft created with real isolated execution.";
       }
-      if (legacyBinding && !results.length) return { name: "execution_budget", args: { research_id: "legacy-study", max_seconds: 60, max_executions: 5 } };
-      if (results.length === (legacyBinding ? 1 : 0)) return { name: "subagent", args: { agent: "draft-maker", candidate_id: "correlation-only", sandbox: { cwd: "drafts/one/work", read_paths: ["drafts/one/input"], write_paths: ["drafts/one/work"] }, task: "Create the draft from the authorized input." } };
+      if (results.length === 0) return { name: "subagent", args: { agent: "draft-maker", candidate_id: "correlation-only", sandbox: { cwd: "drafts/one/work", read_paths: ["drafts/one/input"], write_paths: ["drafts/one/work"] }, task: "Create the draft from the authorized input." } };
       expect(results.at(-1)!.content).toContain("Draft created"); return "Generic Draft completed.";
     });
     await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
@@ -107,7 +112,8 @@ describe("agent-core product tools", () => {
     await writeFile(join(legacyDirectory, "input/legacy.txt"), "legacy-input");
     await writeFile(join(legacyDirectory, "work/unchanged.txt"), "legacy-work");
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
-    const parent = await openHiddenTask(manager, "generic-draft", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "sandbox_run", "write", "subagent", "execution_budget"], skillPolicy: { mode: "none" } }, "draft-owner");
+    const parent = await openHiddenTask(manager, "generic-draft", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "sandbox_run", "write", "subagent"], skillPolicy: { mode: "none" } }, "draft-owner");
+    if (legacyBinding) await hostLimits(parent, fixture.cwd, "draft-once", { max_seconds: 60, max_executions: 5 }, "legacy-study");
     expect(await runHiddenPrompt(parent, "Create a Draft", "draft-once", Date.now() + 30_000)).toBe("Generic Draft completed.");
     expect(await readFile(join(fixture.cwd, "drafts/one/work/output.txt"), "utf8")).toBe("approved");
     expect(await readFile(join(fixture.cwd, "research-events.jsonl"), "utf8")).toBe("parent-only");
@@ -147,7 +153,7 @@ describe("agent-core product tools", () => {
       const results = body.messages.filter((message) => message.role === "tool");
       if (!results.length) return { name: "read", args: { path: ".pi/skills/auto-research/references/literature-research.md" } };
       if (results.length === 1) {
-        expect(results[0]!.content).toContain("No execution_budget tool");
+        expect(results[0]!.content).toContain("No budget tool call");
         return { name: "write", args: { path: "report.md", content: report } };
       }
       return "Qualified literature report saved.";
@@ -199,12 +205,11 @@ describe("agent-core product tools", () => {
         return "Candidate repaired with actual Bash output.";
       }
       if (system.includes("You are an independent reviewer")) { expect(score).toBe(0); return "PASS. Stop: independent evaluation met the frozen target."; }
-      if (!results.length) return { name: "execution_budget", args: { research_id: "universal-study", max_seconds: 45, max_executions: 8 } };
-      if (results.length === 1) return { name: "bash", args: { command: "python3 -I research/universal-study/evaluator.py research/universal-study/baseline-input.json research/universal-study/baseline.json" } };
-      if (results.length === 2) { expect(results[1]!.content).toContain('"loss": 1764'); return { name: "subagent", args: { agent: "auto-research/experimenter", candidate_id: "one", task: "Generate a prediction, execute and repair from real errors." } }; }
-      if (results.length === 3) return { name: "bash", args: { command: "python3 -I research/universal-study/evaluator.py research/universal-study/candidates/one/work/output.json research/universal-study/result.json" } };
-      if (results.length === 4) {
-        score = JSON.parse(results[3]!.content.split("\n")[0]!).loss;
+      if (results.length === 0) return { name: "bash", args: { command: "python3 -I research/universal-study/evaluator.py research/universal-study/baseline-input.json research/universal-study/baseline.json" } };
+      if (results.length === 1) { expect(results[0]!.content).toContain('"loss": 1764'); return { name: "subagent", args: { agent: "auto-research/experimenter", candidate_id: "one", task: "Generate a prediction, execute and repair from real errors." } }; }
+      if (results.length === 2) return { name: "bash", args: { command: "python3 -I research/universal-study/evaluator.py research/universal-study/candidates/one/work/output.json research/universal-study/result.json" } };
+      if (results.length === 3) {
+        score = JSON.parse(results[2]!.content.split("\n")[0]!).loss;
         return { name: "subagent", args: { agent: "auto-research/reviewer", task: `Review Parent evaluator loss=${score}; baseline=1764, target=0. Recommend stopping or continuing.` } };
       }
       expect(results.at(-1)!.content).toContain("Stop"); return "Stopped after independent evaluation and review.";
@@ -215,7 +220,8 @@ describe("agent-core product tools", () => {
     await writeFile(join(fixture.cwd, "research/universal-study/baseline-input.json"), '{"prediction":0}');
     await writeFile(join(fixture.cwd, "research/universal-study/evaluator.py"), "import json,sys,hashlib,pathlib\nscore=lambda value:(value-42)**2\nassert score(42)==0 and score(0)==1764\nsource=pathlib.Path(sys.argv[1]).read_bytes()\nresult={'loss':score(json.loads(source)['prediction']),'validity':True,'evaluator_digest':hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest(),'data_digest':hashlib.sha256(source).hexdigest(),'environment':sys.version}\npathlib.Path(sys.argv[2]).write_text(json.dumps(result))\nprint(json.dumps(result))");
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
-    const parent = await openHiddenTask(manager, "candidate-bash-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "execution_budget", "subagent"] }, "candidate-bash-owner");
+    const parent = await openHiddenTask(manager, "candidate-bash-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "subagent"] }, "candidate-bash-owner");
+    await hostLimits(parent, fixture.cwd, "candidate-bash-once", { max_seconds: 45, max_executions: 8 }, "universal-study");
     expect(await runHiddenPrompt(parent, "Execute, evaluate and review", "candidate-bash-once", Date.now() + 45_000)).toBe("Stopped after independent evaluation and review.");
     expect(repairs).toBe(2); expect(score).toBe(0);
     const { executionRepository } = await import("../executions/execution-repository.js");
@@ -229,7 +235,7 @@ describe("agent-core product tools", () => {
     const version = JSON.parse(await readFile(join(fixture.cwd, "research/universal-study/result.json"), "utf8"));
     expect(version.evaluator_digest).toMatch(/^[a-f0-9]{64}$/);
     await manager.stop("candidate-bash-parent");
-    const reopened = await openHiddenTask(manager, "candidate-bash-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "execution_budget", "subagent"] }, "candidate-bash-owner");
+    const reopened = await openHiddenTask(manager, "candidate-bash-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "bash", "subagent"] }, "candidate-bash-owner");
     expect(await runHiddenPrompt(reopened, "Execute, evaluate and review", "candidate-bash-once", Date.now() + 10_000)).toBe("Stopped after independent evaluation and review.");
     expect(await executionRepository.list(fixture.cwd)).toHaveLength(records.length);
   }, 60_000);
@@ -286,8 +292,7 @@ describe("agent-core product tools", () => {
         if (completed === 1) return { name: "mcp__fresh-library__retrieve_paper", args: {} };
         return "Source URL https://example.org/paper; retrieved fixture evidence. responseId is temporary.";
       }
-      if (!completed) return { name: "execution_budget", args: { research_id: "retrieval-study", max_executions: 3, max_seconds: 30 } };
-      if (completed === 1) return { name: "subagent", args: { agent: "auto-research/researcher", task: "Search then fetch evidence; return original URL and excerpt." } };
+      if (completed === 0) return { name: "subagent", args: { agent: "auto-research/researcher", task: "Search then fetch evidence; return original URL and excerpt." } };
       return "Researcher evidence saved for synthesis.";
     });
     const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
@@ -313,8 +318,9 @@ describe("agent-core product tools", () => {
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
     const parent = await openHiddenTask(manager, "retrieval-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"),
       env: { PI_SCIENCE_BACKEND_URL: policyUrl },
-      model: fixture.model, thinking: "off", allowedTools: ["read", "subagent", "execution_budget", "mcp__fresh-library__search_papers", "mcp__fresh-library__retrieve_paper"] }, "retrieval-owner");
+      model: fixture.model, thinking: "off", allowedTools: ["read", "subagent", "mcp__fresh-library__search_papers", "mcp__fresh-library__retrieve_paper"] }, "retrieval-owner");
     const interactions: unknown[] = []; parent.on("event", (event) => { if (event.type === "interaction.requested") interactions.push(event); });
+    await hostLimits(parent, fixture.cwd, "retrieval-once", { max_seconds: 30, max_executions: 3 }, "retrieval-study");
     expect(await runHiddenPrompt(parent, "Retrieve evidence", "retrieval-once", Date.now() + 30000)).toContain("evidence saved");
     const history = await new AgentSessionRepository().messages(fixture.cwd, parent.sessionId);
     const delegated = history.find((item) => item.toolName === "subagent")!;
@@ -325,9 +331,8 @@ describe("agent-core product tools", () => {
     expect(interactions).toEqual([]);
     const { executionBudgetTools } = await import("./worker/execution-budget.js");
     const budget = executionBudgetTools(fixture.cwd);
-    const status = await budget.tool.execute("resume", { research_id: "retrieval-study" }, () => {}, { env: {} as NodeExecutionEnv },
-      { operationId: "resume-operation", invocationId: "resume", turnId: "resume", getMemo: async () => undefined, setMemo: async () => {} }, BACKGROUND_CONTEXT);
-    expect(status.details).toMatchObject({ used: 3, remaining_executions: 0 });
+    const status = await budget.ledger("resume-operation").configure({}, "retrieval-study");
+    expect(status).toMatchObject({ used: 3, remaining_executions: 0 });
   }, 40000);
 
   it("discovers the experimenter with read-only code generation and checks live role revocation before a child tool call", async () => {
@@ -398,17 +403,17 @@ describe("agent-core product tools", () => {
       if (system.includes("You are a research subagent")) return JSON.stringify({ sub_question: "Source coverage", findings: [{ claim: "Evidence is preliminary", source_refs: ["source-001"], confidence: "low" }], conflicts: [], gaps: ["independent replication"], next_steps: [] });
       if (system.includes("You are an independent reviewer")) return JSON.stringify({ status: "PARTIAL", checks: { evidence: "PARTIAL" }, blocking_issues: ["Independent replication missing"], recommendation: "revise" });
       const completed = body.messages.filter((item) => item.role === "tool").length;
-      if (completed === 0) return { name: "execution_budget", args: { max_seconds: 30, max_executions: 3 } };
-      if (completed === 1) return { name: "subagent", args: { tasks: [
+      if (completed === 0) return { name: "subagent", args: { tasks: [
         { agent: "auto-research/researcher", task: "Analyze coverage. Supplied source-001: one preliminary observational study; no independent replication. Protocol: verify coverage and source independence." },
         { agent: "auto-research/researcher", task: "Analyze counterevidence. Supplied source-001: one preliminary observational study; no independent replication. Protocol: identify gaps." },
       ] } };
-      if (completed === 2) return { name: "subagent", args: { agent: "auto-research/reviewer", task: "Review the literature protocol and supplied findings; source-001 has no independent replication. Success requires independent evidence." } };
+      if (completed === 1) return { name: "subagent", args: { agent: "auto-research/reviewer", task: "Review the literature protocol and supplied findings; source-001 has no independent replication. Success requires independent evidence." } };
       return "Partial literature report: source-001 is preliminary. Independent replication remains a blocker.";
     });
     const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
-    const parent = await openHiddenTask(manager, "literature-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "subagent", "execution_budget"] }, "literature-owner");
+    const parent = await openHiddenTask(manager, "literature-parent", { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off", allowedTools: ["read", "subagent"] }, "literature-owner");
+    await hostLimits(parent, fixture.cwd, "literature-once", { max_seconds: 30, max_executions: 3 });
     expect(await runHiddenPrompt(parent, "/skill:auto-research Investigate the supplied literature", "literature-once", Date.now() + 20000)).toContain("replication remains a blocker");
     const messages = await new AgentSessionRepository().messages(fixture.cwd, parent.sessionId);
     expect(messages.filter((item) => item.toolName === "subagent"), JSON.stringify(messages.filter((item) => item.toolName === "subagent").map((item) => item.details))).toMatchObject([
@@ -417,7 +422,7 @@ describe("agent-core product tools", () => {
     ]);
     const children = observed.filter((item) => item.system.includes("subagent") || item.system.includes("independent reviewer"));
     expect(children).toHaveLength(3);
-    for (const child of children) expect(child.tools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(expect.arrayContaining(["read", "subagent", "execution_budget"]));
+    for (const child of children) expect(child.tools.map((tool) => (tool as { function: { name: string } }).function.name)).toEqual(expect.arrayContaining(["read", "subagent"]));
   }, 30000);
 
   it("rejects skill-local delegation after the parent disables the skill without opening a child", async () => {
@@ -451,18 +456,18 @@ fs.writeFileSync('research/quant/result.json', JSON.stringify(result)); console.
         return last?.role === "tool" ? "Reused completed experiment 001; no repeated computation. Validity blocker remains." : { name: "read", args: { path: "research/quant/state.json" } };
       }
       const completed = body.messages.filter((item) => item.role === "tool").length;
-      if (completed === 0) return { name: "execution_budget", args: { max_seconds: 30, max_executions: 5 } };
-      if (completed === 1) return { name: "write", args: { path: "research/quant/evaluation.yaml", content: "version: 1\nobjective: Reduce RMSE\nmetric: rmse\ndirection: minimize\nconstraints: [no_data_leakage]\nbudget: {max_seconds: 30, max_execution_calls: 5, max_experiments: 1}\n" } };
-      if (completed === 2) return { name: "write", args: { path: "research/quant/evaluator.cjs", content: evaluator } };
-      if (completed === 3) return { name: "bash", args: { command: "node research/quant/evaluator.cjs", timeout: 10 } };
-      if (completed === 4) return { name: "write", args: { path: "research/quant/state.json", content: JSON.stringify({ protocol_version: 1, completed_experiments: ["001"], result_path: "research/quant/result.json", remaining_experiments: 0, blockers: ["test leakage"] }) } };
-      if (completed === 5) return { name: "subagent", args: { agent: "auto-research/reviewer", task: "Review evaluation.yaml, evaluator.cjs and result.json in research/quant. Candidate metric improved; final-test data was used for tuning. Independently assess no_data_leakage." } };
+      if (completed === 0) return { name: "write", args: { path: "research/quant/evaluation.yaml", content: "version: 1\nobjective: Reduce RMSE\nmetric: rmse\ndirection: minimize\nconstraints: [no_data_leakage]\nbudget: {max_seconds: 30, max_execution_calls: 5, max_experiments: 1}\n" } };
+      if (completed === 1) return { name: "write", args: { path: "research/quant/evaluator.cjs", content: evaluator } };
+      if (completed === 2) return { name: "bash", args: { command: "node research/quant/evaluator.cjs", timeout: 10 } };
+      if (completed === 3) return { name: "write", args: { path: "research/quant/state.json", content: JSON.stringify({ protocol_version: 1, completed_experiments: ["001"], result_path: "research/quant/result.json", remaining_experiments: 0, blockers: ["test leakage"] }) } };
+      if (completed === 4) return { name: "subagent", args: { agent: "auto-research/reviewer", task: "Review evaluation.yaml, evaluator.cjs and result.json in research/quant. Candidate metric improved; final-test data was used for tuning. Independently assess no_data_leakage." } };
       return "RMSE improved from 1 to 0, but Reviewer FAIL: final-test leakage blocks a success claim.";
     });
     const { seedWorkspaceAssets } = await import("./runtime-config.js"); seedWorkspaceAssets(fixture.cwd);
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
     const options = { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off" as const };
     const parent = await openHiddenTask(manager, "quant-parent", options, "quant-owner");
+    await hostLimits(parent, fixture.cwd, "quant-once", { max_seconds: 30, max_executions: 5 });
     const result = await runHiddenPrompt(parent, "/skill:auto-research Compare numerical predictions", "quant-once", Date.now() + 20000);
     expect(result).toContain("leakage blocks a success claim");
     const { executionRepository } = await import("../executions/execution-repository.js");
@@ -582,11 +587,10 @@ describe("durable subagent supervision", () => {
     const fixture = await modelFixture(async (body) => {
       if (body.messages[0]!.content.includes("bounded background runner")) return "Background result.";
       const tools = body.messages.filter((message) => message.role === "tool");
-      if (!tools.length) return { name: "execution_budget", args: { max_executions: 1, max_seconds: 30 } };
-      if (tools.length === 1) return { name: "subagent", args: { agent: "background", task: "Return a result.", tools: [], budget: { max_executions: 1 }, wait_seconds: 0 } };
-      if (tools.length === 2) {
-        expect(tools[1]!.content).toContain('"status":"running"');
-        const taskId = tools[1]!.content.match(/"task_id":"([a-f0-9]{64})"/)![1];
+      if (tools.length === 0) return { name: "subagent", args: { agent: "background", task: "Return a result.", tools: [], budget: { max_executions: 1 }, wait_seconds: 0 } };
+      if (tools.length === 1) {
+        expect(tools[0]!.content).toContain('"status":"running"');
+        const taskId = tools[0]!.content.match(/"task_id":"([a-f0-9]{64})"/)![1];
         return { name: "subagent_control", args: { action: "collect", task_id: taskId, wait_seconds: 20 } };
       }
       expect(tools.at(-1)!.content).toContain("Background result."); return "Collected background result.";
@@ -594,8 +598,9 @@ describe("durable subagent supervision", () => {
     await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
     await writeFile(join(fixture.cwd, ".pi/agents/background.md"), "---\nname: background\ntools: []\n---\nYou are a bounded background runner.");
     const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
-    const options = { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off" as const, allowedTools: ["execution_budget", "subagent", "subagent_control"] };
+    const options = { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"), model: fixture.model, thinking: "off" as const, allowedTools: ["subagent", "subagent_control"] };
     const parent = await openHiddenTask(manager, "background-parent", options, "owner");
+    await hostLimits(parent, fixture.cwd, "once", { max_seconds: 30, max_executions: 1 });
     expect(await runHiddenPrompt(parent, "Run and collect", "once", Date.now() + 30_000)).toBe("Collected background result.");
     const requests = fixture.requests(); await manager.stop("background-parent");
     const reopened = await openHiddenTask(manager, "background-parent", options, "owner");

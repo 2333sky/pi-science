@@ -6,7 +6,8 @@ import { assertExecutionGrantTool } from "../../sandbox/execution-grants.js";
 import { isWithin } from "../../sandbox/policy.js";
 import { workspaceSkillResources } from "../../sandbox/workspace-read-authorization.js";
 import { childToolAllowance } from "../agent-definitions.js";
-import { networkAccessTool } from "./network-access-tool.js";
+import { requestNetworkAccess } from "./network-approval.js";
+import { startNetworkApprovalChannel } from "../../sandbox/network-approval-channel.js";
 import { discoveryToolsVersion, migrateDiscoveryTools } from "./discovery-tool-migration.js";
 import { discoveryBackendAvailable } from "./workspace-discovery-contract.js";
 import { workspaceDiscoveryTools } from "./workspace-discovery-tools.js";
@@ -64,6 +65,7 @@ function applySkillPolicy(skills: Skill[], policy: RuntimeSkillPolicy): Skill[] 
 export class SessionRuntime {
   readonly sessionId: string;
   private memoryClient?: AgentMemoryClient;
+  private networkApproval?: Awaited<ReturnType<typeof startNetworkApprovalChannel>>;
   private approvalBarrier = false;
   private readonly lane: AgentLane;
   private readonly harness: Harness;
@@ -140,6 +142,7 @@ export class SessionRuntime {
     const repo = new JsonlSessionRepo({ fileSystem: executionEnv, sessionsRoot: requiredRoot });
     const interactions = new InteractionBridge(emit, acquireApproval);
     let mcp: AgentMcpTools | undefined;
+    let networkApproval: Awaited<ReturnType<typeof startNetworkApprovalChannel>> | undefined;
     let openedLane: AgentLane | undefined;
     let created: Session<JsonlSessionMetadata> | undefined;
     // Set when startup adopts the requested model because the durable one left the catalog. Every
@@ -187,6 +190,12 @@ export class SessionRuntime {
       if (created && discoveryEligible) await session.setValue(discoveryToolsVersion, 1, context);
       else await migrateDiscoveryTools(session, new Set(["ls", "glob", "grep"]), discoveryEligible);
       const sandboxIdentity: SandboxIdentity = { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId, delegatedAgent: options.delegatedAgent, executionScope: options.executionScope ?? (candidateScoped ? "confined" : "workspace") };
+      if (!candidateScoped && !options.delegatedAgent && (options.allowedTools === undefined || options.allowedTools.some(name => name === "bash" || name === "notebook_run" || name.startsWith("mcp__")))) {
+        networkApproval = await startNetworkApprovalChannel(options.cwd, session.metadata.id, async (params, signal) => {
+          const result = await requestNetworkAccess(interactions, params, signal);
+          return ["granted", "already_allowed"].includes(result.details.status);
+        });
+      }
       // Capability checks precede discovery: a tool-free worker must not spawn
       // connectors, open connections, or materialize their credentials.
       if (!candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name.startsWith("mcp__")))) {
@@ -217,7 +226,7 @@ export class SessionRuntime {
         model,
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
-        tools: [...(!candidateScoped && discoveryAvailable ? workspaceDiscoveryTools({ cwd: options.cwd, skillFiles: currentSkillFiles }) : []), ...(memoryClient?.tools() ?? []), ...(!candidateScoped && !options.delegatedAgent ? [networkAccessTool(interactions, options.cwd, session.metadata.id)] : []), budgets.tool, confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined, currentSkillFiles), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
+        tools: [...(!candidateScoped && discoveryAvailable ? workspaceDiscoveryTools({ cwd: options.cwd, skillFiles: currentSkillFiles }) : []), ...(memoryClient?.tools() ?? []), confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined, currentSkillFiles), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
           todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(!candidateScoped && !options.delegatedAgent ? [citationVerifyTool(options.cwd), readSourceEvidenceTool(options.cwd, session.metadata.id), citeEvidenceTool(options.cwd, session.metadata.id)] : []), ...nativeWebTools, ...(mcp?.tools ?? []).map(budgets.wrap)]
           .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
           .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
@@ -251,6 +260,7 @@ export class SessionRuntime {
       const watch = await lane.watch(context);
       const runtime = new SessionRuntime(session.metadata.id, lane, harness, repo, executionEnv, session.metadata, session, watch, interactions, mcp, skillPaths, discovered.skills, skillPolicy, fatal);
       runtime.budgetTools = budgets;
+      runtime.networkApproval = networkApproval;
       runtime.settings = options.settings ?? {};
       runtime.promptTemplates = templates.promptTemplates;
       runtime.subagents = subagents;
@@ -264,7 +274,6 @@ export class SessionRuntime {
       // revoked tools before recovery; add supervision for existing delegates.
       const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
       const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
-      if (available.has("request_network_access") && !activeTools.includes("request_network_access")) activeTools.push("request_network_access");
       for (const name of ["web_search", "web_fetch", "search_memory", "read_memory", "write_memory"]) if (available.has(name) && !activeTools.includes(name)) activeTools.push(name);
       if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
       if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
@@ -332,6 +341,7 @@ export class SessionRuntime {
         await openedLane.setThinkingLevel(adopted.thinking as AgentRuntimeStartOptions["thinking"] & string, context).catch(() => undefined);
       }
       interactions.close();
+      await networkApproval?.close().catch(() => undefined);
       await mcp?.close().catch(() => undefined);
       if (created) {
         await created.close(context);
@@ -638,6 +648,7 @@ export class SessionRuntime {
     if (this.closed) return;
     this.closed = true;
     this.interactions.close();
+    await this.networkApproval?.close();
     this.watch.unsubscribe();
     await this.mutationTail;
     await this.harness.close(context);

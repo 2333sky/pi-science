@@ -8,8 +8,10 @@ import { join } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { BACKGROUND_CONTEXT, type AgentHarnessToolInvocation, type NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import { confinedReadTool, type SandboxIdentity } from "./confined-read-tool.js";
+import { Type } from "@earendil-works/pi-ai";
 import { executionBudgetTools } from "./execution-budget.js";
 const roots: string[] = [];
+const definition = { name: "read", label: "Read", description: "Read fixture", parameters: Type.Object({ path: Type.String() }) };
 afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 const env = { env: {} as NodeExecutionEnv };
 function invocation(id: string): AgentHarnessToolInvocation { const memo = new Map(); return { operationId: "owner", invocationId: id, turnId: "turn", getMemo: async (key) => memo.get(key), setMemo: async (key, value) => { memo.set(key, value); } }; }
@@ -19,7 +21,7 @@ async function fixture() {
   const directory = join(cwd, "research/study-1/candidates/candidate-001");
   await mkdir(join(directory, "input"), { recursive: true }); await mkdir(join(directory, "work"));
   const budget = executionBudgetTools(cwd);
-  await budget.tool.execute("setup", { research_id: "study-1", max_seconds: 120, max_executions: 30 }, () => {}, env, invocation("setup"), BACKGROUND_CONTEXT);
+  await budget.ledger("owner").configure({ max_seconds: 120, max_executions: 30 }, "study-1");
   const home = await mkdtemp(join(tmpdir(), "grant-home-")); roots.push(home); vi.stubEnv("PI_SCIENCE_HOME", home);
   const identity: SandboxIdentity = { cwd, sessionId: "session", budgetOperationId: "owner", budgetNodeId: "session", delegatedAgent: "optimizer", executionScope: "candidate", candidateId: "candidate-001" };
   const { ExecutionBudgetLedger } = await import("../../executions/execution-budget.js");
@@ -37,17 +39,17 @@ it("rejects candidate symlinks, workspace aliases, input hard links and special 
   await expect(sandboxCandidate(identity, "owner", "candidate-001")).rejects.toThrow("links");
 });
 it("restricts the assigned child's read tool to regular candidate files", async () => {
-  const { identity, directory, budget } = await fixture();
-  const read = confinedReadTool({ ...budget.tool, name: "read", execute: async () => ({ content: [], details: { allowed: true } }) }, identity);
+  const { identity, directory } = await fixture();
+  const read = confinedReadTool({ ...definition, name: "read", execute: async () => ({ content: [], details: { allowed: true } }) }, identity);
   const call = (path: string) => read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT);
   await expect(call("research/study-1/evaluation.yaml")).rejects.toThrow("outside");
   await writeFile(join(directory, "input/data.txt"), "data"); expect((await call(join(directory, "input/data.txt"))).details).toEqual({ allowed: true });
 });
 it.skipIf(process.platform !== "linux")("keeps an authorized read pinned when an idle kernel swaps its path for an evaluator link", async () => {
-  const { identity, directory, budget, cwd } = await fixture();
+  const { identity, directory, cwd } = await fixture();
   const path = join(directory, "work/read.txt"); const secret = join(cwd, "research/study-1/secret.txt");
   await writeFile(path, "approved"); await writeFile(secret, "EVALUATOR SECRET");
-  const original = { ...budget.tool, name: "read", async execute(_id: string, _params: unknown, _update: unknown, ctx: { env: NodeExecutionEnv }) {
+  const original = { ...definition, name: "read", async execute(_id: string, _params: unknown, _update: unknown, ctx: { env: NodeExecutionEnv }) {
     await rm(path); await symlink(secret, path);
     const read = await ctx.env.readBinaryFile(path, BACKGROUND_CONTEXT);
     if (!read.ok) throw read.error;
@@ -57,8 +59,8 @@ it.skipIf(process.platform !== "linux")("keeps an authorized read pinned when an
   expect(result.content).toEqual([{ type: "text", text: "approved" }]);
 });
 it("refuses unbound Experimenter reads", async () => {
-  const { identity, budget } = await fixture();
-  const execute = vi.fn(); const original = { ...budget.tool, name: "read", execute };
+  const { identity } = await fixture();
+  const execute = vi.fn(); const original = { ...definition, name: "read", execute };
   const read = confinedReadTool(original, { ...identity, candidateId: undefined, executionGrantId: undefined });
   for (const path of ["research/study-1/evaluation.yaml", "research/study-1/evaluator/hidden.json", "research/study-1/candidates/candidate-002/work/data.txt"])
     await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("bound candidate_id");
@@ -67,7 +69,7 @@ it("refuses unbound Experimenter reads", async () => {
 });
 
 it("uses protection discovered after the initial authorization, inside the read lock", async () => {
-  const { identity, directory, budget } = await fixture();
+  const { identity, directory } = await fixture();
   const path = join(directory, "work/credentials.json");
   const authorize = grants.executionGrantPolicy; let checks = 0;
   vi.spyOn(grants, "executionGrantPolicy").mockImplementation(async (...args) => {
@@ -77,7 +79,7 @@ it("uses protection discovered after the initial authorization, inside the read 
     return policy;
   });
   const execute = vi.fn(async () => ({ content: [], details: {} }));
-  const read = confinedReadTool({ ...budget.tool, name: "read", execute }, identity);
+  const read = confinedReadTool({ ...definition, name: "read", execute }, identity);
   await expect(read.execute("read", { path }, () => {}, env, invocation("read"), BACKGROUND_CONTEXT)).rejects.toThrow("outside");
   expect(checks).toBe(2); expect(execute).not.toHaveBeenCalled();
 });
