@@ -1,3 +1,8 @@
+import { identifierUrl, scanIdentifiers } from "@pi-science/contracts";
+
+export type { CitationIdentifierKind, CitationIdentifierMatch } from "@pi-science/contracts";
+export { identifierFromUrl, identifierUrl, maskNonProse, arxivIdOf, arxivVersionOf } from "@pi-science/contracts";
+
 export interface Citation {
   kind: "doi" | "arxiv";
   /** Version-less source identity: the dedupe and evidence-lookup key. */
@@ -7,35 +12,27 @@ export interface Citation {
   url: string;
 }
 
-// DOI suffixes are ASCII per the DOI spec, but the prose around them is not.
-// The match must terminate at CJK ideographs/kana/hangul and CJK, fullwidth or
-// general punctuation, or a Chinese sentence glues its words onto the id. Keep
-// in sync with apps/server/src/runtime/citations/citation-verify-service.ts.
-const DOI_PATTERN = /10\.\d{4,9}\/[^\s)\]}>\u2010-\u2027\u2030-\u205e\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]+/gi;
-const ARXIV_PATTERN = /arXiv:\s?(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
-const TRAILING_PUNCTUATION = /[.,;:!?*"'\u2010-\u2027\u2030-\u205e\u3000-\u303f\uff00-\uffef]+$/;
-const ARXIV_VERSION = /v\d+$/i;
+/** One identifier where the document wrote it, so a caller can insert a marker
+ *  at that exact offset. Offsets index the text as given, not the masked copy. */
+export interface CitationOccurrence extends Citation {
+  start: number;
+  end: number;
+  /** arXiv version as cited, `null` for a DOI or an unversioned arXiv id. */
+  requested_version: string | null;
+}
 
-/** Extract DOI and arXiv identifiers from agent text, deduped by source
- *  identity in first-seen order. The same arXiv paper cited as v1 and v2 is
- *  one source, so it stays one chip while `requested_id` keeps the version
- *  the reader should land on. */
+export function scanCitations(text: string): CitationOccurrence[] {
+  return scanIdentifiers(text).map((match) => ({ kind: match.kind, id: match.id, requested_id: match.requested_id, url: identifierUrl(match.kind, match.requested_id), start: match.start, end: match.end, requested_version: match.requested_version }));
+}
+
+/** Every source a text cites, in first-citation order. An arXiv paper cited as
+ *  v1 in one place and v2 in another is two entries: a reader tracing the v2
+ *  claim must not land on the v1 text. */
 export function extractCitations(text: string): Citation[] {
-  const found: Array<Citation & { index: number }> = [];
-  for (const match of text.matchAll(DOI_PATTERN)) {
-    const id = match[0].replace(TRAILING_PUNCTUATION, "").toLowerCase();
-    if (id.endsWith("/")) continue;
-    found.push({ kind: "doi", id, requested_id: id, url: `https://doi.org/${id}`, index: match.index ?? 0 });
-  }
-  for (const match of text.matchAll(ARXIV_PATTERN)) {
-    const requestedId = match[1]!;
-    found.push({ kind: "arxiv", id: requestedId.replace(ARXIV_VERSION, ""), requested_id: requestedId, url: `https://arxiv.org/abs/${requestedId}`, index: match.index ?? 0 });
-  }
-  found.sort((a, b) => a.index - b.index);
   const seen = new Set<string>();
   const citations: Citation[] = [];
-  for (const { kind, id, requested_id, url } of found) {
-    const key = `${kind}:${id}`;
+  for (const { kind, id, requested_id, url } of scanCitations(text)) {
+    const key = `${kind}:${requested_id}`;
     if (seen.has(key)) continue;
     seen.add(key);
     citations.push({ kind, id, requested_id, url });

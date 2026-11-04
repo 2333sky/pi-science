@@ -9,8 +9,11 @@ export type SettingsData = {
   model?: string;
   thinking?: string;
   compaction_enabled?: boolean;
-  /** Opt-in automatic citation verification on every settled turn. */
+  /** Automatic citation verification on every settled turn. On when unset;
+   *  an explicit false is a stored user choice that stays off. */
   citation_auto_verify?: boolean;
+  /** How an inline citation reads in the answer body. `number` when unset. */
+  citation_inline_style?: "number" | "identifier";
   compaction_threshold_percent?: number;
   model_context_window?: number;
   model_context_window_override?: { model: string; context_window: number };
