@@ -376,22 +376,27 @@ it("continues local MCP initialization and a tool call after network approvals e
     'const server = new McpServer({name:"network-wait",version:"1"});',
     'let calls=0; server.registerTool("lookup", {}, async () => { await probe(++calls===1?"call.example.org":"cancel.example.org"); return {content:[{type:"text",text:"approved source"}]}; });',
     'await server.connect(new StdioServerTransport());',
+    // Force the SDK's timed shutdown escalation on every platform, including
+    // POSIX hosts where closing stdin would otherwise let the fixture exit.
+    'setInterval(() => {}, 1000);',
   ].join("\n"));
   await writeJsonAtomic(join(cwd, ".pi-science/mcp-runtime.json"), { version: 1, project_id: "project_test", mcpServers: {
-    science: { command: process.execPath, args: [server], approveTools: false, requestTimeoutMs: 1000, __piScienceConnectorId: "connector_science" },
+    science: { command: process.execPath, args: [server], approveTools: false, __piScienceConnectorId: "connector_science" },
   } });
   let mcp: AgentMcpTools | undefined;
-  vi.useFakeTimers();
+  // Only advance the clock read by McpExecutionClock. The real stdio child,
+  // sockets and SDK shutdown escalation must retain their native timers.
+  vi.useFakeTimers({ toFake: ["Date"] });
   try {
-    const opening = AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" }, 1000, undefined, false, undefined, "parent", clock);
-    const initial = await requested;
-    await vi.advanceTimersByTimeAsync(90_000);
+    const opening = AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" }, undefined, undefined, false, undefined, "parent", clock);
+    const initial = await Promise.race([requested, opening.then(() => { throw new Error("MCP discovery completed without requesting network approval"); })]);
+    vi.setSystemTime(Date.now() + 90_000);
     bridge.notify("extension_ui_response", { id: initial.id, value: "allow" });
     mcp = await opening; expect(mcp.diagnostics).toEqual([]);
     requested = new Promise(resolve => { next = resolve; });
     const result = mcp.tools[0]!.execute("lookup", {}, () => {}, {} as never, {} as never, {} as never);
     const call = await requested;
-    await vi.advanceTimersByTimeAsync(90_000);
+    vi.setSystemTime(Date.now() + 90_000);
     bridge.notify("extension_ui_response", { id: call.id, value: "allow" });
     expect(await result).toMatchObject({ content: [{ text: "approved source" }] });
     requested = new Promise(resolve => { next = resolve; });
@@ -405,8 +410,9 @@ it("continues local MCP initialization and a tool call after network approvals e
     const { readNetworkGrants } = await import("../../sandbox/network-grants.js");
     expect((await readNetworkGrants()).rules.some(rule => rule.domain === "cancel.example.org")).toBe(false);
   } finally {
+    vi.useRealTimers();
     await mcp?.close(); bridge.close(); await channel.close();
-    await Promise.all(proxies.map(proxy => proxy.close())); spy.mockRestore(); vi.useRealTimers();
+    await Promise.all(proxies.map(proxy => proxy.close())); spy.mockRestore();
     await rm(cwd, { recursive: true, force: true });
   }
 }, 15_000);
