@@ -323,26 +323,27 @@ describe("SSE subscription abandonment", () => {
       readAfter: () => replayGate,
     });
     registerSseRoutes(app, sessionServiceFor(workspace) as never, hub as never);
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    const { port } = app.server.address() as AddressInfo;
     // A cursor makes subscribe() await the replayed page; live records that
     // arrive inside that window pile up on the still-unready subscriber.
-    const pendingResponse = app.inject({
-      method: "GET",
-      url: `/api/sessions/sse-session/events?cwd=${encodeURIComponent(workspace)}&lastEventId=test-epoch:0`,
-    });
+    // Drive this over a real socket: `app.inject` never resolved here on the
+    // Windows runner, where the response is a long-lived stream rather than a
+    // buffered body.
+    const pendingBody = readSlowly(
+      `http://127.0.0.1:${port}/api/sessions/sse-session/events?cwd=${encodeURIComponent(workspace)}&lastEventId=test-epoch:0`,
+    );
     while (!hub.hasSubscribers(workspace, "sse-session")) await new Promise((resolve) => setTimeout(resolve, 5));
     for (let sequence = 1; sequence <= 2_001; sequence += 1) {
       await hub.publish(workspace, "sse-session", { type: "status.updated", seq: sequence });
     }
     releaseReplay();
-    const response = await pendingResponse;
-    expect(response.body).toContain(": connected");
-    expect(response.body).toContain("event: stream.gap");
-    expect(response.body).toContain('"reason":"replay_overflow"');
+    const body = await pendingBody;
+    expect(body).toContain(": connected");
+    expect(body).toContain("event: stream.gap");
+    expect(body).toContain('"reason":"replay_overflow"');
     await app.close();
     rmSync(workspace, { recursive: true, force: true });
-    // 2001 sequential publishes exceed the 2000-record subscriber cap; on a cold
-    // Windows runner that loop alone was measured past the 5s default, so give
-    // the case room to reach the same assertion instead of turning a slow I/O
-    // path into a false failure.
+    // 2001 sequential publishes exceed the 2000-record subscriber cap.
   }, 20_000);
 });
