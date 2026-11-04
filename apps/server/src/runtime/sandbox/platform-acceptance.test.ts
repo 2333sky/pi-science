@@ -26,12 +26,14 @@ import { writeSandboxFile } from "./file-write.js";
 import { AgentMcpTools } from "../agent/worker/mcp-tools.js";
 import { InteractionBridge } from "../agent/worker/interaction-bridge.js";
 import { builtinMcpConnectors } from "../../mcp/builtin-connectors.js";
+import { httpsUpstream } from "./test-fixtures/https-upstream.js";
 
 const roots: string[] = [];
 /** The Homebrew prefix this server runs from, when node came from a keg. */
 const homebrewPrefix = /^(.*)\/Cellar\//.exec(process.execPath)?.[1];
 const managers: NodeKernelManager[] = [];
-afterEach(async () => { await Promise.all(managers.splice(0).map((manager) => manager.shutdownAll())); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+const upstreams: Array<Awaited<ReturnType<typeof httpsUpstream>>> = [];
+afterEach(async () => { await Promise.all(managers.splice(0).map((manager) => manager.shutdownAll())); await Promise.all(upstreams.splice(0).map(upstream => upstream.close())); vi.unstubAllEnvs(); await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function fixture() { const root = await mkdtemp(join(await realpath("/tmp"), "ps-accept-")); roots.push(root); return root; }
 async function execute(cwd: string, argv: string[], dependencies: string[] = [], timeoutSeconds = 10, profile: SandboxProfile = "analysis") {
   const prepared = await prepareSandbox(await workspacePolicy(cwd, undefined, profile), argv, dependencies, timeoutSeconds);
@@ -133,11 +135,18 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
   }, 15_000);
   it("permits allowlisted HTTPS and refuses an unlisted destination", async () => {
     const cwd = await fixture(), control = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const upstream = await httpsUpstream(control, cwd); upstreams.push(upstream);
     const config = join(control, "profiles.json");
-    await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { analysis: { allowedDomains: ["example.com"] } } }), { mode: 0o600 });
+    await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { analysis: { allowedDomains: [upstream.endpoint] } } }), { mode: 0o600 });
     vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", config);
-    const result = await execute(cwd, ["/bin/bash", "-c", "set -e; curl -sS --fail --max-time 15 https://example.com -o allowed.html; if curl -sS --fail --max-time 2 https://example.org >/dev/null 2>&1; then exit 77; fi; echo filtered"], [], 25);
-    expect(result, result.stderr).toMatchObject({ code: 0, stdout: "filtered\n" }); expect(await readFile(join(cwd, "allowed.html"), "utf8")).toContain("Example Domain");
+    const untrusted = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "5", upstream.url]);
+    expect(untrusted.code, untrusted.stderr).toBe(60);
+    const result = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "5", "--cacert", upstream.ca, upstream.url]);
+    expect(result, result.stderr).toMatchObject({ code: 0, stdout: "sandbox-fixture-ok\n" });
+    // The other endpoint is listening with the same valid certificate. A failed
+    // connection is insufficient: prove the policy rejected CONNECT with 403.
+    const denied = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "5", "--cacert", upstream.ca, upstream.deniedUrl]);
+    expect(denied.code).not.toBe(0); expect(denied.stderr).toContain("403");
   }, 40_000);
   it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("runs persistent Python cells and isolates the installed environment", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
@@ -186,30 +195,32 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
   }, 30_000);
   it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("grants and revokes network access in a running Python kernel without losing state", async () => {
     const cwd = await fixture(), home = await fixture();
+    const upstream = await httpsUpstream(home, cwd); upstreams.push(upstream);
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required"); vi.stubEnv("PI_SCIENCE_HOME", home); vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", "");
     const prefix = process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT!;
     const manager = new NodeKernelManager(); managers.push(manager);
     const options = { cwd, language: "python" as const, environment: { ready: true, workspace: cwd, prefix, python: join(prefix, "bin/python3"), pip: join(prefix, "bin/pip"), npm: { local_prefix: cwd, global_prefix: cwd, cache: cwd } }, timeoutMs: 20_000 };
-    // A verified TLS handshake proves the HTTPS tunnel works without depending
-    // on the public site's HTTP status (example.com can temporarily return 503).
+    // A controlled upstream keeps certificate and availability changes outside
+    // this test while still requiring a real, hostname-verified TLS handshake.
     const probe = [
-      "import contextlib, http.client, urllib.request, urllib.parse",
+      "import contextlib, http.client, ssl, urllib.request, urllib.parse",
       "def probe_https():",
       " proxy=urllib.parse.urlsplit(urllib.request.getproxies()['https'])",
-      " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15)) as connection:",
-      "  connection.set_tunnel('example.com',443)",
+      ` context=ssl.create_default_context(cafile=${JSON.stringify(upstream.ca)})`,
+      " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15,context=context)) as connection:",
+      `  connection.set_tunnel(${JSON.stringify(upstream.host)},${upstream.port})`,
       "  connection.connect()",
     ].join("\n");
-    const blocked = "try:\n probe_https()\nexcept Exception:\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
+    const blocked = "try:\n probe_https()\nexcept OSError as error:\n assert '403' in str(error), str(error)\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
     expect(await manager.execute({ ...options, code: "state=42\nimport os\noriginal_pid=os.getpid()\n" + probe + "\n" + blocked })).toMatchObject({ ok: true, stdout: "blocked\n" });
-    await changeNetworkGrant({ profile: "analysis", domain: "example.com", decision: "allow" }, "settings");
+    await changeNetworkGrant({ profile: "analysis", domain: upstream.endpoint, decision: "allow" }, "settings");
     const granted = await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\nprobe_https()\nprint('connected')" });
     expect(granted, JSON.stringify(granted)).toMatchObject({ ok: true, stdout: "connected\n" });
     for (const profile of ["mcp", "control"] as const) {
-      const confined = await execute(cwd, ["/bin/bash", "-c", "if curl -sS --fail --max-time 2 https://example.com >/dev/null 2>&1; then exit 77; fi; echo role-isolated"], [], 5, profile);
-      expect(confined, confined.stderr).toMatchObject({ code: 0, stdout: "role-isolated\n" });
+      const confined = await execute(cwd, ["curl", "-sS", "--fail", "--max-time", "2", "--cacert", upstream.ca, upstream.url], [], 5, profile);
+      expect(confined.code).not.toBe(0); expect(confined.stderr).toContain("403");
     }
-    await revokeNetworkGrant("analysis", "example.com");
+    await revokeNetworkGrant("analysis", upstream.endpoint);
     expect(await manager.execute({ ...options, code: "assert state==42 and os.getpid()==original_pid\n" + blocked })).toMatchObject({ ok: true, stdout: "blocked\n" });
     expect(await manager.execute({ ...options, code: `try:\n open(${JSON.stringify(networkGrantsPath())}).read()\nexcept OSError:\n print('permissions-protected')\nelse:\n raise AssertionError('permission state exposed')` })).toMatchObject({ ok: true, stdout: "permissions-protected\n" });
   }, 60_000);
