@@ -1,5 +1,6 @@
 import { conversationEventTypes } from "./conversation-events.js";
 export { conversationEventTypes } from "./conversation-events.js";
+export * from "./citation-identifier.js";
 import { z } from "zod";
 
 export const piConfigSchema = z.object({
@@ -809,3 +810,5 @@ export * from "./model-selection.js";
 export * from "./mcp.js";
 export { resolveAgentCompaction } from "./agent-context.js";
 export * from "./model-config.js";
+
+export * from "./memory.js";
