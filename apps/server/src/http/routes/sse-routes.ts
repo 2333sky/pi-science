@@ -190,8 +190,26 @@ export function registerSseRoutes(app: FastifyInstance, nodeSessionService: Node
         (reason) => closeWithGap(reason === "replay_backlog_overflow" ? "replay_overflow" : "subscriber_overflow"),
       );
     } catch (error) {
+      // The response was already sent above, so rethrowing cannot become a 500:
+      // Fastify only logs FST_ERR_REP_ALREADY_SENT and the client is handed a
+      // 200 that closes immediately, which EventSource answers with a reconnect
+      // every few seconds instead of surfacing a failure. Report the subscription
+      // error on the wire, in the same terminal shape as the not-found branch.
+      if (!closed) {
+        stream.push(serializeSseEvent({
+          event: "error",
+          id: null,
+          data: JSON.stringify({
+            type: "error",
+            sessionId,
+            message: error instanceof Error ? error.message : String(error),
+            code: "subscribe_failed",
+            terminal: true,
+          }),
+          created_at: new Date().toISOString(),
+        }));
+      }
       cleanup();
-      throw error;
     } finally {
       replaying = false;
     }
