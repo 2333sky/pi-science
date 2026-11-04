@@ -66,10 +66,10 @@ describe("SSE session existence fallback", () => {
     // route did NOT reply with the terminal "session not found" error.
     expect(subscribed).toBe(true);
     expect(response.body).not.toContain("session not found in this workspace");
-    // The response is sent before subscribe() runs, so a failure cannot become a
-    // 500. It must reach the client as a terminal error event: a rethrow only
-    // logs FST_ERR_REP_ALREADY_SENT and hands EventSource an empty 200 that it
-    // retries every few seconds, which is the regression this case pins down.
+    // A rethrow would reach the client as a 500 from the error handler on a
+    // response it is already reading as an event stream, which EventSource
+    // treats as a transport error and retries. The route answers with a terminal
+    // error frame instead, and this case pins that choice down.
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("event: error");
     expect(response.body).toContain('"code":"subscribe_failed"');
@@ -93,14 +93,14 @@ describe("SSE session existence fallback", () => {
     rmSync(workspace, { recursive: true, force: true });
   });
 
-  it("reports a rejected subscription as a terminal error, not an empty 200", async () => {
+  it("reports a rejected subscription as a terminal error frame, not a 500", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "pi-science-sse-subscribe-failed-"));
     mkdirSync(join(workspace, ".pi-science"), { recursive: true });
     const app = Fastify();
     // A replay store that cannot answer makes the real hub's subscribe() reject
-    // after the route already sent the response headers. The failure has to
-    // travel on the wire: rethrowing only turns into an empty 200 that closes,
-    // and EventSource answers that by reconnecting every few seconds.
+    // after the route already sent the response headers. Rethrowing would reach
+    // the client as a 500 on a stream it is already reading, so the failure
+    // travels as a terminal error frame instead.
     const hub = new ConversationEventHub({
       append: async () => undefined,
       readAfter: async () => { throw new Error("event store unavailable"); },
