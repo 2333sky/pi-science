@@ -332,3 +332,81 @@ describe("agent-core managed MCP tools", () => {
     } finally { await rm(cwd, { recursive: true, force: true }); }
   });
 });
+
+it("continues local MCP initialization and a tool call after network approvals exceed their active timeouts", async () => {
+  const { startNetworkApprovalChannel, networkApprovalEndpoint } = await import("../../sandbox/network-approval-channel.js");
+  const { requestNetworkApproval } = await import("../../sandbox/network-approval-client.js");
+  const { requestNetworkAccess } = await import("./network-approval.js");
+  const { startSandboxNetwork } = await import("../../sandbox/network.js");
+  const { networkGrantSource } = await import("../../sandbox/network-grant-state.js");
+  const { networkGrantsPath } = await import("../../sandbox/network-grants.js");
+  const { McpExecutionClock } = await import("./mcp-execution-clock.js");
+  const transportModule = await import("../../../mcp/sandbox-transport.js");
+  const original = transportModule.localMcpTransport;
+  const clock = new McpExecutionClock();
+  const cwd = await mkdtemp(join(tmpdir(), "mcp-network-wait-"));
+  vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "service"));
+  await mkdir(join(cwd, ".pi-science"));
+  let cancelledCard!: () => void;
+  let next!: (event: Record<string, unknown>) => void;
+  let requested = new Promise<Record<string, unknown>>(resolve => { next = resolve; });
+  const bridge = new InteractionBridge(event => { if (event.type === "interaction.requested") next(event); if (event.type === "interaction.resolved") cancelledCard?.(); });
+  const channel = await startNetworkApprovalChannel(cwd, "parent", async ({ domain, profile, contextId }, signal) => {
+    const finish = clock.beginApproval(contextId!);
+    try { return ["granted", "already_allowed"].includes((await requestNetworkAccess(bridge, { domain, profile }, clock.approvalSignal(contextId!, signal))).details.status); }
+    finally { finish(); }
+  });
+  const endpoint = (await networkApprovalEndpoint(cwd, "parent"))!;
+  const proxies: Array<Awaited<ReturnType<typeof startSandboxNetwork>>> = [];
+  const spy = vi.spyOn(transportModule, "localMcpTransport").mockImplementation(async (...args) => {
+    expect(args[6]).toBe("parent"); expect(args[7]).toEqual(expect.any(String));
+    const proxy = await startSandboxNetwork({ mode: "none" }, networkGrantSource({ mode: "none" }, networkGrantsPath(), "mcp"),
+      (host, _port, _transport, signal) => requestNetworkApproval(endpoint, host, "mcp", signal, args[7]));
+    proxies.push(proxy);
+    args[4] = { ...args[4], FIXTURE_PROXY_PORT: String(proxy.httpPort) };
+    return original(...args);
+  });
+  const server = join(cwd, "server.mjs");
+  await writeFile(server, [
+    `import { McpServer } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};`,
+    `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
+    'import { request } from "node:http";',
+    'const probe = host => new Promise((resolve,reject) => { const req=request({host:"127.0.0.1",port:Number(process.env.FIXTURE_PROXY_PORT),method:"CONNECT",path:host+":443"}); req.on("error",reject); req.on("connect",(res,socket)=>{socket.destroy();res.statusCode===200?resolve():reject(new Error("network denied"));});req.end(); });',
+    'await probe("initialize.example.org");',
+    'const server = new McpServer({name:"network-wait",version:"1"});',
+    'let calls=0; server.registerTool("lookup", {}, async () => { await probe(++calls===1?"call.example.org":"cancel.example.org"); return {content:[{type:"text",text:"approved source"}]}; });',
+    'await server.connect(new StdioServerTransport());',
+  ].join("\n"));
+  await writeJsonAtomic(join(cwd, ".pi-science/mcp-runtime.json"), { version: 1, project_id: "project_test", mcpServers: {
+    science: { command: process.execPath, args: [server], approveTools: false, requestTimeoutMs: 1000, __piScienceConnectorId: "connector_science" },
+  } });
+  let mcp: AgentMcpTools | undefined;
+  vi.useFakeTimers();
+  try {
+    const opening = AgentMcpTools.open(cwd, bridge, { PATH: process.env.PATH ?? "" }, 1000, undefined, false, undefined, "parent", clock);
+    const initial = await requested;
+    await vi.advanceTimersByTimeAsync(90_000);
+    bridge.notify("extension_ui_response", { id: initial.id, value: "allow" });
+    mcp = await opening; expect(mcp.diagnostics).toEqual([]);
+    requested = new Promise(resolve => { next = resolve; });
+    const result = mcp.tools[0]!.execute("lookup", {}, () => {}, {} as never, {} as never, {} as never);
+    const call = await requested;
+    await vi.advanceTimersByTimeAsync(90_000);
+    bridge.notify("extension_ui_response", { id: call.id, value: "allow" });
+    expect(await result).toMatchObject({ content: [{ text: "approved source" }] });
+    requested = new Promise(resolve => { next = resolve; });
+    const controller = new AbortController();
+    const resolvedCard = new Promise<void>(resolve => { cancelledCard = resolve; });
+    const cancelled = mcp.tools[0]!.execute("cancel", {}, () => {}, {} as never, {} as never, { abortSignal: controller.signal } as never);
+    const rejected = expect(cancelled).rejects.toThrow("cancelled");
+    await requested;
+    controller.abort(new Error("cancelled")); await rejected; await resolvedCard;
+    expect(bridge.hasPending).toBe(false);
+    const { readNetworkGrants } = await import("../../sandbox/network-grants.js");
+    expect((await readNetworkGrants()).rules.some(rule => rule.domain === "cancel.example.org")).toBe(false);
+  } finally {
+    await mcp?.close(); bridge.close(); await channel.close();
+    await Promise.all(proxies.map(proxy => proxy.close())); spy.mockRestore(); vi.useRealTimers();
+    await rm(cwd, { recursive: true, force: true });
+  }
+}, 15_000);

@@ -52,7 +52,7 @@ export function sandboxBashTool(identity: SandboxIdentity, hostEnvironment: Reco
           request: { ...(policy.executionGrant ? { execution_grant_id: policy.executionGrant.id } : {}), command: ["/bin/bash", "-c", values.command], timeout_seconds: Math.min(timeout, 600) }, runtime: { sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host", sandbox_policy_id: policy.id, execution_mode: policy.mode, ...(revision ? { environment_revision_id: revision } : {}) } });
         started = true;
         const dependencies = [...new Set([...(hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX ? [hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX] : []), ...bashDependencies()])];
-        prepared = policy.mode === "required" ? await prepareSandbox(policy, ["/bin/bash", "--noprofile", "--norc"], dependencies, Math.min(timeout, 600)) : undefined;
+        prepared = policy.mode === "required" ? await prepareSandbox(policy, ["/bin/bash", "--noprofile", "--norc"], dependencies, Math.min(timeout, 600), undefined, undefined, {}, { cwd: identity.cwd, sessionId: identity.sessionId }) : undefined;
         env = new NodeExecutionEnv({ cwd: policy.cwd, ...(prepared ? { shellPath: prepared.shell } : {}) });
         // Upstream throws on nonzero exits and omits the code from the thrown
         // error. Observe its structured OS result without parsing output text.

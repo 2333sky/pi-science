@@ -4,7 +4,7 @@ import type { NetworkGrantProfile } from "./network-grant-state.js";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, readdirSync, writeFileSync } from "node:fs";
 const [manifestPath, ...shellArgs] = process.argv.slice(2);
-const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { networkPolicy?: import("./policy.js").SandboxPolicy["network"]; cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; executionGrant?: { sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } }; networkApproval?: { port: number; token: string }; networkGrants?: { path: string; profile: NetworkGrantProfile } };
+const manifest = JSON.parse(readFileSync(manifestPath!, "utf8")) as { networkPolicy?: import("./policy.js").SandboxPolicy["network"]; cli: string; settings: string; argv: string[]; env: Record<string, string>; timeoutSeconds: number; kernelBridge?: string; supervisor?: string; lifecycleTag?: string; deniedLifecycleTag?: string; executionGrant?: { sources: Array<{ path: string; sha256: string }>; deadline: number; budget: { path: string; nodeId: string; ownerHash: string } }; networkApproval?: { port: number; token: string; contextId?: string }; networkGrants?: { path: string; profile: NetworkGrantProfile } };
 if (process.platform === "darwin" && !manifest.supervisor) throw new Error("macOS sandbox requires the native descendant supervisor");
 const owner = process.ppid;
 const kill = () => { try { process.kill(-process.pid, "SIGKILL"); } catch { process.exit(1); } };
@@ -34,7 +34,7 @@ const { requestNetworkApproval } = await import(new URL(import.meta.url.endsWith
 const approveNetwork = manifest.networkApproval && manifest.networkGrants ? (host: string, port: number, transport: "http" | "https", signal: AbortSignal) => {
   const ip = /^\d+\.\d+\.\d+\.\d+$/.test(host);
   if ((transport === "http" || port !== 443) && !ip) return Promise.resolve(false);
-  return requestNetworkApproval(manifest.networkApproval!, ip ? `${host}:${port}` : host, manifest.networkGrants!.profile, signal);
+  return requestNetworkApproval(manifest.networkApproval!, ip ? `${host}:${port}` : host, manifest.networkGrants!.profile, signal, manifest.networkApproval!.contextId);
 } : undefined;
 const network = await startSandboxNetwork(baseNetwork, manifest.networkGrants ? networkGrantSource(baseNetwork, manifest.networkGrants.path, manifest.networkGrants.profile) : undefined, approveNetwork);
 configured.network.httpProxyPort = network.httpPort;

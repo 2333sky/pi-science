@@ -1,3 +1,6 @@
+import { McpExecutionClock } from "./mcp-execution-clock.js";
+import { networkApprovalEndpoint } from "../../sandbox/network-approval-channel.js";
+import { requestNetworkApproval } from "../../sandbox/network-approval-client.js";
 import { AgentMemoryClient } from "./memory-tools.js";
 import { initialSessionApprovalSchema } from "@pi-science/contracts";
 import { readSessionApproval, saveSessionApproval, sessionApprovalPath } from "../../sandbox/session-approval.js";
@@ -19,7 +22,7 @@ import { randomUUID } from "node:crypto";
 import { decodeCommand, decodeNotification } from "./command-contract.js";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { listWorkspaceSessions, retrySessionDirectory } from "../workspace-session-identity.js";
-import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, formatSkillsForSystemPrompt, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill } from "@earendil-works/pi-agent-core/node";
+import { AgentHarness, BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, createEditTool, createReadTool, createWriteTool, laneConfig, laneState, loadSkills, formatSkillsForSystemPrompt, type AgentHarness as Harness, type AgentLane, type JsonlSessionMetadata, type Session, type WatchHandle, type LaneSnapshot, type Skill, type AgentHarnessTool } from "@earendil-works/pi-agent-core/node";
 import { agentModelCatalog, agentModels } from "./agent-models.js";
 import { clampThinkingLevel, getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { appliedRuntimeSettings, contextUsage, resolveCompaction, type AppliedRuntimeSettings, type RuntimeSettings } from "../agent-runtime-settings.js";
@@ -65,8 +68,12 @@ function applySkillPolicy(skills: Skill[], policy: RuntimeSkillPolicy): Skill[] 
 export class SessionRuntime {
   readonly sessionId: string;
   private memoryClient?: AgentMemoryClient;
+  private initializeMcp?: (signal: AbortSignal) => Promise<void>;
+  private mcpStartup?: Promise<void>;
+  private mcpController?: AbortController;
   private networkApproval?: Awaited<ReturnType<typeof startNetworkApprovalChannel>>;
   private approvalBarrier = false;
+  private aborting = false;
   private readonly lane: AgentLane;
   private readonly harness: Harness;
   private readonly repo: JsonlSessionRepo;
@@ -76,7 +83,7 @@ export class SessionRuntime {
   private readonly fatal: (error: unknown) => void;
   private readonly watch: WatchHandle<LaneSnapshot>;
   private readonly interactions: InteractionBridge;
-  private readonly mcp: AgentMcpTools | undefined;
+  private mcp: AgentMcpTools | undefined;
   private readonly skillPaths: string[];
   private allSkills: Skill[];
   private promptTemplates: PromptTemplate[] = [];
@@ -141,7 +148,6 @@ export class SessionRuntime {
     const executionEnv = new NodeExecutionEnv({ cwd: options.cwd, shellEnv: environment });
     const repo = new JsonlSessionRepo({ fileSystem: executionEnv, sessionsRoot: requiredRoot });
     const interactions = new InteractionBridge(emit, acquireApproval);
-    let mcp: AgentMcpTools | undefined;
     let networkApproval: Awaited<ReturnType<typeof startNetworkApprovalChannel>> | undefined;
     let openedLane: AgentLane | undefined;
     let created: Session<JsonlSessionMetadata> | undefined;
@@ -190,20 +196,24 @@ export class SessionRuntime {
       if (created && discoveryEligible) await session.setValue(discoveryToolsVersion, 1, context);
       else await migrateDiscoveryTools(session, new Set(["ls", "glob", "grep"]), discoveryEligible);
       const sandboxIdentity: SandboxIdentity = { cwd: options.cwd, sessionId: session.metadata.id, budgetOperationId: options.budgetOperationId, candidateId: options.sandboxCandidateId, budgetNodeId: options.budgetNodeId, executionGrantId: options.executionGrantId, delegatedAgent: options.delegatedAgent, executionScope: options.executionScope ?? (candidateScoped ? "confined" : "workspace") };
-      if (!candidateScoped && !options.delegatedAgent && (options.allowedTools === undefined || options.allowedTools.some(name => name === "bash" || name === "notebook_run" || name.startsWith("mcp__")))) {
-        networkApproval = await startNetworkApprovalChannel(options.cwd, session.metadata.id, async (params, signal) => {
-          const result = await requestNetworkAccess(interactions, params, signal);
-          return ["granted", "already_allowed"].includes(result.details.status);
+      const mcpClock = new McpExecutionClock();
+      if (!candidateScoped && (!options.delegatedAgent || options.parentSessionId) && (options.allowedTools === undefined || options.allowedTools.some(name => name === "bash" || name === "notebook_run" || name.startsWith("mcp__")))) {
+        networkApproval = await startNetworkApprovalChannel(options.cwd, session.metadata.id, async ({ domain, profile, contextId }, signal) => {
+          const finish = contextId && profile === "mcp" ? mcpClock.beginApproval(contextId) : undefined;
+          signal = contextId ? mcpClock.approvalSignal(contextId, signal) : signal;
+          try {
+            if (options.delegatedAgent) {
+              const parent = await networkApprovalEndpoint(options.cwd, options.parentSessionId!);
+              return parent ? await requestNetworkApproval(parent, domain, profile, signal, contextId) : false;
+            }
+            const result = await requestNetworkAccess(interactions, { domain, profile }, signal);
+            return ["granted", "already_allowed"].includes(result.details.status);
+          } finally { finish?.(); }
         });
       }
-      // Capability checks precede discovery: a tool-free worker must not spawn
-      // connectors, open connections, or materialize their credentials.
-      if (!candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name.startsWith("mcp__")))) {
-        mcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools, options.delegatedAgent !== undefined, options.delegatedAgent ? async (tool, signal) => {
-          const permission = await subagents.request({ tool }, signal, "capability.requested");
-          if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
-        } : undefined, options.delegatedAgent ? undefined : session.metadata.id);
-      }
+      const mcpEligible = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some(name => name.startsWith("mcp__")));
+      // Discovery is deferred until an admitted operation: the session and Parent
+      // are then reachable by browser responses, including child initialization.
       const skillPolicy = options.skillPolicy ?? { mode: "inherit" };
       const nativeWebTools = !candidateScoped && (options.allowedTools === undefined || options.allowedTools.some((name) => name === "web_search" || name === "web_fetch")) ? await webTools() : [];
       const budgets = executionBudgetTools(options.cwd, options.budgetOperationId, options.budgetNodeId);
@@ -220,6 +230,12 @@ export class SessionRuntime {
         return files.filter(file => !isWithin(join(options.cwd, ".pi"), file) || local.includes(file));
       };
       const currentSkillDirectories = async (): Promise<string[]> => (await currentSkillFiles()).filter(file => basename(file) === "SKILL.md" && dirname(file) !== join(options.cwd, ".pi", "skills")).map(dirname);
+      const delegatedTool = (tool: AgentHarnessTool<{ env: NodeExecutionEnv }>): AgentHarnessTool<{ env: NodeExecutionEnv }> => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, requestContext) {
+        if (options.executionGrantId) await assertExecutionGrantTool(sandboxIdentity, tool.name);
+        const permission = await subagents.request({ tool: tool.name }, requestContext.abortSignal, "capability.requested");
+        if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
+        return tool.execute(id, params, update, ctx, invocation, requestContext);
+      } };
       const { harness, open } = await AgentHarness.create({
         session,
         models,
@@ -227,14 +243,9 @@ export class SessionRuntime {
         thinkingLevel: clampThinkingLevel(model, options.thinking ?? "high"),
         compaction: resolveCompaction(model.contextWindow, options.settings).compaction,
         tools: [...(!candidateScoped && discoveryAvailable ? workspaceDiscoveryTools({ cwd: options.cwd, skillFiles: currentSkillFiles }) : []), ...(memoryClient?.tools() ?? []), confinedReadTool(workspaceFileTool(createReadTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined, currentSkillFiles), sandboxIdentity), budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories)), workspaceFileTool(createEditTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined), workspaceFileTool(createWriteTool(), options.cwd, skillPaths, !candidateScoped && !options.delegatedAgent ? session.metadata.id : undefined),
-          todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(!candidateScoped && !options.delegatedAgent ? [citationVerifyTool(options.cwd), readSourceEvidenceTool(options.cwd, session.metadata.id), citeEvidenceTool(options.cwd, session.metadata.id)] : []), ...nativeWebTools, ...(mcp?.tools ?? []).map(budgets.wrap)]
+          todoHarnessTool(session), subagentControlTool(subagents), budgets.wrap(subagentHarnessTool(subagents)), ...notebookHarnessTools(options.cwd, session.metadata.id, sandboxIdentity).map(budgets.wrap), questionnaireHarnessTool(interactions), ...(!candidateScoped && !options.delegatedAgent ? [citationVerifyTool(options.cwd), readSourceEvidenceTool(options.cwd, session.metadata.id), citeEvidenceTool(options.cwd, session.metadata.id)] : []), ...nativeWebTools]
           .filter((tool) => (!options.allowedTools || options.allowedTools.includes(tool.name)) && (!candidateScoped || childToolAllowance([tool.name], [tool.name], "candidate").length > 0))
-          .map((tool) => !options.delegatedAgent ? tool : { ...tool, async execute(id, params, update, ctx, invocation, context) {
-            if (options.executionGrantId) await assertExecutionGrantTool(sandboxIdentity, tool.name);
-            const permission = await subagents.request({ tool: tool.name }, context.abortSignal, "capability.requested");
-            if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
-            return tool.execute(id, params, update, ctx, invocation, context);
-          } }),
+          .map(delegatedTool),
         toolContext: { env: executionEnv },
         resources: { skills: applySkillPolicy(discovered.skills, skillPolicy), promptTemplates: templates.promptTemplates },
         // Read the same committed resources used by explicit skill invocation. This keeps
@@ -258,7 +269,7 @@ export class SessionRuntime {
       const lane = await harness.lane("main", context);
       openedLane = lane;
       const watch = await lane.watch(context);
-      const runtime = new SessionRuntime(session.metadata.id, lane, harness, repo, executionEnv, session.metadata, session, watch, interactions, mcp, skillPaths, discovered.skills, skillPolicy, fatal);
+      const runtime = new SessionRuntime(session.metadata.id, lane, harness, repo, executionEnv, session.metadata, session, watch, interactions, undefined, skillPaths, discovered.skills, skillPolicy, fatal);
       runtime.budgetTools = budgets;
       runtime.networkApproval = networkApproval;
       runtime.settings = options.settings ?? {};
@@ -273,10 +284,30 @@ export class SessionRuntime {
       // Durable tool selection is a preference, never a capability grant. Strip
       // revoked tools before recovery; add supervision for existing delegates.
       const available = new Set((await harness.getTools(context)).map((tool) => tool.name));
+      const savedMcpTools = snapshot.configuration.activeToolNames.filter(name => name.startsWith("mcp__"));
       const activeTools = snapshot.configuration.activeToolNames.filter((name) => available.has(name));
       for (const name of ["web_search", "web_fetch", "search_memory", "read_memory", "write_memory"]) if (available.has(name) && !activeTools.includes(name)) activeTools.push(name);
       if (activeTools.includes("subagent") && available.has("subagent_control") && !activeTools.includes("subagent_control")) activeTools.push("subagent_control");
       if (JSON.stringify(activeTools) !== JSON.stringify(snapshot.configuration.activeToolNames)) await lane.setActiveTools(activeTools, context);
+      if (mcpEligible) runtime.initializeMcp = async (signal) => {
+        const discoveredMcp = await AgentMcpTools.open(options.cwd, interactions, options.env ?? {}, undefined, options.allowedTools,
+          options.delegatedAgent !== undefined, options.delegatedAgent ? async (tool, requestSignal) => {
+            const permission = await subagents.request({ tool }, requestSignal, "capability.requested");
+            if (!permission.success) throw new Error(permission.error ?? "Delegated capability denied");
+          } : undefined, session.metadata.id, mcpClock, signal);
+        try {
+          signal.throwIfAborted();
+          if (runtime.closed) throw new Error("Agent worker closed");
+          const tools = discoveredMcp.tools.map(budgets.wrap).filter(tool => !options.allowedTools || options.allowedTools.includes(tool.name)).map(delegatedTool);
+          signal.throwIfAborted();
+          await harness.setTools([...(await harness.getTools(context)).filter(tool => !tool.name.startsWith("mcp__")), ...tools], context);
+          const current = await watch.resnapshot(context);
+          await lane.setActiveTools([...new Set([...current.configuration.activeToolNames,
+            ...tools.filter(tool => !saved || savedMcpTools.includes(tool.name)).map(tool => tool.name)])], context);
+          signal.throwIfAborted();
+          runtime.mcp = discoveredMcp;
+        } catch (error) { await discoveredMcp.close(); throw error; }
+      };
       // A restored lane keeps its durable model, and the seed only applies to a lane that has
       // none. That is deliberate: an explicit configure owns the durable model, so a request
       // the worker will reject must not have committed it already. When the restored model is
@@ -324,7 +355,7 @@ export class SessionRuntime {
           // A just-accepted run resumes from "starting" without run_resume.
           // Seed its lifecycle from the durable snapshot after binding.
           if (recovered.kind === "run") emit(adapter.beginRecovery(recovered.operationId));
-          void runtime.guardBudget(recovered.operationId).then(() => lane.resume(context)).catch(fatal);
+          void runtime.guardBudget(recovered.operationId).then(() => runtime.driveWhenReady(recovered.operationId, true)).catch(fatal);
         }
       };
       return runtime;
@@ -342,7 +373,6 @@ export class SessionRuntime {
       }
       interactions.close();
       await networkApproval?.close().catch(() => undefined);
-      await mcp?.close().catch(() => undefined);
       if (created) {
         await created.close(context);
         await repo.delete(created.metadata, context);
@@ -368,6 +398,7 @@ export class SessionRuntime {
 
   private async execute(type: string, params: Record<string, unknown>): Promise<RuntimeResult> {
     if (this.closed) return { success: false, code: "closed", error: "agent runtime is closed" };
+    if (this.aborting && ["prompt", "steer", "follow_up", "compact", "activate", "abort"].includes(type)) return { success: false, code: "session_busy", error: "Session abort is in progress" };
     if (this.approvalBarrier && ["prompt", "steer", "follow_up", "compact", "activate", "fork", "clone", "configure", "set_model", "set_thinking_level"].includes(type)) return { success: false, code: "session_busy", error: "Approval transition is in progress" };
     try {
       switch (type) {
@@ -452,8 +483,7 @@ export class SessionRuntime {
           if (!admitted.ok) return resultValue(admitted);
           const acceptedId = admitted.value.operationId;
           await this.guardBudget(acceptedId);
-          void this.lane.drive({ operationId: acceptedId, waitForRetry: true, pollDeferred: true }, context)
-            .catch(this.fatal); // A fresh worker resumes the durable operation.
+          void this.driveWhenReady(acceptedId).catch(this.fatal); // A fresh worker resumes the durable operation.
           return { success: true, operationId: acceptedId };
         }
         case "steer":
@@ -465,15 +495,20 @@ export class SessionRuntime {
             : await this.lane.followUp(message, undefined, context));
         }
         case "abort": {
-          const watchedOperation = this.watchedBudgetOperation;
-          this.subagents?.cancelAll();
-          const aborted = await this.lane.abort(context);
-          // Watch events may lag durable settlement. Cancel only the operation
-          // Core actually aborted, never an idle lane's stale watcher identity.
-          if (aborted.ok && aborted.value.operationId === watchedOperation) {
-            await this.budgetTools.ledger(watchedOperation).cancelOperation();
-          }
-          return resultValue(aborted);
+          this.aborting = true;
+          try {
+            const watchedOperation = this.watchedBudgetOperation;
+            this.mcpController?.abort(new Error("MCP discovery cancelled"));
+            await this.mcpStartup?.catch(() => undefined);
+            this.subagents?.cancelAll();
+            const aborted = await this.lane.abort(context);
+            // Watch events may lag durable settlement. Cancel only the operation
+            // Core actually aborted, never an idle lane's stale watcher identity.
+            if (aborted.ok && aborted.value.operationId === watchedOperation) {
+              await this.budgetTools.ledger(watchedOperation).cancelOperation();
+            }
+            return resultValue(aborted);
+          } finally { this.aborting = false; }
         }
         case "compact": {
           if (!this.activated) return { success: false, code: "not_ready", error: "agent runtime has not been activated" };
@@ -611,6 +646,27 @@ export class SessionRuntime {
     return this.interactions.notify(type, params);
   }
 
+  private async ensureMcp(): Promise<void> {
+    if (!this.initializeMcp || this.mcp) return;
+    if (!this.mcpStartup) {
+      this.mcpController = new AbortController();
+      this.mcpStartup = this.initializeMcp(this.mcpController.signal).finally(() => { this.mcpStartup = undefined; });
+    }
+    await this.mcpStartup;
+  }
+
+  private async driveWhenReady(operationId: string, resume = false): Promise<void> {
+    try {
+      await this.ensureMcp();
+      if (this.closed || (await this.watch.resnapshot(context)).operation?.id !== operationId) return;
+      if (resume) await this.lane.resume(context);
+      else await this.lane.drive({ operationId, waitForRetry: true, pollDeferred: true }, context);
+    } catch (error) {
+      if (this.closed || this.mcpController?.signal.aborted) return;
+      throw error;
+    }
+  }
+
   private enabledSkills(): Skill[] {
     return applySkillPolicy(this.allSkills, this.skillPolicy);
   }
@@ -636,6 +692,7 @@ export class SessionRuntime {
       if (budget.cancelled || budget.deadline <= Date.now()) throw new Error(budget.cancelled ? "Execution task cancelled" : "Execution time budget exhausted");
     } catch (error) { await this.lane.abort(context); throw error; }
     this.stopBudgetWatch = watchExecutionDeadline(ledger, () => {
+      this.mcpController?.abort(new Error("Execution time budget exhausted"));
       this.subagents?.cancelAll();
       void this.lane.abort(context).catch(this.fatal);
     });
@@ -648,6 +705,8 @@ export class SessionRuntime {
     if (this.closed) return;
     this.closed = true;
     this.interactions.close();
+    this.mcpController?.abort(new Error("Agent worker closed"));
+    await this.mcpStartup?.catch(() => undefined);
     await this.networkApproval?.close();
     this.watch.unsubscribe();
     await this.mutationTail;

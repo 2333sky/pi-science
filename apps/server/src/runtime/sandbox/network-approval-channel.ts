@@ -8,7 +8,7 @@ import { writeJsonAtomic } from "../../storage/persistence.js";
 import { networkDomain, networkGrantProfile } from "./network-grant-state.js";
 
 const endpointSchema = z.object({ port: z.number().int().min(1).max(65535), token: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
-const requestSchema = z.object({ domain: networkDomain, profile: networkGrantProfile }).strict();
+const requestSchema = z.object({ domain: networkDomain, profile: networkGrantProfile, contextId: z.string().uuid().optional() }).strict();
 export type NetworkApprovalEndpoint = z.infer<typeof endpointSchema>;
 const channelPath = async (cwd: string, sessionId: string) => (await sessionApprovalPath(cwd, sessionId)) + ".network";
 

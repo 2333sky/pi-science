@@ -23,6 +23,7 @@ const roots: string[] = [];
 const runtimes: SessionRuntime[] = [];
 const proxies: Array<Awaited<ReturnType<typeof startSandboxNetwork>>> = [];
 const context = BACKGROUND_CONTEXT;
+const ensureMcp = (instance: SessionRuntime) => (instance as unknown as { ensureMcp(): Promise<void> }).ensureMcp();
 
 async function runtime(prepare?: (cwd: string) => Promise<void>, options: Partial<AgentRuntimeStartOptions> = {}) {
   const cwd = await realpath(await mkdtemp(join(tmpdir(), "pi-science-worker-mutations-")));
@@ -113,6 +114,7 @@ describe("agent-core worker mutations", () => {
         unavailable: { command: process.execPath, args: [], __piScienceConnectorId: "missing-connector", __piScienceConnectorRevision: 1, __piScienceSettingsRevision: 1, __piScienceEnvironment: { TOKEN: { kind: "environment", name: "PI_TEST_MISSING_MCP_TOKEN" } } },
       } }));
     });
+    await ensureMcp(instance);
     expect(admit).toHaveBeenCalledWith(expect.any(String), {
       connectorId: "missing-connector", projectId: "project_test", connectorRevision: 1, settingsRevision: 1, connectionFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
     }, expect.any(AbortSignal));
@@ -166,7 +168,7 @@ describe("agent-core worker mutations", () => {
     await instance.close(); // Optional MCP ownership also works on disposal.
   });
 
-  it.each([{ allowedTools: undefined }, { allowedTools: ["mcp__local__echo"] }])("still discovers MCP when capabilities permit it: $allowedTools", async ({ allowedTools }) => {
+  it.each([{ allowedTools: undefined }, { allowedTools: ["mcp__local__echo"] }])("defers MCP discovery until a reachable session can handle approval: $allowedTools", async ({ allowedTools }) => {
     const cwd = resolve(await mkdtemp(join(tmpdir(), "pi-science-worker-with-mcp-")));
     roots.push(cwd);
     const mcp = new AgentMcpTools();
@@ -176,6 +178,8 @@ describe("agent-core worker mutations", () => {
       model: { provider: "openai", modelId: "gpt-4.1-mini" },
     }, () => undefined, (error) => { throw error; });
     runtimes.push(instance);
+    expect(discover).not.toHaveBeenCalled();
+    await ensureMcp(instance);
     expect(discover).toHaveBeenCalledOnce();
     await instance.close();
     expect(close).toHaveBeenCalledOnce();
@@ -511,25 +515,22 @@ describe("agent-core worker mutations", () => {
   });
 });
 
-it("persists initial approval before MCP discovery and removes it when initialization fails", async () => {
+it("persists initial approval before deferred discovery and retains the session after a discovery failure", async () => {
   const cwd = resolve(await mkdtemp(join(tmpdir(), "initial-approval-"))); roots.push(cwd);
   vi.stubEnv("PI_SCIENCE_HOME", join(cwd, "private"));
-  const { readSessionApproval, sessionApprovalPath } = await import("../../sandbox/session-approval.js");
-  const { listWorkspaceSessions } = await import("../workspace-session-identity.js");
-  const { JsonlSessionRepo, NodeExecutionEnv } = await import("@earendil-works/pi-agent-core/node");
-  let id = "";
-  vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _environment, _legacy, _tools, _restricted, _authorize, sessionId) => {
-    id = sessionId!;
-    expect(await readSessionApproval(cwd, id)).toEqual({ mode: "auto", revision: 1 });
+  const { readSessionApproval } = await import("../../sandbox/session-approval.js");
+  const discover = vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _environment, _legacy, _tools, _restricted, _authorize, sessionId) => {
+    expect(await readSessionApproval(cwd, sessionId!)).toEqual({ mode: "auto", revision: 1 });
     throw new Error("MCP initialization failed");
   });
-  await expect(SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"),
+  const instance = await SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"),
     model: { provider: "openai", modelId: "gpt-4.1-mini" }, initialApproval: { mode: "auto" },
-  }, () => {}, () => {})).rejects.toThrow("MCP initialization failed");
-  expect(id).not.toBe("");
-  await expect(readFile(await sessionApprovalPath(cwd, id))).rejects.toMatchObject({ code: "ENOENT" });
-  const repo = new JsonlSessionRepo({ fileSystem: new NodeExecutionEnv({ cwd, shellEnv: {} }), sessionsRoot: join(cwd, ".pi-science/agent-sessions") });
-  try { expect(await listWorkspaceSessions(repo, cwd)).toEqual([]); } finally { await repo.close(context); }
+  }, () => {}, () => {});
+  runtimes.push(instance);
+  expect(discover).not.toHaveBeenCalled();
+  await expect(ensureMcp(instance)).rejects.toThrow("MCP initialization failed");
+  expect(await readSessionApproval(cwd, instance.sessionId)).toEqual({ mode: "auto", revision: 1 });
+  expect(await instance.command("get_state", {})).toMatchObject({ success: true });
 });
 
 it("blocks prompts and bypass-lane follow-ups until the committed revision releases its barrier", async () => {
@@ -740,4 +741,76 @@ it.skipIf(discoveryBackend.discoveryBackendAvailable())("keeps discovery inactiv
   const { instance } = await runtime();
   const state = await instance.command("get_state", {});
   for (const name of ["ls", "glob", "grep"]) expect((state as { data: { activeTools: string[] } }).data.activeTools).not.toContain(name);
+});
+
+it.each(["allow", "deny_once"])("forwards workspace child network approval to Parent and handles %s on the original connection", async (answer) => {
+  const home = await realpath(await mkdtemp(join(tmpdir(), "child-network-home-"))); roots.push(home); vi.stubEnv("PI_SCIENCE_HOME", home);
+  const { instance: parent, parts, events } = await runtime(undefined, { initialApproval: { mode: "full", acknowledgeFullAccess: true } });
+  const cwd = parts.executionEnv.cwd, childEvents: Array<Record<string, unknown>> = [];
+  const child = await SessionRuntime.open({ cwd, sessionsRoot: join(cwd, ".pi-science/agent-sessions"), parentSessionId: parent.sessionId,
+    delegatedAgent: "worker", executionScope: "workspace", allowedTools: ["bash"], model: { provider: "openai", modelId: "gpt-4.1-mini" },
+  }, event => childEvents.push(event), error => { throw error; });
+  runtimes.push(child);
+  const endpoint = await networkApprovalEndpoint(cwd, child.sessionId);
+  expect(endpoint).toBeDefined();
+  const proxy = await startSandboxNetwork({ mode: "none" }, networkGrantSource({ mode: "none" }, networkGrantsPath(), "analysis"),
+    (host, _port, _transport, signal) => requestNetworkApproval(endpoint!, host, "analysis", signal));
+  proxies.push(proxy);
+  const pending = new Promise<string>((resolve, reject) => {
+    const client = connect(proxy.httpPort, "127.0.0.1"); client.once("error", reject);
+    client.setTimeout(5000, () => client.destroy(new Error("Child network approval timed out")));
+    client.once("connect", () => client.write("CONNECT child.example.org:443 HTTP/1.1\r\nHost: child.example.org\r\n\r\n"));
+    client.once("data", chunk => { resolve(chunk.toString()); client.destroy(); });
+  });
+  await vi.waitFor(() => expect(events.some(event => event.type === "interaction.requested")).toBe(true));
+  expect(childEvents.some(event => event.type === "interaction.requested")).toBe(false);
+  parent.notify("extension_ui_response", { id: events.find(event => event.type === "interaction.requested")!.id, value: answer });
+  expect(await pending).toContain(answer === "allow" ? "200 Connection Established" : "403 Forbidden");
+  const { readSessionApproval } = await import("../../sandbox/session-approval.js");
+  expect(await readSessionApproval(cwd, child.sessionId)).toEqual({ mode: "ask", revision: 0 });
+  expect(await child.command("get_state", {})).toMatchObject({ data: { activeTools: ["bash"] } });
+  await parent.close();
+  expect(await requestNetworkApproval(endpoint!, "another.example.org", "analysis", AbortSignal.timeout(1000))).toBe(false);
+});
+
+it("keeps prompt admission and abort reachable during deferred MCP discovery", async () => {
+  const discover = vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _env, _budget, _tools, _restricted, _authorize, _sessionId, _clock, signal) => {
+    return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => reject(signal!.reason), { once: true }));
+  });
+  const { instance } = await runtime();
+  expect(await instance.command("prompt", { message: "Inspect the connector" })).toMatchObject({ success: true });
+  await vi.waitFor(() => expect(discover).toHaveBeenCalledOnce());
+  expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: true } });
+  expect(await instance.command("abort", {})).toMatchObject({ success: true });
+  expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: false } });
+});
+
+it("enforces the host deadline while MCP discovery waits for authorization", async () => {
+  let aborted = false;
+  vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _env, _budget, _tools, _restricted, _authorize, _sessionId, _clock, signal) => {
+    return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => { aborted = true; reject(signal!.reason); }, { once: true }));
+  });
+  const { instance, parts } = await runtime();
+  const { ExecutionBudgetLedger } = await import("../../executions/execution-budget.js");
+  const { promptOperationId } = await import("../agent-message.js");
+  await new ExecutionBudgetLedger(parts.executionEnv.cwd, promptOperationId(instance.sessionId, "hard-deadline")).configure({ max_seconds: 1 });
+  expect(await instance.command("prompt", { message: "Connect", client_message_id: "hard-deadline" })).toMatchObject({ success: true });
+  await vi.waitFor(() => expect(aborted).toBe(true), { timeout: 3000 });
+  await vi.waitFor(async () => expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: false } }));
+});
+it("rejects new admission until an aborted discovery has finished cleanup", async () => {
+  let started!: () => void, release!: () => void;
+  const cancelling = new Promise<void>(resolve => { started = resolve; });
+  const cleanup = new Promise<void>(resolve => { release = resolve; });
+  const discover = vi.spyOn(AgentMcpTools, "open").mockImplementation(async (_cwd, _bridge, _env, _budget, _tools, _restricted, _authorize, _sessionId, _clock, signal) => {
+    return new Promise((_resolve, reject) => signal!.addEventListener("abort", () => { started(); void cleanup.then(() => reject(signal!.reason)); }, { once: true }));
+  });
+  const { instance } = await runtime();
+  await instance.command("prompt", { message: "Connect" });
+  await vi.waitFor(() => expect(discover).toHaveBeenCalledOnce());
+  const abort = instance.command("abort", {});
+  await cancelling;
+  try { expect(await instance.command("prompt", { message: "Another task" })).toMatchObject({ code: "session_busy" }); }
+  finally { release(); await abort; }
+  expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: false } });
 });

@@ -499,7 +499,7 @@ class NodeKernelSession {
     if (signal?.aborted) throw kernelStartCancelledError();
     if (this.options.sandboxPolicy!.mode === "required") {
       if (this.options.language !== "python") throw new Error("Sandboxed R kernels have not passed platform acceptance");
-      const prepared = await prepareSandbox(this.options.sandboxPolicy!, [executable, "-I", "-B", PYTHON_BRIDGE], [this.options.environment.prefix, PYTHON_BRIDGE], 86_400, PYTHON_BRIDGE);
+      const prepared = await prepareSandbox(this.options.sandboxPolicy!, [executable, "-I", "-B", PYTHON_BRIDGE], [this.options.environment.prefix, PYTHON_BRIDGE], 86_400, PYTHON_BRIDGE, undefined, {}, this.options.sandboxPolicy!.owner ? { cwd: this.options.cwd, sessionId: this.options.sandboxPolicy!.owner } : undefined);
       if (signal?.aborted || this.stopPromise) {
         await this.stopPromise?.catch(() => undefined);
         this.sandbox = prepared;

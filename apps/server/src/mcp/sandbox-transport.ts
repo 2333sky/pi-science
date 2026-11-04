@@ -12,7 +12,7 @@ import { bashDependencies } from "../runtime/sandbox/settings.js";
 import { prepareSandbox, launcherPath, killSandboxGroup, type PreparedSandbox } from "../runtime/sandbox/process.js";
 import { applySandboxProfile } from "../runtime/sandbox/profiles.js";
 
-export async function localMcpTransport(workspace: string, command: string, args: string[], cwd: string, environment: Record<string, string>, builtinName?: string, sessionId?: string): Promise<Transport> {
+export async function localMcpTransport(workspace: string, command: string, args: string[], cwd: string, environment: Record<string, string>, builtinName?: string, sessionId?: string, contextId?: string): Promise<Transport> {
   if (operatorExecutionMode() === "trusted-host") return new StdioClientTransport({ command, args, cwd, env: environment, stderr: "pipe" });
   workspace = await realpath(workspace); cwd = await realpath(cwd);
   if (!isWithin(workspace, cwd)) throw new Error("Local MCP cwd must remain inside the workspace");
@@ -41,7 +41,7 @@ export async function localMcpTransport(workspace: string, command: string, args
   }));
 
   // Only this connector's explicitly bound environment is passed to its child.
-  const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd, writeDenyPaths: [...(policy.writeDenyPaths ?? []), ...executableDependencies] }), [executable, ...prefix, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment, sessionId ? { cwd: workspace, sessionId } : undefined);
+  const prepared = await prepareSandbox(identifyPolicy({ ...policy, cwd, writeDenyPaths: [...(policy.writeDenyPaths ?? []), ...executableDependencies] }), [executable, ...prefix, ...canonicalArgs], dependencies, 86_400, undefined, undefined, environment, sessionId ? { cwd: workspace, sessionId, ...(contextId ? { contextId } : {}) } : undefined);
   return new SandboxedMcpTransport(prepared, cwd);
 }
 

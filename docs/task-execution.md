@@ -103,7 +103,11 @@ connector identities have independent queues.
 
 After queue admission the worker rechecks parent/role authorization and connector
 policy before sending the RPC. MCP request timeout remains connector-configurable
-(default sixty seconds), separate from queue waiting and the task deadline. The
+(default sixty seconds of active execution), separate from queue waiting and the
+task deadline. The ten-second discovery budget and request timers pause during
+network authorization for that connection only. Discovery starts after prompt
+admission so browser responses and abort remain available. Authorization waits
+are bounded to 120 seconds; task deadlines and cancellation remain hard limits. The
 adapter adds no automatic retry for side-effecting calls. Tool results record queue
 and execution durations. Cancellation is forwarded through the MCP protocol;
 termination of work already accepted by a remote service depends on that service.

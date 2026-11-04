@@ -1,3 +1,5 @@
+import { networkInterfaces } from "node:os";
+import { privateNetworkTarget } from "../sandbox/network-grant-state.js";
 import { promptOperationId } from "./agent-message.js";
 import { ExecutionBudgetLedger, type BudgetLimits } from "../executions/execution-budget.js";
 import { createHash } from "node:crypto";
@@ -66,6 +68,60 @@ async function modelFixture(answer: (body: { messages: Array<{ role: string; con
 }
 
 describe("agent-core product tools", () => {
+  const privateHost = Object.values(networkInterfaces()).flat().find(address => address?.family === "IPv4" && privateNetworkTarget(address.address))?.address;
+  it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !privateHost || !["linux", "darwin"].includes(process.platform)).each(["bash", "mcp"])("continues a workspace child's %s request after Parent network approval without replay", async (surface) => {
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    let hits = 0;
+    const target = createServer((_request, response) => { hits++; response.end("delegated-network-ok"); });
+    await new Promise<void>(resolve => target.listen(0, privateHost!, resolve));
+    cleanup.push(() => new Promise<void>(resolve => { target.closeAllConnections(); target.close(() => resolve()); }));
+    const url = `http://${privateHost}:${(target.address() as { port: number }).port}/`;
+    const tool = surface === "bash" ? "bash" : "mcp__delegated-network__fetch_data";
+    let childOutput = "";
+    const fixture = await modelFixture(body => {
+      const results = body.messages.filter(message => message.role === "tool");
+      if (body.messages[0]!.content.includes("You are the network worker")) {
+        if (!results.length) return { name: tool, args: surface === "bash" ? { command: `curl --noproxy '' --silent --show-error --fail --max-time 15 ${url}` } : {} };
+        childOutput = results.at(-1)!.content; return "Child network completed.";
+      }
+      if (!results.length) return { name: "subagent", args: { agent: "network-worker", task: "Read the supplied endpoint once." } };
+      return "Parent network completed.";
+    });
+    await mkdir(join(fixture.cwd, ".pi/agents"), { recursive: true });
+    await writeFile(join(fixture.cwd, ".pi/agents/network-worker.md"), `---\nexecution_scope: workspace\ntools: [${tool}]\n---\nYou are the network worker.`);
+    const authority = createServer((_request, response) => { response.writeHead(200, { "content-type": "application/json" }); response.end('{"decision":"allow"}'); });
+    await new Promise<void>(resolve => authority.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>(resolve => { authority.closeAllConnections(); authority.close(() => resolve()); }));
+    if (surface === "mcp") {
+      const script = join(fixture.cwd, "network-mcp.mjs");
+      await writeFile(script, [
+        `import { McpServer } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/mcp.js"))};`,
+        `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
+        'import { request } from "node:http";',
+        'const proxy = new URL(process.env.PI_SCIENCE_SANDBOX_HTTP_PROXY);',
+        `const read = () => new Promise((resolve,reject) => { const req=request({hostname:proxy.hostname,port:proxy.port,path:${JSON.stringify(url)},method:"GET"},res => { let body="";res.on("data",chunk=>body+=chunk);res.on("end",()=>res.statusCode===200?resolve(body):reject(new Error(body))); });req.on("error",reject);req.end(); });`,
+        'const server = new McpServer({name:"network",version:"1"});',
+        `server.registerTool("fetch_data", {}, async () => ({content:[{type:"text",text:await read()}]}));`,
+        'await server.connect(new StdioServerTransport());',
+      ].join("\n"));
+      await writeFile(join(fixture.cwd, ".pi-science/mcp-runtime.json"), JSON.stringify({ version: 1, project_id: "network-project", mcpServers: {
+        "delegated-network": { command: process.execPath, args: [script], approveTools: false, __piScienceAllowedTools: ["fetch_data"], __piScienceConnectorId: "network-connector", __piScienceConnectorRevision: 1, __piScienceSettingsRevision: 1 },
+      } }));
+    }
+    const manager = new AgentRuntimeManager(); cleanup.push(() => manager.shutdownAll());
+    const parent = await openHiddenTask(manager, `network-parent-${surface}`, { cwd: fixture.cwd, sessionsRoot: join(fixture.cwd, ".pi-science/agent-sessions"),
+      model: fixture.model, thinking: "off", allowedTools: ["subagent", tool], env: { PI_SCIENCE_BACKEND_URL: `http://127.0.0.1:${(authority.address() as { port: number }).port}` } }, "network-owner");
+    let approvals = 0;
+    parent.on("event", event => {
+      if (event.type === "interaction.requested") {
+        approvals++;
+        void parent.sendNotification("extension_ui_response", { id: String(event.id), value: "allow" });
+      }
+    });
+    expect(await runHiddenPrompt(parent, "Delegate the endpoint read", `network-once-${surface}`, Date.now() + 45_000)).toBe("Parent network completed.");
+    expect(approvals, childOutput).toBe(1); expect(childOutput).toContain("delegated-network-ok"); expect(hits).toBe(1);
+  }, 60_000);
+
   it.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["linux", "darwin"].includes(process.platform))("appends Skill-owned decisions and rebuilds the index through real sandboxed Parent Bash", async () => {
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
     vi.stubEnv("PI_SCIENCE_SANDBOX_RUNTIME_PATHS", JSON.stringify([process.execPath]));

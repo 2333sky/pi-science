@@ -101,10 +101,21 @@ Candidate, install, control and BYOC processes do not inherit these decisions.
 When a workspace Bash/kernel or local MCP process reaches an unapproved
 proxy destination, the trusted launcher sends an authenticated request to the
 owning session's approval channel. The browser permission card offers **Always allow**, **Deny this request**, and
-**Never allow**. The launch profile selects `analysis` or `mcp`; the model does not choose it. Candidate and delegated
-workers cannot request their own network approvals. Invalid targets, URLs,
+**Never allow**. The launch profile selects `analysis` or `mcp`; the model does not choose it. Confined/Candidate workers cannot request network approvals. Workspace-scope
+delegated workers have separate protected channels that forward requests to their
+authenticated Parent session, including nested delegation. Parent approval does
+not inherit its filesystem grants or session approval mode into the child.
+Closing the Parent, stopping the child or aborting an MCP request cancels pending
+authorizations. Invalid targets, URLs,
 wildcards, non-RFC1918 IP literals, invalid ports and internal hostnames are rejected. DNS resolution
 is still checked by the existing resolved-address guard at connection time.
+
+MCP discovery begins before the first model generation of an admitted operation,
+after the session is registered and can receive browser responses. Admission and
+abort remain responsive during discovery. Each local MCP connection carries a
+private context ID: discovery and RPC active-time limits pause only while that
+connection waits for network approval. The 120-second authorization wait and the
+host task deadline still apply; unrelated connectors do not receive extra time.
 
 There is no model-facing `request_network_access` tool. Approval holds the
 original proxy request; after approval, the proxy reloads policy before continuing

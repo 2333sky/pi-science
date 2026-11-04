@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { McpExecutionClock } from "./mcp-execution-clock.js";
 import { fingerprintMcpConnection } from "../../../mcp/connection-identity.js";
 import { authorizeMcpConnector, authorizeMcpTool, mcpApprovalKey } from "../../../mcp/runtime-policy.js";
 import { redactMcpError } from "../../../mcp/diagnostics.js";
@@ -42,22 +44,6 @@ type ServerDefinition = {
 
 const DISCOVERY_BUDGET_MS = 10_000;
 
-async function beforeDeadline<T>(operation: Promise<T>, deadline: number, client: Client): Promise<T> {
-  const remaining = Math.max(1, deadline - Date.now());
-  let timer: NodeJS.Timeout | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          void client.close().catch(() => undefined);
-          reject(new Error("MCP discovery budget exceeded"));
-        }, remaining);
-      }),
-    ]);
-  } finally { if (timer) clearTimeout(timer); }
-}
-
 function visible(server: ServerDefinition, toolName: string): boolean {
   if (server.includeTools?.length && !server.includeTools.includes(toolName)) return false;
   return !server.excludeTools?.includes(toolName);
@@ -71,23 +57,24 @@ export class AgentMcpTools {
   readonly diagnostics: string[] = [];
 
   static async open(cwd: string, bridge: InteractionBridge, environment: Record<string, string>, budgetMs = DISCOVERY_BUDGET_MS,
-    allowedTools?: readonly string[], preauthorizedOnly = false, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string): Promise<AgentMcpTools> {
+    allowedTools?: readonly string[], preauthorizedOnly = false, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string, clock = new McpExecutionClock(), signal?: AbortSignal): Promise<AgentMcpTools> {
     const result = new AgentMcpTools();
     const capabilities = allowedTools === undefined ? undefined : new Set(allowedTools);
     const rawSnapshot = loadProjectedSnapshot(cwd);
-    const deadline = Date.now() + budgetMs;
     await Promise.all(Object.entries(rawSnapshot.mcpServers).map(async ([name, raw]) => {
       if (capabilities && ![...capabilities].some((tool) => tool.split("__").length === 3 && tool.split("__")[1] === name)) return;
+      const contextId = randomUUID();
+      const deadline = clock.activeNow(contextId) + budgetMs;
       try {
         // Admit the exact raw snapshot before resolving credentials or constructing
         // a transport. Never re-read a different snapshot after authorization.
-        await authorizeMcpConnector(cwd, {
+        await clock.run(contextId, deadline, "MCP discovery budget exceeded", (activeSignal) => authorizeMcpConnector(cwd, {
           connectorId: raw.__piScienceConnectorId as string, projectId: rawSnapshot.project_id,
           connectorRevision: raw.__piScienceConnectorRevision as number, settingsRevision: raw.__piScienceSettingsRevision as number,
           connectionFingerprint: fingerprintMcpConnection(name, raw),
-        }, AbortSignal.timeout(Math.max(1, deadline - Date.now())));
+        }, activeSignal), signal);
         const server = loadProjectedServers(cwd, undefined, (candidate) => candidate === name, rawSnapshot)[name] as ServerDefinition;
-        await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, raw, authorize, sessionId);
+        await result.connect(name, server, cwd, bridge, environment, deadline, capabilities, preauthorizedOnly, raw, authorize, sessionId, clock, contextId, signal);
       }
       catch (error) {
         const code = (error as { code?: unknown }).code;
@@ -95,11 +82,12 @@ export class AgentMcpTools {
         result.diagnostics.push((redactMcpError(`${name}: ${error instanceof Error ? error.message : String(error)}${status}`) ?? "MCP discovery failed").slice(0, 2048));
       }
     }));
+    if (signal?.aborted) { await result.close(); signal.throwIfAborted(); }
     return result;
   }
 
   private async connect(name: string, server: ServerDefinition, cwd: string, bridge: InteractionBridge, environment: Record<string, string>, deadline: number,
-    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string): Promise<void> {
+    capabilities?: ReadonlySet<string>, preauthorizedOnly = false, initial?: Record<string, unknown>, authorize?: (tool: string, signal?: AbortSignal) => Promise<void>, sessionId?: string, clock = new McpExecutionClock(), contextId = randomUUID(), signal?: AbortSignal): Promise<void> {
     if (server.auth === "oauth" && !Object.keys(server.headers ?? {}).some((key) => key.toLowerCase() === "authorization")) {
       throw new Error("OAuth MCP connector requires an authorized credential binding");
     }
@@ -110,7 +98,7 @@ export class AgentMcpTools {
     } else if ((server.transport === "stdio" || !server.transport) && server.command) {
       if (!server.__piScienceBuiltin) this.approvalBoundProcesses++;
       transport = await localMcpTransport(cwd, server.command, server.args ?? [], server.cwd ?? cwd,
-        { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, server.__piScienceBuiltin ? name : undefined, sessionId);
+        { ...toolEnvironment(environment), ...server.env, ...(server.__piScienceBuiltin ? builtinNetworkEnvironment() : {}) }, server.__piScienceBuiltin ? name : undefined, sessionId, contextId);
     } else if ((server.transport === "sse" || server.transport === "streamable_http" || !server.transport) && server.url) {
       const connectorId = server.__piScienceConnectorId;
       const checkedFetch = createMcpFetch({ connectorId, projectId: server.__piScienceProjectId,
@@ -132,11 +120,13 @@ export class AgentMcpTools {
       }
       return current;
     };
-    if (connectionIdentity(loadProjectedSnapshot(cwd).mcpServers[name]) !== connectionFingerprint) throw new Error("MCP connector changed during discovery");
     const client = new Client({ name: "pi-science-agent-core", version: "0.1.0" });
     try {
-      await beforeDeadline(client.connect(transport, { timeout: Math.min(server.requestTimeoutMs ?? 15_000, Math.max(1, deadline - Date.now())) }), deadline, client);
-      const listing = await beforeDeadline(client.listTools(undefined, { timeout: Math.min(server.requestTimeoutMs ?? 15_000, Math.max(1, deadline - Date.now())) }), deadline, client);
+      if (connectionIdentity(loadProjectedSnapshot(cwd).mcpServers[name]) !== connectionFingerprint) throw new Error("MCP connector changed during discovery");
+      const discovery = <T>(operation: (activeSignal: AbortSignal) => Promise<T>) => clock.run(contextId,
+        Math.min(deadline, clock.activeNow(contextId) + (server.requestTimeoutMs ?? 15_000)), "MCP discovery budget exceeded", operation, signal);
+      await discovery(activeSignal => client.connect(transport, { timeout: 2_147_483_647, signal: activeSignal }));
+      const listing = await discovery(activeSignal => client.listTools(undefined, { timeout: 2_147_483_647, signal: activeSignal }));
       const count = listing.tools.length;
       if (count > 500) throw new Error("MCP server advertised too many tools");
       for (const tool of listing.tools) {
@@ -198,8 +188,9 @@ export class AgentMcpTools {
             currentPolicy(tool.name);
             if (approvalRevision !== undefined && sessionId && (await readSessionApproval(cwd, sessionId)).revision !== approvalRevision) throw new Error("MCP approval revision changed while queued; request fresh authorization");
             if (await checkAuthority() === "ask" && !approvedByUser) throw new Error("MCP authorization revoked before dispatch");
-            const response = await client.callTool({ name: tool.name, arguments: params as Record<string, unknown> }, undefined,
-              { signal: context.abortSignal, timeout: server.requestTimeoutMs ?? 60_000 });
+            const response = await clock.run(contextId, clock.activeNow(contextId) + (server.requestTimeoutMs ?? 60_000),
+              "MCP request timed out", activeSignal => client.callTool({ name: tool.name, arguments: params as Record<string, unknown> }, undefined,
+                { signal: activeSignal, timeout: 2_147_483_647 }), context.abortSignal);
             const parts = Array.isArray(response.content) ? response.content as Array<Record<string, unknown>> : [];
             const content: Array<{ type: "text"; text: string } | { type: "image"; data: string; mimeType: string }> = [];
             for (const part of parts) {
@@ -216,6 +207,7 @@ export class AgentMcpTools {
       this.clients.push(client);
     } catch (error) {
       await client.close().catch(() => undefined);
+      await transport.close().catch(() => undefined);
       throw error;
     }
   }

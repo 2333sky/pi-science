@@ -16,11 +16,12 @@ import { prepareMacosSupervisor } from "./platform.js";
 export const shellQuote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
 export const launcherPath = fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./launcher.ts" : "./launcher.js", import.meta.url));
 export interface PreparedSandbox { manifest: string; shell: string; env: Record<string, string>; cleanup(): Promise<void> }
-export async function prepareSandbox(policy: SandboxPolicy, argv: string[], dependencies: string[], timeoutSeconds: number, kernelBridge?: string, installation?: RuntimeInstallation, scopedEnvironment: Record<string, string> = {}, approvalIdentity?: { cwd: string; sessionId: string }): Promise<PreparedSandbox> {
+export async function prepareSandbox(policy: SandboxPolicy, argv: string[], dependencies: string[], timeoutSeconds: number, kernelBridge?: string, installation?: RuntimeInstallation, scopedEnvironment: Record<string, string> = {}, approvalIdentity?: { cwd: string; sessionId: string; contextId?: string }): Promise<PreparedSandbox> {
   const networkGrants = policy.scope === "workspace" && (policy.profile === "analysis" || policy.profile === "mcp") ? { path: networkGrantsPath(), profile: policy.profile } : undefined;
   if (networkGrants && policy.writePaths.some((root) => isWithin(root, dirname(networkGrants.path))) && !policy.denyPaths.some((root) => isWithin(root, dirname(networkGrants.path)))) throw new Error("Network permissions must be outside writable sandbox paths");
   const identity = approvalIdentity ?? (policy.approval ? { cwd: policy.cwd, sessionId: policy.approval.sessionId } : undefined);
-  const networkApproval = networkGrants && identity ? await networkApprovalEndpoint(identity.cwd, identity.sessionId) : undefined;
+  const endpoint = networkGrants && identity ? await networkApprovalEndpoint(identity.cwd, identity.sessionId) : undefined;
+  const networkApproval = endpoint ? { ...endpoint, contextId: identity?.contextId } : undefined;
   // Reject unsupported platforms before allocating a control directory. On
   // Windows TEMP is inside HOME, which a full-access policy intentionally grants.
   requireSandboxPlatform();
