@@ -157,6 +157,8 @@ describe("citation passages", () => {
 
   it("reads the source when fetching is allowed", async () => {
     const cwd = await makeWorkspace();
+    // HTTP fixtures must also inject DNS so outbound validation stays offline.
+    const lookup = vi.fn(async (_hostname: string) => [{ address: "93.184.216.34", family: 4 }]);
     const fetchFn = vi.fn(async (input: string | URL | Request) => {
       const url = new URL(String(input));
       const body = Buffer.from(url.host === "www.ebi.ac.uk" ? JSON.stringify({ hitCount: 0, resultList: { result: [] } }) : "not found", "utf8");
@@ -164,11 +166,13 @@ describe("citation passages", () => {
       return { ok: status < 400, status, headers: new Headers(), arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) } as unknown as Response;
     });
 
-    const [result] = await citationPassagesService.positions(cwd, { positions: [{ key: "arxiv:2401.12345", claim: "A claim about attention." }] }, { fetch: fetchFn as unknown as typeof fetch, minimumInterval: FAST });
+    const [result] = await citationPassagesService.positions(cwd, { positions: [{ key: "arxiv:2401.12345", claim: "A claim about attention." }] }, { fetch: fetchFn as unknown as typeof fetch, lookup, minimumInterval: FAST });
 
     expect(result?.state).toBe("no_open_fulltext");
     expect(result?.note).toContain("europepmc");
     expect(fetchFn).toHaveBeenCalledTimes(2);
+    expect(lookup).toHaveBeenCalledWith("www.ebi.ac.uk");
+    expect(lookup).toHaveBeenCalledWith("arxiv.org");
   });
 });
 
