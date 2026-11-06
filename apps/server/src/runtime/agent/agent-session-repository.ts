@@ -4,6 +4,7 @@ import { boundedToolDetails } from "../node/message-details.js";
 import { join } from "node:path";
 import { BACKGROUND_CONTEXT, JsonlSessionRepo, NodeExecutionEnv, laneConfig, operationResult, type Session, type OperationResultRecord, type Entry, type JsonlSessionMetadata, type LaneConfiguration } from "@earendil-works/pi-agent-core/node";
 import { AgentSessionRegistry } from "./agent-session-registry.js";
+import { modelFailureFrom, modelFailureText } from "./model-failure.js";
 import { readProject } from "../../project/project-registry.js";
 import { metadataRoot } from "../../storage/persistence.js";
 import type { SessionStats } from "@pi-science/contracts";
@@ -35,12 +36,16 @@ function firstPageWindow(entries: Entry[], limit: number): Entry[] {
 function asMessage(entry: Entry): SessionMessageRecord | null {
   if (entry.type !== "message") return null;
   const message = entry.message as unknown as Record<string, unknown>;
+  const content = Array.isArray(message.content) ? message.content as Array<Record<string, unknown>>
+    : typeof message.content === "string" ? [{ type: "text", text: message.content }] : [];
+  // A provider failure is persisted as an assistant message with no content at all; keep the reason
+  // visible in history instead of returning an empty array.
+  const failure = content.length === 0 ? modelFailureFrom(message) : null;
   return {
     id: entry.id,
     role: String(message.role ?? ""),
     ...(typeof message.client_message_id === "string" ? { client_message_id: message.client_message_id } : {}),
-    content: Array.isArray(message.content) ? message.content as Array<Record<string, unknown>>
-      : typeof message.content === "string" ? [{ type: "text", text: message.content }] : [],
+    content: failure ? [{ type: "text", text: modelFailureText(failure) }] : content,
     ...(typeof message.toolCallId === "string" ? { toolCallId: message.toolCallId } : {}),
     ...(typeof message.toolName === "string" ? { toolName: message.toolName } : {}),
     ...(typeof message.isError === "boolean" ? { isError: message.isError } : {}),

@@ -1,5 +1,6 @@
 import { networkGrantsPath } from "./network-grants.js";
-import { mkdtemp, mkdir, rm, writeFile, readFile, stat, realpath, copyFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, readFile, stat, realpath } from "node:fs/promises";
+import { writeSandboxCaBundle } from "./certificates.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
@@ -23,28 +24,6 @@ export async function readLauncherTiming(phasePath: string): Promise<{ started_a
     const terminal = ["setup_timeout", "command_timeout", "grant_revoked", "owner_lost", "closed"].find((mark) => typeof marks[mark] === "number");
     return { started_at: marks.started, ...(spawned !== undefined ? { spawned_at: spawned, setup_ms: spawned - marks.started } : {}), ...(terminal ? { terminal } : {}) };
   } catch { return undefined; }
-}
-/** The store macOS itself verifies against. Apple's `/etc/ssl/cert.pem` is a
- * legacy LibreSSL snapshot that lags the root program, so a site the host
- * trusts fails inside the sandbox with "unable to get local issuer
- * certificate". The keychain export holds the anchors the host uses, and a
- * root Apple withdrew stops being trusted here too. */
-export const macosRootKeychain = "/System/Library/Keychains/SystemRootCertificates.keychain";
-export type CertificateCommand = (file: string, args: readonly string[]) => Promise<{ stdout: string }>;
-const runCertificateCommand: CertificateCommand = (file, args) => runFile(file, [...args], { timeout: 15_000, maxBuffer: 16 * 1024 * 1024 });
-export async function writeCertificateBundle(scratch: string, run: CertificateCommand = runCertificateCommand): Promise<string | undefined> {
-  const certificate = join(scratch, "system-ca.pem");
-  if (process.platform === "darwin") {
-    // An unusable export falls through to the PEM files below rather than
-    // writing a bundle that would silently verify nothing.
-    const { stdout } = await run("/usr/bin/security", ["find-certificate", "-a", "-p", macosRootKeychain]).catch(() => ({ stdout: "" }));
-    if (stdout.includes("BEGIN CERTIFICATE")) { await writeFile(certificate, stdout, { mode: 0o600 }); return certificate; }
-  }
-  for (const source of process.platform === "darwin" ? ["/etc/ssl/cert.pem"] : ["/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt"]) {
-    try { await copyFile(source, certificate); return certificate; }
-    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-  }
-  return undefined;
 }
 export async function prepareSandbox(policy: SandboxPolicy, argv: string[], dependencies: string[], timeoutSeconds: number, kernelBridge?: string, installation?: RuntimeInstallation, scopedEnvironment: Record<string, string> = {}): Promise<PreparedSandbox> {
   const prepareStarted = performance.now();
@@ -70,10 +49,10 @@ export async function prepareSandbox(policy: SandboxPolicy, argv: string[], depe
     for (const path of dependencies) if ((await stat(path)).isDirectory()) bins.push(join(path, "bin"));
     if (dependencies.includes(process.execPath)) bins.unshift(dirname(process.execPath));
     const scoped = Object.fromEntries(Object.entries(scopedEnvironment).filter(([key]) => !/^(?:(?:https?|all|no)_proxy|PI_SCIENCE_SANDBOX_HTTP_PROXY)$/i.test(key)));
-    const certificate = await writeCertificateBundle(scratch);
+    const certificate = await writeSandboxCaBundle(scratch);
     const env = { ...scoped, PATH: [...bins, "/usr/bin", "/bin"].join(":"), HOME: scratch, TMPDIR: scratch, TMP: scratch, TEMP: scratch,
       XDG_CACHE_HOME: scratch, MPLCONFIGDIR: scratch, LANG: "C.UTF-8", OPENBLAS_NUM_THREADS: "1", OMP_NUM_THREADS: "1", PYTHONNOUSERSITE: "1", NODE_USE_ENV_PROXY: "1",
-      ...(certificate ? { SSL_CERT_FILE: certificate, CURL_CA_BUNDLE: certificate, REQUESTS_CA_BUNDLE: certificate, NODE_EXTRA_CA_CERTS: certificate, ...(policy.profile === "install" ? { MAMBA_SSL_VERIFY: certificate, CONDA_SSL_VERIFY: certificate } : {}) } : {}) };
+      SSL_CERT_FILE: certificate, CURL_CA_BUNDLE: certificate, REQUESTS_CA_BUNDLE: certificate, NODE_EXTRA_CA_CERTS: certificate, ...(policy.profile === "install" ? { MAMBA_SSL_VERIFY: certificate, CONDA_SSL_VERIFY: certificate } : {}) };
     const settingsPath = join(control, "settings.json"); const manifest = join(control, "launch.json"); const shell = join(control, "bash"); const phasePath = join(control, "phase.json");
     await writeFile(settingsPath, JSON.stringify(settings), { mode: 0o600 });
     const supervisor = await prepareMacosSupervisor(control);

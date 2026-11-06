@@ -9,6 +9,7 @@ import { CitationAutoVerifyService } from "../citations/citation-auto-verify.js"
 import { durableEventStore } from "../events/event-store.js";
 import type { RuntimeResult, RuntimeSkillPolicy } from "../agent/agent-runtime-types.js";
 import { AgentCoreSessionService } from "../agent/agent-core-session-service.js";
+import { reportModelFailure } from "../agent/model-failure.js";
 import { agentModelCatalog, agentModels } from "../agent/worker/agent-models.js";
 import { getSupportedThinkingLevels } from "@earendil-works/pi-ai";
 import { loadDefaultPiConfig } from "../agent/runtime-config.js";
@@ -52,7 +53,7 @@ export class NodeSessionService {
   private memoryHooks?: {settled:(cwd:string,sessionId:string,turnId:string,status:string)=>Promise<void>;deleted:(cwd:string,sessionId:string)=>Promise<void>};
   configureMemory(hooks:NonNullable<NodeSessionService["memoryHooks"]>){this.memoryHooks=hooks;}
   private readonly statsProjector = new SessionStatsProjector();
-  private log: (level: "info" | "warn" | "error", message: string) => void = () => {};
+  private log: (level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>) => void = () => {};
   constructor(
     private readonly eventHub: ConversationEventHub = conversationEventHub,
     private readonly repository: SessionRepository = sessionRepository,
@@ -64,7 +65,10 @@ export class NodeSessionService {
   ) {
     this.agentCore = new AgentCoreSessionService(eventHub, environments, agentCoreServer);
     this.agentCore.configureProductLifecycle({
-      observe: (cwd, sessionId, event) => this.statsProjector.track(runtimeKey(cwd, sessionId), event, Date.now()),
+      observe: (cwd, sessionId, event) => {
+        this.statsProjector.track(runtimeKey(cwd, sessionId), event, Date.now());
+        reportModelFailure(this.log, event);
+      },
       settled: (cwd, sessionId, turnId, status) => {
         this.citationsAutoVerify.schedule(cwd, sessionId, turnId, this.log);
         if (this.memoryHooks) void this.memoryHooks.settled(cwd, sessionId, turnId, status).catch(error => this.log("warn", String(error)));
@@ -80,7 +84,7 @@ export class NodeSessionService {
   }
 
 
-  configureLogging(log: (level: "info" | "warn" | "error", message: string) => void): void { this.log = log; }
+  configureLogging(log: (level: "info" | "warn" | "error", message: string, fields?: Record<string, unknown>) => void): void { this.log = log; }
   configureBeforeRuntimeStart(hook: ((cwd: string) => Promise<void>) | null): void { this.agentCore.configureBeforeStart(hook); }
 
   async create(body: CreateSessionRequest): Promise<{ id: string; cwd: string; project_id: string } | RuntimeFailure> { return this.admitted(body.cwd, () => this.createAdmitted(body), (error) => ({ error: error.message, code: "busy" })); }
