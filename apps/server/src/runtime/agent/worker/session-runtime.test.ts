@@ -244,7 +244,8 @@ it("refreshes instructions between model generations in the same tool-using turn
   expect(JSON.stringify(requests[1]!.messages)).not.toContain("BEFORE_TOOL_EDIT");
   expect(JSON.stringify(requests[1]!.messages)).toContain("AFTER_TOOL_EDIT");
   expect(await readFile(join(parts.executionEnv.cwd, "AGENTS.md"), "utf8")).toBe("AFTER_TOOL_EDIT");
-});
+  // Include runtime setup and sandboxed writes in addition to the 10s generation wait.
+}, 20_000);
 
 it("shares core rules with a delegated role without assigning the main role", async () => {
   const { instance, parts } = await runtime(undefined, {
