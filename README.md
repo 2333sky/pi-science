@@ -289,6 +289,13 @@ when the Worker is disposed.
 
 ## Development
 
+`pnpm dev` (or `pnpm dev:server`) precompiles the Agent Core worker to
+`apps/server/.dev-dist/` before starting the control plane. The worker is forked
+with plain Node instead of `tsx`, which removes the 5-7s transpile step from every
+session start. The mirror is rebuilt automatically when server or contracts
+sources change; set `PI_SCIENCE_DEV_WORKER=0` to fall back to `tsx`, or run
+`pnpm --filter @pi-science/server build:dev-worker` to precompile without starting.
+
 ```bash
 # JavaScript and TypeScript tests
 pnpm test

@@ -28,6 +28,8 @@ export type ConversationEventHubOptions = {
 
 export type BindingOptions = {
   activeSessionId: () => string | null;
+  /** Worker startup cost measured by the runtime client, for the startup log line. */
+  startupMs?: number;
   onBusy: (busy: boolean) => void;
   onExit: () => void;
   observe?: (event: ProductInput, sessionId: string, identity: { turnId: string; turnOrdinal: number } | undefined) => Promise<void> | void;

@@ -1,6 +1,6 @@
+import { writeSandboxCaBundle } from "./certificates.js";
 import { networkGrantsPath } from "./network-grants.js";
 import { mkdtemp, mkdir, rm, writeFile, readFile, stat, realpath } from "node:fs/promises";
-import { writeSandboxCaBundle } from "./certificates.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
