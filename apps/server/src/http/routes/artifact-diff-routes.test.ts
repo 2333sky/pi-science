@@ -22,7 +22,10 @@ async function makeWorkspace(): Promise<string> {
   return cwd;
 }
 
-async function publish(cwd: string, path: string): Promise<{ artifact_id: string; version: number; sha256: string }> {
+async function publish(
+  cwd: string,
+  path: string,
+): Promise<{ artifact_id: string; version: number; sha256: string }> {
   const app = apps[0]!;
   const response = await app.inject({
     method: "POST",
@@ -43,10 +46,42 @@ async function setup(): Promise<{ cwd: string }> {
 
 describe("diffKindFor", () => {
   it("classifies text, tables and images", () => {
-    expect(diffKindFor({ artifact_id: "a", version: 1, path: "notes/report.md", mime: "text/markdown", sha256: "x" })).toBe("text");
-    expect(diffKindFor({ artifact_id: "a", version: 1, path: "data/table.csv", mime: "text/csv", sha256: "x" })).toBe("table");
-    expect(diffKindFor({ artifact_id: "a", version: 1, path: "fig/plot.png", mime: "image/png", sha256: "x" })).toBe("image");
-    expect(diffKindFor({ artifact_id: "a", version: 1, path: "bin/model.pt", mime: "application/octet-stream", sha256: "x" })).toBe("unsupported");
+    expect(
+      diffKindFor({
+        artifact_id: "a",
+        version: 1,
+        path: "notes/report.md",
+        mime: "text/markdown",
+        sha256: "x",
+      }),
+    ).toBe("text");
+    expect(
+      diffKindFor({
+        artifact_id: "a",
+        version: 1,
+        path: "data/table.csv",
+        mime: "text/csv",
+        sha256: "x",
+      }),
+    ).toBe("table");
+    expect(
+      diffKindFor({
+        artifact_id: "a",
+        version: 1,
+        path: "fig/plot.png",
+        mime: "image/png",
+        sha256: "x",
+      }),
+    ).toBe("image");
+    expect(
+      diffKindFor({
+        artifact_id: "a",
+        version: 1,
+        path: "bin/model.pt",
+        mime: "application/octet-stream",
+        sha256: "x",
+      }),
+    ).toBe("unsupported");
   });
 });
 
@@ -63,13 +98,18 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
       url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}&from=${first.version}&to=${second.version}`,
     });
     expect(response.statusCode).toBe(200);
-    const diff = response.json() as { kind: string; hunks: Array<{ header: string; lines: Array<{ type: string; text: string }> }> };
+    const diff = response.json() as {
+      kind: string;
+      hunks: Array<{ header: string; lines: Array<{ type: string; text: string }> }>;
+    };
     expect(diff.kind).toBe("text");
-    expect(diff.hunks[0]!.lines).toEqual(expect.arrayContaining([
-      { type: "-", text: "method one" },
-      { type: "+", text: "method two" },
-      { type: "+", text: "conclusion" },
-    ]));
+    expect(diff.hunks[0]!.lines).toEqual(
+      expect.arrayContaining([
+        { type: "-", text: "method one" },
+        { type: "+", text: "method two" },
+        { type: "+", text: "conclusion" },
+      ]),
+    );
     expect(diff.hunks[0]!.header).toMatch(/^@@ -\d+,\d+ \+\d+,\d+ @@$/);
   });
 
@@ -77,7 +117,11 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
     const { cwd } = await setup();
     await writeFile(join(cwd, "metrics.csv"), "epoch,loss,acc\n1,0.5,0.7\n2,0.4,0.8\n", "utf8");
     await publish(cwd, "metrics.csv");
-    await writeFile(join(cwd, "metrics.csv"), "epoch,loss,acc\n1,0.5,0.75\n2,0.4,0.8\n3,0.3,0.9\n", "utf8");
+    await writeFile(
+      join(cwd, "metrics.csv"),
+      "epoch,loss,acc\n1,0.5,0.75\n2,0.4,0.8\n3,0.3,0.9\n",
+      "utf8",
+    );
     const second = await publish(cwd, "metrics.csv");
 
     const response = await apps[0]!.inject({
@@ -85,7 +129,12 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
       url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}`,
     });
     expect(response.statusCode).toBe(200);
-    const diff = response.json() as { kind: string; cells: Array<{ row: number; column: string; from: string; to: string }>; rows_added: number; rows_removed: number };
+    const diff = response.json() as {
+      kind: string;
+      cells: Array<{ row: number; column: string; from: string; to: string }>;
+      rows_added: number;
+      rows_removed: number;
+    };
     expect(diff.kind).toBe("table");
     expect(diff.cells).toEqual([{ row: 2, column: "acc", from: "0.7", to: "0.75" }]);
     expect(diff.rows_added).toBe(1);
@@ -99,9 +148,15 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
     await writeFile(join(cwd, "notes.csv"), 'name,note\n"A,B",new\n', "utf8");
     const second = await publish(cwd, "notes.csv");
 
-    const response = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    const response = await apps[0]!.inject({
+      method: "GET",
+      url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}`,
+    });
     expect(response.statusCode).toBe(200);
-    const diff = response.json() as { kind: string; cells: Array<{ row: number; column: string; from: string; to: string }> };
+    const diff = response.json() as {
+      kind: string;
+      cells: Array<{ row: number; column: string; from: string; to: string }>;
+    };
     expect(diff.kind).toBe("table");
     expect(diff.cells).toEqual([{ row: 2, column: "note", from: "old", to: "new" }]);
   });
@@ -113,11 +168,21 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
     await writeFile(join(cwd, "multiline.csv"), 'id,note\n1,"line one\nline two!"\n', "utf8");
     const second = await publish(cwd, "multiline.csv");
 
-    const response = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    const response = await apps[0]!.inject({
+      method: "GET",
+      url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}`,
+    });
     expect(response.statusCode).toBe(200);
-    const diff = response.json() as { kind: string; cells: Array<{ row: number; column: string; from: string; to: string }>; rows_added: number; rows_removed: number };
+    const diff = response.json() as {
+      kind: string;
+      cells: Array<{ row: number; column: string; from: string; to: string }>;
+      rows_added: number;
+      rows_removed: number;
+    };
     expect(diff.kind).toBe("table");
-    expect(diff.cells).toEqual([{ row: 2, column: "note", from: "line one\nline two", to: "line one\nline two!" }]);
+    expect(diff.cells).toEqual([
+      { row: 2, column: "note", from: "line one\nline two", to: "line one\nline two!" },
+    ]);
     expect(diff.rows_added).toBe(0);
     expect(diff.rows_removed).toBe(0);
   });
@@ -133,11 +198,21 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
     await writeFile(join(cwd, "tabbed.tsv"), 'id\tnote\n1\t"a\tc"\n', "utf8");
     const tsv = await publish(cwd, "tabbed.tsv");
 
-    const csvResponse = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${csv.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
-    expect((csvResponse.json() as { cells: unknown }).cells).toEqual([{ row: 2, column: "note", from: 'say "hi"', to: 'say "bye"' }]);
+    const csvResponse = await apps[0]!.inject({
+      method: "GET",
+      url: `/api/artifacts/${csv.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}`,
+    });
+    expect((csvResponse.json() as { cells: unknown }).cells).toEqual([
+      { row: 2, column: "note", from: 'say "hi"', to: 'say "bye"' },
+    ]);
 
-    const tsvResponse = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${tsv.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
-    expect((tsvResponse.json() as { cells: unknown }).cells).toEqual([{ row: 2, column: "note", from: "a\tb", to: "a\tc" }]);
+    const tsvResponse = await apps[0]!.inject({
+      method: "GET",
+      url: `/api/artifacts/${tsv.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}`,
+    });
+    expect((tsvResponse.json() as { cells: unknown }).cells).toEqual([
+      { row: 2, column: "note", from: "a\tb", to: "a\tc" },
+    ]);
   });
 
   it("reports the line diff alone when a quote is never closed", async () => {
@@ -147,9 +222,17 @@ describe("GET /api/artifacts/:artifact_id/diff", () => {
     await writeFile(join(cwd, "broken.csv"), 'name,note\n"a,b,new\n', "utf8");
     const second = await publish(cwd, "broken.csv");
 
-    const response = await apps[0]!.inject({ method: "GET", url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}` });
+    const response = await apps[0]!.inject({
+      method: "GET",
+      url: `/api/artifacts/${second.artifact_id}/diff?cwd=${encodeURIComponent(cwd)}`,
+    });
     expect(response.statusCode).toBe(200);
-    const diff = response.json() as { kind: string; cells: unknown[]; cells_unavailable?: string; hunks: Array<{ lines: Array<{ type: string; text: string }> }> };
+    const diff = response.json() as {
+      kind: string;
+      cells: unknown[];
+      cells_unavailable?: string;
+      hunks: Array<{ lines: Array<{ type: string; text: string }> }>;
+    };
     expect(diff.cells).toEqual([]);
     expect(diff.cells_unavailable).toBe("unbalanced_quotes");
     expect(diff.hunks[0]!.lines).toEqual(expect.arrayContaining([{ type: "+", text: '"a,b,new' }]));
@@ -203,7 +286,11 @@ describe("GET /api/artifacts/by-path/*", () => {
       url: `/api/artifacts/by-path/figures/plot.png?cwd=${encodeURIComponent(cwd)}`,
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({ artifact_id: second.artifact_id, version: 2, sha256: second.sha256 });
+    expect(response.json()).toMatchObject({
+      artifact_id: second.artifact_id,
+      version: 2,
+      sha256: second.sha256,
+    });
 
     const pinned = await apps[0]!.inject({
       method: "GET",

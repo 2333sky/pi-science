@@ -45,12 +45,33 @@ describe("isReportTurn", () => {
 describe("buildScienceEvidence", () => {
   it("reports every citation in the text, including the ones with no snapshot", async () => {
     const cwd = await makeWorkspace();
-    await writeFile(join(cwd, ".pi-science/citations.jsonl"), `${JSON.stringify({
-      schema: 2, kind: "doi", id: "10.1038/verified", status: "found", title: "Verified Paper", authors: ["Ada Lovelace"], journal: "Nature", year: "2024",
-      abstract: "A measured summary of the recorded result.", oa_url: null, retraction: "clear", retraction_note: null, retraction_url: null,
-      checked_providers: ["crossref"], record_version: null, status_note: null, verified_at: new Date().toISOString(),
-    })}\n`);
-    const evidence = await buildScienceEvidence(cwd, "Cites 10.1038/verified, 10.9999/unchecked-one and arXiv:2401.99999v1 here.", "s1");
+    await writeFile(
+      join(cwd, ".pi-science/citations.jsonl"),
+      `${JSON.stringify({
+        schema: 2,
+        kind: "doi",
+        id: "10.1038/verified",
+        status: "found",
+        title: "Verified Paper",
+        authors: ["Ada Lovelace"],
+        journal: "Nature",
+        year: "2024",
+        abstract: "A measured summary of the recorded result.",
+        oa_url: null,
+        retraction: "clear",
+        retraction_note: null,
+        retraction_url: null,
+        checked_providers: ["crossref"],
+        record_version: null,
+        status_note: null,
+        verified_at: new Date().toISOString(),
+      })}\n`,
+    );
+    const evidence = await buildScienceEvidence(
+      cwd,
+      "Cites 10.1038/verified, 10.9999/unchecked-one and arXiv:2401.99999v1 here.",
+      "s1",
+    );
     expect(evidence).toContain("doi:10.1038/verified [verified] Verified Paper (2024), Nature");
     // The reviewer needs the source's own words, and the limits of them.
     expect(evidence).toContain("A measured summary of the recorded result.");
@@ -70,8 +91,17 @@ describe("buildScienceEvidence", () => {
   it("includes execution records when present", async () => {
     const cwd = await makeWorkspace();
     const { executionRepository } = await import("../runtime/executions/execution-repository.js");
-    const started = await executionRepository.start(cwd, { kind: "kernel_cell", surface: "python", producer: "test", correlation: { session_id: "s1" } });
-    await executionRepository.finish(cwd, started.execution_id, { status: "succeeded", producer: "test", result: { stdout_preview: "accuracy=0.91" } });
+    const started = await executionRepository.start(cwd, {
+      kind: "kernel_cell",
+      surface: "python",
+      producer: "test",
+      correlation: { session_id: "s1" },
+    });
+    await executionRepository.finish(cwd, started.execution_id, {
+      status: "succeeded",
+      producer: "test",
+      result: { stdout_preview: "accuracy=0.91" },
+    });
     const evidence = await buildScienceEvidence(cwd, "plain text", "s1");
     expect(evidence).toContain("kernel_cell/python succeeded");
     expect(evidence).toContain("accuracy=0.91");
@@ -80,7 +110,10 @@ describe("buildScienceEvidence", () => {
 
 describe("scienceReviewPrompt", () => {
   it("instructs the four integrity checks and embeds evidence", () => {
-    const prompt = scienceReviewPrompt(excerpt, "Verified citation evidence:\n- doi:10.1/x [verified] Paper");
+    const prompt = scienceReviewPrompt(
+      excerpt,
+      "Verified citation evidence:\n- doi:10.1/x [verified] Paper",
+    );
     expect(prompt).toContain("Claims vs execution");
     expect(prompt).toContain("Numbers vs sources");
     expect(prompt).toContain("Citations vs claims");

@@ -2,16 +2,30 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CitationAutoVerifyService, citationAutoVerifyEnabled, finalAnswerForTurn, MAX_VERIFY_ROUNDS } from "./citation-auto-verify.js";
+import {
+  CitationAutoVerifyService,
+  citationAutoVerifyEnabled,
+  finalAnswerForTurn,
+  MAX_VERIFY_ROUNDS,
+} from "./citation-auto-verify.js";
 import type { SessionMessageRecord } from "../node/session-repository.js";
-import { citationVerifyService, MAX_CITATIONS_PER_CALL, type CitationDeps, type CitationRef, type CitationView, type VerifyCitationsResult } from "./citation-verify-service.js";
+import {
+  citationVerifyService,
+  MAX_CITATIONS_PER_CALL,
+  type CitationDeps,
+  type CitationRef,
+  type CitationView,
+  type VerifyCitationsResult,
+} from "./citation-verify-service.js";
 
 const homes: string[] = [];
 const workspaces: string[] = [];
 
 afterEach(async () => {
   vi.unstubAllEnvs();
-  await Promise.all([...homes, ...workspaces].splice(0).map((path) => rm(path, { recursive: true, force: true })));
+  await Promise.all(
+    [...homes, ...workspaces].splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
 });
 
 /** A workspace plus an isolated settings home holding the stored switch. */
@@ -28,12 +42,24 @@ async function fixture(settings: Record<string, unknown>): Promise<string> {
 
 const ON = { citation_auto_verify: true };
 const OFF = { citation_auto_verify: false };
-const FAST: CitationDeps["minimumInterval"] = { "api.crossref.org": 0, "api.unpaywall.org": 0, "export.arxiv.org": 0, "doi.org": 0 };
+const FAST: CitationDeps["minimumInterval"] = {
+  "api.crossref.org": 0,
+  "api.unpaywall.org": 0,
+  "export.arxiv.org": 0,
+  "doi.org": 0,
+};
 
 /** A stored message as a real session writes it: no `presentationRole`, because
  *  the runtime only started marking it after these sessions were recorded. */
 function message(text: string, extra: Partial<SessionMessageRecord> = {}): SessionMessageRecord {
-  return { id: `msg-${text.slice(0, 8)}`, role: "assistant", content: [{ type: "text", text }], turnId: "turn-1", turnStatus: "completed", ...extra };
+  return {
+    id: `msg-${text.slice(0, 8)}`,
+    role: "assistant",
+    content: [{ type: "text", text }],
+    turnId: "turn-1",
+    turnStatus: "completed",
+    ...extra,
+  };
 }
 
 function toolCall(): SessionMessageRecord {
@@ -41,46 +67,107 @@ function toolCall(): SessionMessageRecord {
 }
 
 const view = (id: string, status: CitationView["status"] = "found"): CitationView => ({
-  schema: 2, kind: "doi", id, status, title: "A Paper", authors: [], journal: null, year: "2024", volume: null, issue: null, pages: null, abstract: null, oa_url: null,
-  retraction: "clear", retraction_note: null, retraction_url: null, checked_providers: ["crossref"], error: null, record_version: null, status_note: null,
-  verified_at: new Date().toISOString(), requested_id: id, requested_version: null, version: "not_applicable", bibliographic: "not_compared", bibliographic_note: null, cached: false,
+  schema: 2,
+  kind: "doi",
+  id,
+  status,
+  title: "A Paper",
+  authors: [],
+  journal: null,
+  year: "2024",
+  volume: null,
+  issue: null,
+  pages: null,
+  abstract: null,
+  oa_url: null,
+  retraction: "clear",
+  retraction_note: null,
+  retraction_url: null,
+  checked_providers: ["crossref"],
+  error: null,
+  record_version: null,
+  status_note: null,
+  verified_at: new Date().toISOString(),
+  requested_id: id,
+  requested_version: null,
+  version: "not_applicable",
+  bibliographic: "not_compared",
+  bibliographic_note: null,
+  cached: false,
 });
 
 const verifyResult = (citations: CitationView[]): VerifyCitationsResult => ({
-  text_sha256: "abc", total: citations.length, processed: citations.length, unprocessed: [], citations,
+  text_sha256: "abc",
+  total: citations.length,
+  processed: citations.length,
+  unprocessed: [],
+  citations,
 });
 
-function service(messages: SessionMessageRecord[], verify = vi.fn(async (_cwd: string, _input: { text: string }) => verifyResult([view("10.1038/one")]))) {
-  return { svc: new CitationAutoVerifyService({ messages: async () => messages }, verify as never), verify };
+function service(
+  messages: SessionMessageRecord[],
+  verify = vi.fn(async (_cwd: string, _input: { text: string }) =>
+    verifyResult([view("10.1038/one")]),
+  ),
+) {
+  return {
+    svc: new CitationAutoVerifyService({ messages: async () => messages }, verify as never),
+    verify,
+  };
 }
 
-const crossrefOk = (message: Record<string, unknown>) => ({ ok: true, status: 200, json: async () => ({ status: "ok", message }) }) as unknown as Response;
+const crossrefOk = (message: Record<string, unknown>) =>
+  ({ ok: true, status: 200, json: async () => ({ status: "ok", message }) }) as unknown as Response;
 const PAPER = { title: ["Batch Paper"], author: [], issued: { "date-parts": [[2020]] } };
 
 /** The real verify service behind a stub provider, so the batching and the
  *  snapshot cache are exercised rather than stood in for. */
 function realService(messages: SessionMessageRecord[], fetchMock: typeof fetch) {
   const calls: Array<{ text: string; ids?: CitationRef[] }> = [];
-  const verify = (cwd: string, input: { text: string; ids?: CitationRef[] }) => { calls.push(input); return citationVerifyService.verify(cwd, input, { fetch: fetchMock, minimumInterval: FAST }); };
-  return { svc: new CitationAutoVerifyService({ messages: async () => messages }, verify as never), calls };
+  const verify = (cwd: string, input: { text: string; ids?: CitationRef[] }) => {
+    calls.push(input);
+    return citationVerifyService.verify(cwd, input, { fetch: fetchMock, minimumInterval: FAST });
+  };
+  return {
+    svc: new CitationAutoVerifyService({ messages: async () => messages }, verify as never),
+    calls,
+  };
 }
 
 describe("finalAnswerForTurn", () => {
   it("joins the text parts of the turn's last assistant message in order", () => {
-    const messages = [message("", { content: [{ type: "text", text: "First half. " }, { type: "thinking", text: "hidden" }, { type: "text", text: "Second half." }] })];
+    const messages = [
+      message("", {
+        content: [
+          { type: "text", text: "First half. " },
+          { type: "thinking", text: "hidden" },
+          { type: "text", text: "Second half." },
+        ],
+      }),
+    ];
     expect(finalAnswerForTurn(messages, "turn-1")).toBe("First half. Second half.");
   });
 
   it("prefers the last explicitly final message over the intermediate commentary before it", () => {
-    const messages = [message("Let me look that up.", { presentationRole: "intermediate" }), message("Found three sources.", { presentationRole: "intermediate" }), message("The answer cites 10.1038/one.", { presentationRole: "final" })];
+    const messages = [
+      message("Let me look that up.", { presentationRole: "intermediate" }),
+      message("Found three sources.", { presentationRole: "intermediate" }),
+      message("The answer cites 10.1038/one.", { presentationRole: "final" }),
+    ];
     expect(finalAnswerForTurn(messages, "turn-1")).toBe("The answer cites 10.1038/one.");
     // A final marker stays the answer even when commentary follows it.
-    const trailing = [...messages, message("Note added afterwards.", { presentationRole: "intermediate" })];
+    const trailing = [
+      ...messages,
+      message("Note added afterwards.", { presentationRole: "intermediate" }),
+    ];
     expect(finalAnswerForTurn(trailing, "turn-1")).toBe("The answer cites 10.1038/one.");
   });
 
   it("takes the last of several final messages", () => {
-    const messages = [message("Draft answer.", { presentationRole: "final" }), message("Rewritten answer.", { presentationRole: "final" })];
+    const messages = [
+      message("Draft answer.", { presentationRole: "final" }),
+      message("Rewritten answer.", { presentationRole: "final" }),
+    ];
     expect(finalAnswerForTurn(messages, "turn-1")).toBe("Rewritten answer.");
   });
 
@@ -93,14 +180,32 @@ describe("finalAnswerForTurn", () => {
   it("returns null for an empty answer instead of falling back to an earlier message", () => {
     expect(finalAnswerForTurn([message("   ")], "turn-1")).toBeNull();
     expect(finalAnswerForTurn([message("")], "turn-1")).toBeNull();
-    expect(finalAnswerForTurn([message("An earlier answer."), message("  ", { presentationRole: "final" })], "turn-1")).toBeNull();
+    expect(
+      finalAnswerForTurn(
+        [message("An earlier answer."), message("  ", { presentationRole: "final" })],
+        "turn-1",
+      ),
+    ).toBeNull();
     expect(finalAnswerForTurn([], "turn-1")).toBeNull();
   });
 
   it("returns null when the last message is marked intermediate", () => {
-    expect(finalAnswerForTurn([message("Still working.", { presentationRole: "intermediate" })], "turn-1")).toBeNull();
+    expect(
+      finalAnswerForTurn(
+        [message("Still working.", { presentationRole: "intermediate" })],
+        "turn-1",
+      ),
+    ).toBeNull();
     // The marker on the last message decides; the earlier text is not the answer.
-    expect(finalAnswerForTurn([message("An earlier answer."), message("Still working.", { presentationRole: "intermediate" })], "turn-1")).toBeNull();
+    expect(
+      finalAnswerForTurn(
+        [
+          message("An earlier answer."),
+          message("Still working.", { presentationRole: "intermediate" }),
+        ],
+        "turn-1",
+      ),
+    ).toBeNull();
   });
 
   it("refuses a turn that did not complete normally", () => {
@@ -110,13 +215,17 @@ describe("finalAnswerForTurn", () => {
   });
 
   it("returns null when the turn holds no assistant message", () => {
-    expect(finalAnswerForTurn([message("Cites 10.1038/one.", { role: "user" })], "turn-1")).toBeNull();
+    expect(
+      finalAnswerForTurn([message("Cites 10.1038/one.", { role: "user" })], "turn-1"),
+    ).toBeNull();
   });
 
   it("never reads another turn's answer", () => {
     const previous = message("The previous turn's answer cites 10.1038/old.", { turnId: "turn-1" });
     expect(finalAnswerForTurn([previous], "turn-2")).toBeNull();
-    expect(finalAnswerForTurn([previous], "turn-1")).toBe("The previous turn's answer cites 10.1038/old.");
+    expect(finalAnswerForTurn([previous], "turn-1")).toBe(
+      "The previous turn's answer cites 10.1038/old.",
+    );
     // The asked turn answers from its own last message, never from the older turn.
     const asked = message("This turn cites 10.1038/new.", { turnId: "turn-2" });
     expect(finalAnswerForTurn([previous, asked], "turn-2")).toBe("This turn cites 10.1038/new.");
@@ -181,7 +290,9 @@ describe("CitationAutoVerifyService", () => {
     const { svc, calls } = realService([message(text)], fetchMock);
     const summary = await svc.run(cwd, "session-1", "turn-1");
     expect(summary).toMatchObject({ ran: true, citations: MAX_CITATIONS_PER_CALL + 2 });
-    expect(summary.reason).toBe(`Checked ${MAX_CITATIONS_PER_CALL + 2} of ${MAX_CITATIONS_PER_CALL + 2} citations`);
+    expect(summary.reason).toBe(
+      `Checked ${MAX_CITATIONS_PER_CALL + 2} of ${MAX_CITATIONS_PER_CALL + 2} citations`,
+    );
     expect(fetchMock).toHaveBeenCalledTimes(MAX_CITATIONS_PER_CALL + 2);
     // The second round names the sources left over instead of re-scanning the answer.
     expect(calls).toHaveLength(2);
@@ -199,7 +310,8 @@ describe("CitationAutoVerifyService", () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const path = decodeURIComponent(new URL(String(input)).pathname);
       queries.push(path);
-      if (limited && path.endsWith("10.1038/limited")) return { ok: false, status: 429, json: async () => ({}) } as unknown as Response;
+      if (limited && path.endsWith("10.1038/limited"))
+        return { ok: false, status: 429, json: async () => ({}) } as unknown as Response;
       return crossrefOk(PAPER);
     }) as unknown as typeof fetch;
     const { svc } = realService([message("Cites 10.1038/known and 10.1038/limited.")], fetchMock);
@@ -233,9 +345,16 @@ describe("CitationAutoVerifyService", () => {
       "session-2": [message("Session two cites 10.1038/beta.")],
     };
     const queries: string[] = [];
-    const fetchMock = vi.fn(async (input: string | URL | Request) => { queries.push(decodeURIComponent(new URL(String(input)).pathname)); return crossrefOk(PAPER); }) as unknown as typeof fetch;
-    const verify = (cwdArg: string, input: { text: string; ids?: CitationRef[] }) => citationVerifyService.verify(cwdArg, input, { fetch: fetchMock, minimumInterval: FAST });
-    const svc = new CitationAutoVerifyService({ messages: async (_cwd, sessionId) => bySession[sessionId] ?? [] }, verify as never);
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      queries.push(decodeURIComponent(new URL(String(input)).pathname));
+      return crossrefOk(PAPER);
+    }) as unknown as typeof fetch;
+    const verify = (cwdArg: string, input: { text: string; ids?: CitationRef[] }) =>
+      citationVerifyService.verify(cwdArg, input, { fetch: fetchMock, minimumInterval: FAST });
+    const svc = new CitationAutoVerifyService(
+      { messages: async (_cwd, sessionId) => bySession[sessionId] ?? [] },
+      verify as never,
+    );
 
     expect((await svc.run(cwd, "session-1", "turn-1")).reason).toBe("Checked 1 of 1 citations");
     expect((await svc.run(cwd, "session-2", "turn-1")).reason).toBe("Checked 1 of 1 citations");
@@ -251,21 +370,37 @@ describe("CitationAutoVerifyService", () => {
     const cwd = await fixture(ON);
     const total = MAX_CITATIONS_PER_CALL * (MAX_VERIFY_ROUNDS + 2);
     const text = Array.from({ length: total }, (_, index) => `10.1038/p${index}`).join(" ");
-    const refs: CitationRef[] = Array.from({ length: total }, (_, index) => ({ kind: "doi", id: `10.1038/p${index}`, requested_id: `10.1038/p${index}`, requested_version: null }));
+    const refs: CitationRef[] = Array.from({ length: total }, (_, index) => ({
+      kind: "doi",
+      id: `10.1038/p${index}`,
+      requested_id: `10.1038/p${index}`,
+      requested_version: null,
+    }));
     let offset = 0;
     const verify = vi.fn(async (_cwd: string, _input: { text: string; ids?: CitationRef[] }) => {
       const batch = refs.slice(offset, offset + MAX_CITATIONS_PER_CALL);
       offset += batch.length;
-      return { text_sha256: "abc", total: refs.length, processed: batch.length, unprocessed: refs.slice(offset), citations: batch.map((ref) => view(ref.id)) };
+      return {
+        text_sha256: "abc",
+        total: refs.length,
+        processed: batch.length,
+        unprocessed: refs.slice(offset),
+        citations: batch.map((ref) => view(ref.id)),
+      };
     });
-    const svc = new CitationAutoVerifyService({ messages: async () => [message(text)] }, verify as never);
+    const svc = new CitationAutoVerifyService(
+      { messages: async () => [message(text)] },
+      verify as never,
+    );
 
     const summary = await svc.run(cwd, "session-1", "turn-1");
     const bounded = MAX_CITATIONS_PER_CALL * MAX_VERIFY_ROUNDS;
     expect(verify).toHaveBeenCalledTimes(MAX_VERIFY_ROUNDS);
     expect(summary.citations).toBe(bounded);
     expect(summary.reason).toContain(`Checked ${bounded} of ${total} citations`);
-    expect(summary.reason).toContain(`${total - bounded} left unchecked after ${MAX_VERIFY_ROUNDS} rounds`);
+    expect(summary.reason).toContain(
+      `${total - bounded} left unchecked after ${MAX_VERIFY_ROUNDS} rounds`,
+    );
     expect(verify.mock.calls[1]![1].ids![0]!.id).toBe("10.1038/p30");
     // The bound is final for this answer: a replay does not restart the work.
     expect((await svc.run(cwd, "session-1", "turn-1")).reason).toContain("already checked");
@@ -312,19 +447,30 @@ describe("CitationAutoVerifyService", () => {
 
   it("releases the claim when verification throws so the answer stays retryable", async () => {
     const cwd = await fixture(ON);
-    const failing = vi.fn(async () => { throw new Error("citations.jsonl is unwritable"); });
+    const failing = vi.fn(async () => {
+      throw new Error("citations.jsonl is unwritable");
+    });
     const { svc } = service([message("Cites 10.1038/one.")], failing as never);
-    expect(String(await svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error))).toContain("citations.jsonl is unwritable");
-    expect(String(await svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error))).toContain("citations.jsonl is unwritable");
+    expect(
+      String(await svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error)),
+    ).toContain("citations.jsonl is unwritable");
+    expect(
+      String(await svc.run(cwd, "session-1", "turn-1").catch((error: unknown) => error)),
+    ).toContain("citations.jsonl is unwritable");
     expect(failing).toHaveBeenCalledTimes(2);
   });
 
   it("leaves the claim when a regenerated answer replaced it mid-run", async () => {
     const cwd = await fixture(ON);
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = () => resolve(); });
+    const gate = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
     const verify = vi.fn(async (_cwd: string, input: { text: string }) => {
-      if (input.text.includes("old")) { await gate; throw new Error("boom"); }
+      if (input.text.includes("old")) {
+        await gate;
+        throw new Error("boom");
+      }
       return verifyResult([view("10.1038/new")]);
     });
     const stale = service([message("Cites 10.1038/old.")], verify as never);
@@ -337,16 +483,27 @@ describe("CitationAutoVerifyService", () => {
     release();
     expect(String(await inFlight)).toContain("boom");
     // The failed run released only its own claim; the new answer stays checked.
-    expect((await regenerated.svc.run(cwd, "session-1", "turn-1")).reason).toContain("already checked");
+    expect((await regenerated.svc.run(cwd, "session-1", "turn-1")).reason).toContain(
+      "already checked",
+    );
   });
 
   it("queues a second settled turn instead of dropping it", async () => {
     const cwd = await fixture(ON);
     const starts: string[] = [];
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = () => resolve(); });
-    const verify = vi.fn(async (_cwd: string, input: { text: string }) => { starts.push(input.text); await gate; return verifyResult([view("10.1038/one")]); });
-    const { svc } = service([message("Cites 10.1038/one."), message("Cites 10.1038/one.", { turnId: "turn-2" })], verify);
+    const gate = new Promise<void>((resolve) => {
+      release = () => resolve();
+    });
+    const verify = vi.fn(async (_cwd: string, input: { text: string }) => {
+      starts.push(input.text);
+      await gate;
+      return verifyResult([view("10.1038/one")]);
+    });
+    const { svc } = service(
+      [message("Cites 10.1038/one."), message("Cites 10.1038/one.", { turnId: "turn-2" })],
+      verify,
+    );
     svc.schedule(cwd, "session-1", "turn-1");
     svc.schedule(cwd, "session-1", "turn-2");
     await vi.waitFor(() => expect(starts).toHaveLength(1));

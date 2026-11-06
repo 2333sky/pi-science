@@ -9,9 +9,24 @@
  * subscription is needed.
  */
 import { createHash } from "node:crypto";
-import { configPath, readJson, withFileWriteLock, workspaceFile, writeJsonAtomic } from "../../storage/persistence.js";
-import { sessionRepository, type SessionMessageRecord, type SessionRepository } from "../node/session-repository.js";
-import { citationVerifyService, extractCitations, type CitationRef, type VerifyCitationsResult } from "./citation-verify-service.js";
+import {
+  configPath,
+  readJson,
+  withFileWriteLock,
+  workspaceFile,
+  writeJsonAtomic,
+} from "../../storage/persistence.js";
+import {
+  sessionRepository,
+  type SessionMessageRecord,
+  type SessionRepository,
+} from "../node/session-repository.js";
+import {
+  citationVerifyService,
+  extractCitations,
+  type CitationRef,
+  type VerifyCitationsResult,
+} from "./citation-verify-service.js";
 
 /** Settings key shared with the HTTP route and the settings store. */
 export const CITATION_AUTO_VERIFY_KEY = "citation_auto_verify";
@@ -40,18 +55,30 @@ export async function citationAutoVerifyEnabled(): Promise<boolean> {
  *  so the last assistant message stands in for the answer. That fallback never
  *  looks further back than the last message: an earlier commentary message is
  *  never the answer, however final it reads. */
-export function finalAnswerForTurn(messages: SessionMessageRecord[], turnId: string): string | null {
+export function finalAnswerForTurn(
+  messages: SessionMessageRecord[],
+  turnId: string,
+): string | null {
   const turn = messages.filter((message) => message.turnId === turnId);
   // A settle event can arrive before this turn's messages are readable, and a
   // recovered operation may never have stored any. The session's previous final
   // answer belongs to another turn: verifying it would break the "current turn
   // only" rule and file that answer under this turn's claim.
   if (!turn.length) return null;
-  if (turn.some((message) => message.turnStatus !== undefined && message.turnStatus !== "completed")) return null;
+  if (
+    turn.some((message) => message.turnStatus !== undefined && message.turnStatus !== "completed")
+  )
+    return null;
   const assistants = turn.filter((message) => message.role === "assistant");
-  const chosen = assistants.filter((message) => message.presentationRole === "final").at(-1) ?? (assistants.at(-1)?.presentationRole === "intermediate" ? undefined : assistants.at(-1));
+  const chosen =
+    assistants.filter((message) => message.presentationRole === "final").at(-1) ??
+    (assistants.at(-1)?.presentationRole === "intermediate" ? undefined : assistants.at(-1));
   if (!chosen) return null;
-  const text = chosen.content.filter((part) => part.type === "text" && typeof part.text === "string").map((part) => String(part.text)).join("").trim();
+  const text = chosen.content
+    .filter((part) => part.type === "text" && typeof part.text === "string")
+    .map((part) => String(part.text))
+    .join("")
+    .trim();
   return text || null;
 }
 
@@ -63,7 +90,12 @@ function claimsPath(cwd: string): string {
 
 /** Reserve one logical verification for this turn. False means this exact
  *  answer was already checked, so a replayed settle does no provider work. */
-async function claimTurn(cwd: string, sessionId: string, turnId: string, answerHash: string): Promise<boolean> {
+async function claimTurn(
+  cwd: string,
+  sessionId: string,
+  turnId: string,
+  answerHash: string,
+): Promise<boolean> {
   const file = claimsPath(cwd);
   return withFileWriteLock(file, async () => {
     const claims = await readJson<Claims>(file, {});
@@ -77,7 +109,12 @@ async function claimTurn(cwd: string, sessionId: string, turnId: string, answerH
   });
 }
 
-async function releaseTurn(cwd: string, sessionId: string, turnId: string, answerHash: string): Promise<void> {
+async function releaseTurn(
+  cwd: string,
+  sessionId: string,
+  turnId: string,
+  answerHash: string,
+): Promise<void> {
   const file = claimsPath(cwd);
   await withFileWriteLock(file, async () => {
     const claims = await readJson<Claims>(file, {});
@@ -91,7 +128,11 @@ async function releaseTurn(cwd: string, sessionId: string, turnId: string, answe
   });
 }
 
-export interface CitationAutoVerifySummary { ran: boolean; reason: string; citations: number }
+export interface CitationAutoVerifySummary {
+  ran: boolean;
+  reason: string;
+  citations: number;
+}
 
 const refKey = (ref: CitationRef): string => `${ref.kind}:${ref.id}`;
 
@@ -104,25 +145,46 @@ export class CitationAutoVerifyService {
     private readonly verify: typeof citationVerifyService.verify = citationVerifyService.verify,
   ) {}
 
-  schedule(cwd: string, sessionId: string, turnId: string, log: (level: "warn", message: string) => void = () => {}): void {
+  schedule(
+    cwd: string,
+    sessionId: string,
+    turnId: string,
+    log: (level: "warn", message: string) => void = () => {},
+  ): void {
     if (!cwd || !sessionId || !turnId) return;
     const key = `${cwd}\0${sessionId}`;
-    const next = (this.queue.get(key) ?? Promise.resolve()).catch(() => undefined)
+    const next = (this.queue.get(key) ?? Promise.resolve())
+      .catch(() => undefined)
       .then(() => this.run(cwd, sessionId, turnId))
-      .catch((error: unknown) => log("warn", `automatic citation verification failed for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`))
-      .finally(() => { if (this.queue.get(key) === next) this.queue.delete(key); });
+      .catch((error: unknown) =>
+        log(
+          "warn",
+          `automatic citation verification failed for session ${sessionId}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      )
+      .finally(() => {
+        if (this.queue.get(key) === next) this.queue.delete(key);
+      });
     this.queue.set(key, next);
   }
 
   async run(cwd: string, sessionId: string, turnId: string): Promise<CitationAutoVerifySummary> {
-    if (!(await citationAutoVerifyEnabled())) return { ran: false, reason: "Automatic citation verification is off", citations: 0 };
+    if (!(await citationAutoVerifyEnabled()))
+      return { ran: false, reason: "Automatic citation verification is off", citations: 0 };
     const messages = await this.repository.messages(cwd, sessionId);
     const answer = finalAnswerForTurn(messages, turnId);
-    if (!answer) return { ran: false, reason: "This turn has no completed final answer", citations: 0 };
+    if (!answer)
+      return { ran: false, reason: "This turn has no completed final answer", citations: 0 };
     const citations = extractCitations(answer);
-    if (!citations.length) return { ran: false, reason: "No supported DOI or arXiv identifier in the answer", citations: 0 };
+    if (!citations.length)
+      return {
+        ran: false,
+        reason: "No supported DOI or arXiv identifier in the answer",
+        citations: 0,
+      };
     const answerHash = createHash("sha256").update(answer).digest("hex");
-    if (!(await claimTurn(cwd, sessionId, turnId, answerHash))) return { ran: false, reason: "This answer was already checked", citations: 0 };
+    if (!(await claimTurn(cwd, sessionId, turnId, answerHash)))
+      return { ran: false, reason: "This answer was already checked", citations: 0 };
     // A turn can cite more sources than one call resolves, so the rest are
     // asked for by id until none are left. A source that already answered is
     // replayed from its snapshot, so a second round never queries it again.
@@ -132,13 +194,24 @@ export class CitationAutoVerifyService {
     let pending: CitationRef[] | undefined;
     try {
       for (let round = 1; ; round += 1) {
-        const result: VerifyCitationsResult = pending ? await this.verify(cwd, { text: answer, ids: pending }) : await this.verify(cwd, { text: answer });
+        const result: VerifyCitationsResult = pending
+          ? await this.verify(cwd, { text: answer, ids: pending })
+          : await this.verify(cwd, { text: answer });
         for (const citation of result.citations) {
-          if (citation.status === "error") failed.push({ kind: citation.kind, id: citation.id, requested_id: citation.requested_id, requested_version: citation.requested_version });
+          if (citation.status === "error")
+            failed.push({
+              kind: citation.kind,
+              id: citation.id,
+              requested_id: citation.requested_id,
+              requested_version: citation.requested_version,
+            });
           else checked += 1;
         }
         if (!result.unprocessed.length) break;
-        if (round >= MAX_VERIFY_ROUNDS) { unchecked = result.unprocessed; break; }
+        if (round >= MAX_VERIFY_ROUNDS) {
+          unchecked = result.unprocessed;
+          break;
+        }
         pending = result.unprocessed;
       }
     } catch (error) {
@@ -148,10 +221,15 @@ export class CitationAutoVerifyService {
       await releaseTurn(cwd, sessionId, turnId, answerHash);
       throw error;
     }
-    const coverage = checked === 0 ? "Every lookup failed" : `Checked ${checked} of ${citations.length} citations`;
+    const coverage =
+      checked === 0 ? "Every lookup failed" : `Checked ${checked} of ${citations.length} citations`;
     const notes = [coverage];
-    if (failed.length) notes.push(`${failed.length} lookup${failed.length === 1 ? "" : "s"} failed and will be retried: ${failed.map(refKey).join(", ")}`);
-    if (unchecked.length) notes.push(`${unchecked.length} left unchecked after ${MAX_VERIFY_ROUNDS} rounds`);
+    if (failed.length)
+      notes.push(
+        `${failed.length} lookup${failed.length === 1 ? "" : "s"} failed and will be retried: ${failed.map(refKey).join(", ")}`,
+      );
+    if (unchecked.length)
+      notes.push(`${unchecked.length} left unchecked after ${MAX_VERIFY_ROUNDS} rounds`);
     const reason = notes.join("; ");
     // A lookup that failed is not a checked source, so the turn must stay
     // retryable. Releasing the claim re-asks for the whole answer, but the
