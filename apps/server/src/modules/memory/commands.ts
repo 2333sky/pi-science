@@ -73,6 +73,7 @@ export const memoryCommandSchemas = {
   "run.skip": z.object({
     kind,
     reason: z.string(),
+    purpose: z.string().optional(),
     diagnostic: z.record(z.string(), z.unknown()).optional(),
   }),
   "run.latest": z.object({ kind }),
@@ -116,6 +117,8 @@ export interface MemoryRun {
   status: string;
   createdAt: number;
   deadline: number;
+  purpose?: string;
+  evidence?: string;
   watermark?: number;
   endedAt?: number;
   startedAt?: number;
@@ -131,6 +134,7 @@ export interface MemoryRun {
 }
 export type ClaimedMemoryRun = MemoryRun & { leaseToken: string; leaseUntil: number };
 export interface MemorySkip {
+  purpose?: string;
   id: string;
   kind: "dream" | "extraction";
   status: "skipped";

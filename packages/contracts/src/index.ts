@@ -1,3 +1,4 @@
+export * from "./citation-identifier.js";
 export { conversationEventTypes } from "./conversation-events.js";
 export * from "./sessions.js";
 export * from "./presentation.js";
@@ -7,6 +8,7 @@ export * from "./executions.js";
 export * from "./artifacts.js";
 export * from "./health.js";
 export * from "./skills.js";
+
 export * from "./model-resources.js";
 export * from "./model-selection.js";
 

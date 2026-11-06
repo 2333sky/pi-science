@@ -44,6 +44,7 @@ export interface SessionContext {
     level: string | null,
     config: PiConfig,
   ): Promise<Live>;
+
   open(cwd: string, sessionId: string, config: PiConfig): Promise<Live | RuntimeResult>;
   command(
     cwd: string,

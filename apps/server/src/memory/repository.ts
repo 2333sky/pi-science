@@ -865,6 +865,7 @@ class Transaction {
             owner: this.ctx.ownerId,
             project: this.ctx.projectId,
             kind: i.kind,
+            purpose: i.purpose,
             reason: i.reason,
             minute: Math.floor(now / 60000),
           });
@@ -873,6 +874,7 @@ class Transaction {
           kind: i.kind,
           status: "skipped",
           reason: i.reason,
+          ...(i.purpose ? { purpose: i.purpose } : {}),
           ...(i.diagnostic ? { diagnostic: i.diagnostic } : {}),
           createdAt: now,
           reviewMode: this.settings().review.mode,
@@ -1320,6 +1322,19 @@ class Transaction {
         const output = raw as Record<string, unknown>;
         const c = contentSchema.parse(output.content);
         if (
+          r.purpose === "science_review" &&
+          (c.scope !== "project" ||
+            c.kind !== "finding" ||
+            c.evidenceLevel !== "inferred" ||
+            c.sources.length === 0 ||
+            (output.operation && output.operation !== "append") ||
+            output.id)
+        )
+          throw new MemoryError(
+            "invalid_input",
+            "Science review must create sourced findings for human review",
+          );
+        if (
           r.kind === "extraction" &&
           c.sources.some(
             (source) =>
@@ -1403,7 +1418,7 @@ class Transaction {
     } finally {
       this.ctx = ctx;
     }
-    if (r.kind === "extraction")
+    if (r.kind === "extraction" && r.purpose !== "science_review")
       this.run(
         "INSERT INTO memory_extraction_cursors VALUES(?,?,?,?) ON CONFLICT(owner_id,project_id,session_id) DO UPDATE SET watermark=MAX(watermark,excluded.watermark)",
         ctx.ownerId,

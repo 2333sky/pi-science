@@ -26,6 +26,8 @@ import {
   rootDir,
   knownWorkspacePaths,
 } from "../http/routes/catalog-routes.js";
+import { registerCitationRoutes } from "../http/routes/citation-routes.js";
+
 import { registerProjectRoutes } from "../http/routes/project-routes.js";
 import { registerMcpRoutes } from "../http/routes/mcp-routes.js";
 import { createServerModules, type ServerModules } from "./server-modules.js";
@@ -276,6 +278,7 @@ export function buildApp(
   if (config.nodeExecutions !== false)
     registerKernelExecutionRoutes(app, config, environments, kernels, modules.executions);
   registerNotebookRoutes(app, notebooks, config.internalToken);
+  if (config.nodeCatalog !== false) registerCitationRoutes(app);
   if (config.nodeCatalog !== false)
     registerCatalogRoutes(
       app,
@@ -285,9 +288,10 @@ export function buildApp(
       nodeSessionService,
     );
   if (config.nodeProject !== false) {
-    registerProjectRoutes(app);
+    registerProjectRoutes(app, memory, memoryBackground);
     registerMemoryRoutes(app, memory, memoryBackground, nodeSessionService, config.internalToken);
   }
+
   app.addHook("onReady", async () => {
     await stateStore.start();
     if (sqliteEnabled) {

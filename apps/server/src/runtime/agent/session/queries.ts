@@ -50,6 +50,11 @@ export function liveSessions(
     .map((item) => ({ id: item.runtime.sessionId, cwd }));
 }
 
+export function sessionBusy(context: SessionQueryContext, cwd: string, sessionId: string): boolean {
+  const item = context.live.get(identity(cwd, sessionId));
+  return Boolean(item && !item.runtime.isClosed && (item.busy || item.expectedOperationId));
+}
+
 export async function hasActiveOperations(
   context: SessionQueryContext,
   cwd: string,

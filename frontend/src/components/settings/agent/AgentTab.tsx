@@ -1,5 +1,7 @@
 import { SubagentSettings } from "../SubagentSettings";
 import { ApprovalPreferences } from "./ApprovalPreferences";
+import { CitationAutoVerifySettings } from "./CitationAutoVerifySettings";
+import { CitationInlineStyleSettings } from "./CitationInlineStyleSettings";
 import { useTranslation } from "react-i18next";
 import { ContextManagementSection } from "../ContextManagementSection";
 import type { SettingsConfig } from "../../../lib/settings";
@@ -10,6 +12,8 @@ export function AgentTab({ config, loading, error, scope, saving, onSave, onRefr
   return <div className="space-y-6">
     <p className="text-ui-caption leading-relaxed text-muted">{t("settings.agent.description")}</p>
     <ApprovalPreferences />
+    <CitationAutoVerifySettings enabled={config?.citation_auto_verify === true} onSaved={onRefreshContext} />
+    <CitationInlineStyleSettings style={config?.citation_inline_style === "identifier" ? "identifier" : "number"} onSaved={onRefreshContext} />
     <DefaultModelSelection scope={scope} onCommitted={onRefreshContext} onOpenModels={onOpenModels} />
     <section aria-label={t("settings.context.title")} className="space-y-3">
       {loading && <p role="status" className="text-ui-caption text-muted">{t("settings.selection.contextLoading")}</p>}

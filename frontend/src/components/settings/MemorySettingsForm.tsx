@@ -126,6 +126,7 @@ export function MemorySettingsForm({
       {!s.enabled && <p className="text-ui-caption text-muted">{t("settings.consistency.memoryDisabled")}</p>}
       {s.revision !== value.revision && <p role="alert" className="text-ui-body text-warn-text">{t("memory.draftConflict")}</p>}
       <Section title={t("memory.title")}>
+        <p className="px-4 py-2 text-ui-caption text-muted">{t("memory.scienceReviewHelp")}</p>
         <div className="divide-y divide-faint">
           {toggle("enable", s.enabled, (v) => set({ ...s, enabled: v }))}
           {s.enabled && (

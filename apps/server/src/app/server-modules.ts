@@ -155,7 +155,8 @@ export function createServerModules(
   );
   const memoryBackground = new MemoryBackground(memory, sessions, jobs, sessionRepository);
   sessions.configureMemory({
-    settled: (cwd, sessionId) => memoryBackground.turnCompleted(cwd, sessionId),
+    settled: (cwd, sessionId, turnId, status) =>
+      memoryBackground.turnCompleted(cwd, sessionId, turnId, status),
     deleted: async (cwd, sessionId) => {
       const { context } = await memory.context(cwd);
       await memory.command(context, "frame.delete", { sessionId });

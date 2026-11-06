@@ -278,6 +278,341 @@ it("bounds extraction input and advances only the portion of the transcript actu
   }
 });
 
+it("queues science review with its own deduplication and leaves extraction cursor intact", async () => {
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
+  const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
+    {
+      id: "report",
+      role: "assistant",
+      runId: "turn",
+      turnStatus: "completed",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+  ]);
+  try {
+    await configure((s) => {
+      s.extraction.enabled = true;
+    });
+    vi.stubEnv("PI_SCIENCE_SCIENCE_REVIEW", "0");
+    expect(
+      await background.enqueue(ctx, root, "extraction", {
+        sessionId: "session",
+        automatic: true,
+        scienceReview: true,
+        turnId: "turn",
+      }),
+    ).toMatchObject({
+      status: "skipped",
+      reason: "science_review_disabled",
+      purpose: "science_review",
+    });
+    vi.stubEnv("PI_SCIENCE_SCIENCE_REVIEW", "1");
+    model.mockResolvedValueOnce({
+      outputs: [
+        {
+          content: {
+            scope: "project",
+            kind: "finding",
+            title: "Unverified claim",
+            body: "The reported result has no corresponding execution record.",
+            evidenceLevel: "inferred",
+            sources: [{ kind: "message", locator: "report" }],
+          },
+        },
+      ],
+      tokens: 20,
+      costUsd: 0,
+      model: "fixture/model",
+    });
+    const [run, concurrent] = await Promise.all([
+      background.enqueue(ctx, root, "extraction", {
+        sessionId: "session",
+        automatic: true,
+        scienceReview: true,
+        turnId: "turn",
+      }),
+      background.enqueue(ctx, root, "extraction", {
+        sessionId: "session",
+        automatic: true,
+        scienceReview: true,
+        turnId: "turn",
+      }),
+    ]);
+    expect(concurrent.id).toBe(run.id);
+    await vi.waitFor(async () =>
+      expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("completed"),
+    );
+    const again = await background.enqueue(ctx, root, "extraction", {
+      sessionId: "session",
+      automatic: true,
+      scienceReview: true,
+      turnId: "turn",
+    });
+    expect(again.id).toBe(run.id);
+    expect(model).toHaveBeenCalledOnce();
+    expect(await memory.command(ctx, "cursor", { sessionId: "session" })).toBe(0);
+    const review = await memory.command(ctx, "reviews");
+    expect(review.records).toHaveLength(1);
+    expect(review.records[0]).toMatchObject({ kind: "finding", reviewStatus: "pending" });
+    expect(model.mock.calls[0]?.[0]).toContain("Scientific report");
+  } finally {
+    path.mockRestore();
+    messages.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it("rejects a science review result that fabricates its message source", async () => {
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
+  const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
+    {
+      id: "report",
+      role: "assistant",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+    { id: "other", role: "user", content: [{ type: "text", text: "Other message" }] },
+  ]);
+  try {
+    await configure((s) => {
+      s.extraction.enabled = true;
+    });
+    model.mockResolvedValueOnce({
+      outputs: [
+        {
+          content: {
+            scope: "project",
+            kind: "finding",
+            title: "Unsupported",
+            body: "An unsupported result.",
+            evidenceLevel: "inferred",
+            sources: [{ kind: "message", locator: "other" }],
+          },
+        },
+      ],
+      tokens: 20,
+      costUsd: 0,
+      model: "fixture/model",
+    });
+    const run = await background.enqueue(ctx, root, "extraction", {
+      sessionId: "session",
+      scienceReview: true,
+    });
+    await vi.waitFor(async () =>
+      expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("failed"),
+    );
+    expect((await memory.command(ctx, "reviews")).records).toHaveLength(0);
+    expect(await memory.command(ctx, "cursor", { sessionId: "session" })).toBe(0);
+  } finally {
+    path.mockRestore();
+    messages.mockRestore();
+  }
+});
+
+it("queues a busy science review and discards output after cancellation", async () => {
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
+  const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
+    {
+      id: "report",
+      role: "assistant",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+  ]);
+  try {
+    await configure((s) => {
+      s.extraction.enabled = true;
+    });
+    let finish!: (value: Awaited<ReturnType<BackgroundModel>>) => void;
+    model.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    busy = true;
+    const run = await background.enqueue(ctx, root, "extraction", {
+      sessionId: "session",
+      scienceReview: true,
+    });
+    expect(run.status).toBe("queued");
+    expect(model).not.toHaveBeenCalled();
+    busy = false;
+    await background.tick();
+    await vi.waitFor(() => expect(model).toHaveBeenCalledOnce());
+    await memory.command(ctx, "run.cancel", { id: run.id });
+    finish({
+      outputs: [
+        {
+          content: {
+            scope: "project",
+            kind: "finding",
+            title: "Late result",
+            body: "Should not be saved",
+            evidenceLevel: "inferred",
+            sources: [{ kind: "message", locator: "report" }],
+          },
+        },
+      ],
+      tokens: 10,
+      costUsd: 0,
+      model: "fixture",
+    });
+    await vi.waitFor(async () =>
+      expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("cancelled"),
+    );
+    await background.stop();
+    expect((await memory.command(ctx, "reviews")).records).toHaveLength(0);
+  } finally {
+    path.mockRestore();
+    messages.mockRestore();
+  }
+});
+
+it("requests an automatic science review on a settled turn without a frontend", async () => {
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
+  const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
+    {
+      id: "report",
+      role: "assistant",
+      runId: "turn",
+      turnStatus: "completed",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+  ]);
+  try {
+    await configure((s) => {
+      s.extraction.enabled = true;
+    });
+    vi.stubEnv("PI_SCIENCE_SCIENCE_REVIEW", "1");
+    await background.turnCompleted(root, "session", "turn", "completed");
+    await vi.waitFor(() => expect(model).toHaveBeenCalledOnce());
+    const runs = (await memory.command(ctx, "runs")).runs;
+    expect(runs.some((run: { purpose?: string }) => run.purpose === "science_review")).toBe(true);
+    expect(model.mock.calls[0]?.[0]).toContain("scientific integrity");
+  } finally {
+    path.mockRestore();
+    messages.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it("does not review an old report for failed, aborted or answerless turns", async () => {
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
+  const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
+    {
+      id: "report",
+      role: "assistant",
+      runId: "old-turn",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+    {
+      id: "cancelled",
+      role: "assistant",
+      runId: "cancelled-turn",
+      turnStatus: "aborted",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+    {
+      id: "intermediate",
+      role: "assistant",
+      runId: "intermediate-turn",
+      turnStatus: "completed",
+      presentationRole: "intermediate",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+  ]);
+  try {
+    await configure((s) => {
+      s.extraction.enabled = true;
+    });
+    vi.stubEnv("PI_SCIENCE_SCIENCE_REVIEW", "1");
+    await background.turnCompleted(root, "session", "failed-turn", "failed");
+    await background.turnCompleted(root, "session", "aborted-turn", "aborted");
+    await background.turnCompleted(root, "session", "empty-turn", "completed");
+    expect(
+      await background.enqueue(ctx, root, "extraction", {
+        sessionId: "session",
+        automatic: true,
+        scienceReview: true,
+        turnId: "cancelled-turn",
+      }),
+    ).toMatchObject({ status: "skipped", reason: "no_report" });
+    expect(
+      await background.enqueue(ctx, root, "extraction", {
+        sessionId: "session",
+        automatic: true,
+        scienceReview: true,
+        turnId: "intermediate-turn",
+      }),
+    ).toMatchObject({ status: "skipped", reason: "no_report" });
+    expect(model.mock.calls.every(([prompt]) => !prompt.includes("scientific integrity"))).toBe(
+      true,
+    );
+    const runs = (await memory.command(ctx, "runs")).runs;
+    expect(
+      runs.filter(
+        (run: { purpose?: string; status?: string }) =>
+          run.purpose === "science_review" && run.status !== "skipped",
+      ),
+    ).toHaveLength(0);
+  } finally {
+    path.mockRestore();
+    messages.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it("queues an automatic review through the HTTP route for the specified turn", async () => {
+  const { default: Fastify } = await import("fastify");
+  const { registerProjectRoutes } = await import("../http/routes/project-routes.js");
+  const sessionRepository = memory.sessions;
+  const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
+  const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
+    {
+      id: "report",
+      role: "assistant",
+      runId: "turn",
+      turnStatus: "completed",
+      content: [{ type: "text", text: "Scientific report. ".repeat(100) }],
+    },
+  ]);
+  const app = Fastify();
+  registerProjectRoutes(app, memory, background);
+  try {
+    await configure((s) => {
+      s.extraction.enabled = true;
+    });
+    vi.stubEnv("PI_SCIENCE_SCIENCE_REVIEW", "1");
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/project-knowledge/science-review",
+      payload: { cwd: root, session_id: "session", trigger: "auto", turn_id: "turn" },
+    });
+    expect(response.statusCode).toBe(200);
+    const run = response.json();
+    expect(run).toMatchObject({ status: "queued", purpose: "science_review" });
+    path.mockResolvedValueOnce(null);
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/project-knowledge/science-review",
+      payload: { cwd: root, session_id: "missing-session" },
+    });
+    expect(missing.statusCode).toBe(404);
+    await vi.waitFor(async () =>
+      expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("completed"),
+    );
+  } finally {
+    await app.close();
+    path.mockRestore();
+    messages.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
 it("records known spend for failed model output and carries it into the same-run retry budget", async () => {
   await seed();
   model.mockRejectedValueOnce(

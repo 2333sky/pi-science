@@ -15,6 +15,8 @@ import type {
 import { resolve } from "node:path";
 import { ConversationEventHub } from "../events/conversation-event-hub.js";
 import { DurableEventStore } from "../events/event-store.js";
+import { CitationAutoVerifyService } from "../citations/citation-auto-verify.js";
+
 import type { RuntimeResult, RuntimeSkillPolicy } from "../agent/agent-runtime-types.js";
 import { AgentCoreSessionService } from "../agent/agent-core-session-service.js";
 import { agentModelCatalog, agentModels } from "../agent/worker/agent-models.js";
@@ -73,13 +75,15 @@ function effectiveConfig(requested?: Partial<PiConfig>): PiConfig {
 /** The product session facade uses Agent Core exclusively. Legacy JSONL is data, never a runtime fallback. */
 export class NodeSessionService {
   private readonly agentCore: AgentCoreSessionService;
+  private readonly citationsAutoVerify = new CitationAutoVerifyService();
   private memoryHooks?: {
-    settled: (cwd: string, sessionId: string) => Promise<void>;
+    settled: (cwd: string, sessionId: string, turnId: string, status: string) => Promise<void>;
     deleted: (cwd: string, sessionId: string) => Promise<void>;
   };
   configureMemory(hooks: NonNullable<NodeSessionService["memoryHooks"]>) {
     this.memoryHooks = hooks;
   }
+
   private readonly statsProjector = new SessionStatsProjector();
   private log: (level: "info" | "warn" | "error", message: string) => void = () => {};
   constructor(
@@ -103,10 +107,11 @@ export class NodeSessionService {
     this.agentCore.configureProductLifecycle({
       observe: (cwd, sessionId, event) =>
         this.statsProjector.track(runtimeKey(cwd, sessionId), event, Date.now()),
-      settled: (cwd, sessionId) => {
+      settled: (cwd, sessionId, turnId, status) => {
+        this.citationsAutoVerify.schedule(cwd, sessionId, turnId, this.log);
         if (this.memoryHooks)
           void this.memoryHooks
-            .settled(cwd, sessionId)
+            .settled(cwd, sessionId, turnId, status)
             .catch((error) => this.log("warn", String(error)));
       },
       stats: async (cwd, sessionId, counters) => {
@@ -420,12 +425,20 @@ export class NodeSessionService {
       return [];
     }
   }
+  sessionBusy(cwdValue: string, sessionId: string): boolean {
+    try {
+      return this.agentCore.sessionBusy(resolve(cwdValue), sessionId);
+    } catch {
+      return false;
+    }
+  }
   liveSession(cwdValue: string): { id: string; cwd: string } | null {
     return this.liveSessions(cwdValue)[0] ?? null;
   }
   activeSessionId(cwdValue: string): string | null {
     return this.liveSession(cwdValue)?.id ?? null;
   }
+
   async availableModels(cwdValue: string): Promise<RuntimeResult> {
     try {
       await validateWorkspaceCwd(cwdValue);

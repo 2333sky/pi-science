@@ -25,12 +25,14 @@ import {
   waitForMutation,
   owns,
   liveSessions,
+  sessionBusy,
   hasActiveOperations,
   closeIdleWorkspace,
   liveRuntime,
 } from "./session/queries.js";
 import { create, attach, open, openOnce } from "./session/startup.js";
 import { command, notify, configure } from "./session/commands.js";
+
 import { approvalTransitionPending, setApprovalMode } from "./session/approval.js";
 import {
   reloadConfiguration,
@@ -170,6 +172,9 @@ export class AgentCoreSessionService {
   }
   liveSessions(cwd: string): Array<{ id: string; cwd: string }> {
     return liveSessions(this.context, cwd);
+  }
+  sessionBusy(cwd: string, sessionId: string): boolean {
+    return sessionBusy(this.context, cwd, sessionId);
   }
   hasActiveOperations(cwd: string): Promise<boolean> {
     return hasActiveOperations(this.context, cwd);
