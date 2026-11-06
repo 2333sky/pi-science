@@ -125,7 +125,7 @@ Application state uses `PI_SCIENCE_HOME` or `~/.pi-science`, with a checkout-loc
 | Concurrent sessions | Independent Agent Core Worker processes for active, restored, and forked conversations |
 | Scientific files | Native previews for molecular structures, FITS, genomics, phase data, 3D models, tables, office documents, media, and code |
 | Reproducibility | Live session-scoped execution records, artifact hashes, generating code and diffs, environment snapshots, provenance history, reproduce actions, and artifact references pinned to published versions with text/table/image version diffs |
-| Memory | SQLite records, version-bound human review, scoped recall, optional Extraction/Dream, and shared budgets (disabled by default) |
+| Memory | SQLite records, version-bound human review, scoped recall, optional Extraction/Dream, and shared budgets |
 | Computation | Shared versioned Micromamba environments, isolated Python/R Session kernels, executable `.ipynb` files, agent notebook cell read/edit/run tools, conversation-linked runs, and an optional app-managed Jupyter Lab |
 | Extensibility | Pi skills, prompt templates, MCP servers, subagents, custom model providers, and managed endpoints |
 | Workspace safety | Project-scoped metadata, validated paths, isolated session state, and controlled outbound provider discovery |
@@ -138,10 +138,11 @@ Application state uses `PI_SCIENCE_HOME` or `~/.pi-science`, with a checkout-loc
 > read-only legacy export. Recreate useful entries with verified sources and new
 > approvals; legacy approval flags are not reused. See [upgrade steps](docs/unified-memory.md#upgrade-from-ledger--project-knowledge).
 
-Open **Settings → Memory** to enable Memory for the local user across all
-projects. Memory, automatic Extraction and Dream start disabled and have separate
-switches. Dependent controls expand when enabled; changing a switch or trigger
-mode preserves the stored values. Configure models, review policy, scheduling and
+Open **Settings → Memory** to configure Memory for the local user across all
+projects. Memory starts with automatic recall and smart review. Extraction and
+Dream start disabled and have separate switches. Dependent controls expand when
+enabled, and changing a switch or trigger mode preserves the stored values.
+Configure models, review policy, scheduling and
 shared background budgets here. Project/category recall switches stay on the
 project's Memory page.
 
