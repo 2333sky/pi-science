@@ -39,7 +39,8 @@ export interface CitationIdentifierMatch {
 // general punctuation, or a Chinese sentence glues its words onto the id. It
 // must also stop at `[`, or a numbered marker written straight after an
 // identifier (`10.1000/alpha[1]`) is read back as part of the id.
-const DOI_PATTERN = /10\.\d{4,9}\/[^\s[\])\}>\u2010-\u2027\u2030-\u205e\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]+/gi;
+const DOI_PATTERN =
+  /10\.\d{4,9}\/[^\s[\])\}>\u2010-\u2027\u2030-\u205e\u3000-\u303f\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef\uac00-\ud7af]+/gi;
 const ARXIV_PATTERN = /arXiv:\s?(\d{4}\.\d{4,5}(?:v\d+)?)/gi;
 const ARXIV_VERSION = /v(\d+)$/i;
 // Trimming the trailing run with one regex (`/[.,;:!?*"'\u2010-\u2027...]+$/`)
@@ -48,7 +49,12 @@ const ARXIV_VERSION = /v(\d+)$/i;
 // that `js/polynomial-redos`. Reading the string backwards touches each
 // character once and trims exactly the same set.
 const TRAILING_ASCII_PUNCTUATION = ".,;:!?*\"'";
-const TRAILING_PUNCTUATION_RANGES: ReadonlyArray<readonly [number, number]> = [[0x2010, 0x2027], [0x2030, 0x205e], [0x3000, 0x303f], [0xff00, 0xffef]];
+const TRAILING_PUNCTUATION_RANGES: ReadonlyArray<readonly [number, number]> = [
+  [0x2010, 0x2027],
+  [0x2030, 0x205e],
+  [0x3000, 0x303f],
+  [0xff00, 0xffef],
+];
 function isTrailingPunctuation(char: string): boolean {
   if (TRAILING_ASCII_PUNCTUATION.includes(char)) return true;
   const code = char.codePointAt(0) ?? 0;
@@ -98,7 +104,8 @@ const blankRun = (run: string): string => run.replace(/[^\n]/g, " ");
 export function maskNonProse(text: string): string {
   const chars = text.split("");
   const blank = (from: number, to: number) => {
-    for (let index = from; index < to && index < chars.length; index += 1) if (chars[index] !== "\n") chars[index] = " ";
+    for (let index = from; index < to && index < chars.length; index += 1)
+      if (chars[index] !== "\n") chars[index] = " ";
   };
   let open: { char: string; length: number; at: number } | null = null;
   for (let lineStart = 0; lineStart <= text.length; ) {
@@ -106,12 +113,19 @@ export function maskNonProse(text: string): string {
     const lineEnd = newline === -1 ? text.length : newline;
     const fence = FENCE_LINE.exec(text.slice(lineStart, lineEnd))?.[1] ?? null;
     if (!open && fence) open = { char: fence[0]!, length: fence.length, at: lineStart };
-    else if (open && fence && fence[0] === open.char && fence.length >= open.length) { blank(open.at, lineEnd); open = null; }
+    else if (open && fence && fence[0] === open.char && fence.length >= open.length) {
+      blank(open.at, lineEnd);
+      open = null;
+    }
     if (newline === -1) break;
     lineStart = lineEnd + 1;
   }
   if (open) blank(open.at, text.length);
-  return chars.join("").replace(MATH_BLOCK, blankRun).replace(MATH_INLINE, blankRun).replace(INLINE_CODE, blankRun);
+  return chars
+    .join("")
+    .replace(MATH_BLOCK, blankRun)
+    .replace(MATH_INLINE, blankRun)
+    .replace(INLINE_CODE, blankRun);
 }
 
 /** Every identifier in prose, in document order, repeats included. Offsets index
@@ -124,23 +138,45 @@ export function scanIdentifiers(text: string): CitationIdentifierMatch[] {
     const cleaned = trimTrailingPunctuation(text.slice(start, start + match[0].length));
     if (cleaned.endsWith("/")) continue;
     const id = cleaned.toLowerCase();
-    found.push({ kind: "doi", id, requested_id: id, requested_version: null, start, end: start + cleaned.length, label_start: schemeStart(text, start) });
+    found.push({
+      kind: "doi",
+      id,
+      requested_id: id,
+      requested_version: null,
+      start,
+      end: start + cleaned.length,
+      label_start: schemeStart(text, start),
+    });
   }
   for (const match of prose.matchAll(ARXIV_PATTERN)) {
     const requestedId = match[1]!;
     const start = match.index ?? 0;
-    found.push({ kind: "arxiv", id: arxivIdOf(requestedId), requested_id: requestedId, requested_version: arxivVersionOf(requestedId), start, end: start + match[0].length, label_start: start });
+    found.push({
+      kind: "arxiv",
+      id: arxivIdOf(requestedId),
+      requested_id: requestedId,
+      requested_version: arxivVersionOf(requestedId),
+      start,
+      end: start + match[0].length,
+      label_start: start,
+    });
   }
   return found.sort((left, right) => left.start - right.start);
 }
 
 const RESOLVER_URL = /^https?:\/\/(?:dx\.)?doi\.org\/(10\.[^?#\s]+)$/i;
-const ARXIV_URL = /^https?:\/\/(?:www\.|export\.)?arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/i;
+const ARXIV_URL =
+  /^https?:\/\/(?:www\.|export\.)?arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/i;
 
 /** The identifier an ordinary Markdown link points at. A link written as
  *  `[the paper](https://doi.org/10.1000/alpha)` asserts the same source as a
  *  bare identifier, so it gets a body number; its own text keeps its meaning. */
-export function identifierFromUrl(url: string): { kind: CitationIdentifierKind; id: string; requested_id: string; requested_version: string | null } | null {
+export function identifierFromUrl(url: string): {
+  kind: CitationIdentifierKind;
+  id: string;
+  requested_id: string;
+  requested_version: string | null;
+} | null {
   const doi = RESOLVER_URL.exec(url.trim());
   if (doi?.[1]) {
     const id = trimTrailingPunctuation(decodeURIComponent(doi[1])).toLowerCase();
@@ -148,7 +184,13 @@ export function identifierFromUrl(url: string): { kind: CitationIdentifierKind; 
     return { kind: "doi", id, requested_id: id, requested_version: null };
   }
   const arxiv = ARXIV_URL.exec(url.trim());
-  if (arxiv?.[1]) return { kind: "arxiv", id: arxivIdOf(arxiv[1]), requested_id: arxiv[1], requested_version: arxivVersionOf(arxiv[1]) };
+  if (arxiv?.[1])
+    return {
+      kind: "arxiv",
+      id: arxivIdOf(arxiv[1]),
+      requested_id: arxiv[1],
+      requested_version: arxivVersionOf(arxiv[1]),
+    };
   return null;
 }
 

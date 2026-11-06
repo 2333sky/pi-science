@@ -1,14 +1,21 @@
-import {
-  legacyArchives,
-  exportLegacyArchive,
-} from "../../project-review/legacy-archives.js";
+import { legacyArchives, exportLegacyArchive } from "../../project-review/legacy-archives.js";
+
 import type { FastifyInstance } from "fastify";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import type { MemoryService } from "../../memory/service.js";
 import type { MemoryBackground } from "../../memory/background.js";
-export function registerProjectRoutes(app: FastifyInstance, memory: MemoryService, background: MemoryBackground): void {
+export function registerProjectRoutes(
+  app: FastifyInstance,
+  memory: MemoryService,
+  background: MemoryBackground,
+): void {
   app.post("/api/project-knowledge/science-review", async (req, reply) => {
-    const body = (req.body ?? {}) as { cwd?: unknown; session_id?: unknown; trigger?: unknown; turn_id?: unknown };
+    const body = (req.body ?? {}) as {
+      cwd?: unknown;
+      session_id?: unknown;
+      trigger?: unknown;
+      turn_id?: unknown;
+    };
     if (typeof body.cwd !== "string" || typeof body.session_id !== "string" || !body.session_id)
       return reply.code(400).send({ error: "cwd and session_id are required" });
     if (body.trigger === "auto" && (typeof body.turn_id !== "string" || !body.turn_id))
@@ -28,23 +35,14 @@ export function registerProjectRoutes(app: FastifyInstance, memory: MemoryServic
     }
   });
   app.get("/api/project/archives", async (req) => {
-    const cwd = await projectWorkspace(
-      (req.query as { cwd?: string }).cwd ?? ".",
-    );
+    const cwd = await projectWorkspace((req.query as { cwd?: string }).cwd ?? ".");
     return { archives: await legacyArchives(cwd) };
   });
-  app.post<{ Params: { id: string } }>(
-    "/api/project/archives/:id/export",
-    async (req, reply) => {
-      const cwd = await projectWorkspace(
-        (req.query as { cwd?: string }).cwd ?? ".",
-      );
-      const archive = await exportLegacyArchive(cwd, req.params.id);
-      return archive
-        ? { archive }
-        : reply.code(404).send({ error: "Archive not found" });
-    },
-  );
+  app.post<{ Params: { id: string } }>("/api/project/archives/:id/export", async (req, reply) => {
+    const cwd = await projectWorkspace((req.query as { cwd?: string }).cwd ?? ".");
+    const archive = await exportLegacyArchive(cwd, req.params.id);
+    return archive ? { archive } : reply.code(404).send({ error: "Archive not found" });
+  });
 }
 
 async function projectWorkspace(value: string) {

@@ -148,6 +148,16 @@ describe("FilesPage", () => {
   });
 });
 
+it("distinguishes initial failure from an empty directory and supports retry", async () => {
+  files.directory.mockResolvedValue({ entries: entries(["inner.txt"]), breadcrumbs: [] }).mockRejectedValueOnce(new Error("offline"));
+  render(<FilesPage />);
+  expect(await screen.findByRole("alert")).toHaveTextContent("offline");
+  expect(screen.queryByText(i18n.t("files.empty"))).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByText("inner.txt");
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 describe("FilesPage inline file edits", () => {
   it("offers New file and New folder as the first two items on a file row", async () => {
     render(<FilesPage />);
@@ -222,4 +232,5 @@ describe("FilesPage inline file edits", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("A file or folder with that name already exists");
     expect(screen.getByRole("textbox", { name: "File name" })).toHaveValue("dup.txt");
   });
+
 });

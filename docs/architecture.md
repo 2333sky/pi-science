@@ -328,7 +328,7 @@ provenance. Artifact-publication failures remain visible as execution evidence.
 Auto Research is a skill executed by the current Conversation Agent. The Agent
 owns planning, dynamic delegation, iteration and stop decisions; task-specific
 evaluation protocols/evaluators and checkpoints are ordinary research files.
-Generic `execution_budget` enforces durable tool-call/time limits, and existing
+Host execution controls enforce durable tool-call/time limits, and existing
 kernel/job/connector timeouts remain in force. Researcher/Reviewer skill-local
 roles use the existing dispatcher and narrower child permissions. No standalone
 Research API, supervisor or scheduler remains. Historical records and referenced

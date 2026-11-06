@@ -3,7 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { writeJsonAtomic } from "../../storage/persistence.js";
-import { fullTextSnapshotPath, snapshotIdOf, type FullTextDeps, type FullTextPassage, type FullTextSnapshot } from "./citation-fulltext.js";
+import {
+  fullTextSnapshotPath,
+  snapshotIdOf,
+  type FullTextDeps,
+  type FullTextPassage,
+  type FullTextSnapshot,
+} from "./citation-fulltext.js";
 import { citationEvidenceService } from "./citation-evidence.js";
 import { citationPassagesService } from "./citation-passages.js";
 
@@ -12,8 +18,14 @@ const KEY = "doi:10.1038/s41586-020-2649-2";
 const SESSION = "session-a";
 const OTHER_SESSION = "session-b";
 /** A fetch that must never be reached: every fixture below is already on disk. */
-const NO_FETCH = (() => { throw new Error("network must not be used"); }) as unknown as typeof fetch;
-const DEPS: FullTextDeps = { fetch: NO_FETCH, lookup: async () => [{ address: "93.184.216.34", family: 4 }], minimumInterval: { "www.ebi.ac.uk": 0, "arxiv.org": 0 } };
+const NO_FETCH = (() => {
+  throw new Error("network must not be used");
+}) as unknown as typeof fetch;
+const DEPS: FullTextDeps = {
+  fetch: NO_FETCH,
+  lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+  minimumInterval: { "www.ebi.ac.uk": 0, "arxiv.org": 0 },
+};
 
 beforeEach(async () => {
   const home = await mkdtemp(join(tmpdir(), "pi-science-evidence-home-"));
@@ -32,24 +44,60 @@ async function makeWorkspace(): Promise<string> {
   return cwd;
 }
 
-const paragraph = (text: string, sectionTitle: string | null, index: number): FullTextPassage => ({ index, section_title: sectionTitle, section_id: sectionTitle ? sectionTitle.toUpperCase().slice(0, 4) : null, page: null, text });
+const paragraph = (text: string, sectionTitle: string | null, index: number): FullTextPassage => ({
+  index,
+  section_title: sectionTitle,
+  section_id: sectionTitle ? sectionTitle.toUpperCase().slice(0, 4) : null,
+  page: null,
+  text,
+});
 
-const RESULTS_TEXT = "Attention layers alone reach a better BLEU score than the recurrent baseline on every translation pair we tested.";
-const METHODS_TEXT = "We trained each model on eight GPUs for three and a half days and used one shared vocabulary for every configuration.";
+const RESULTS_TEXT =
+  "Attention layers alone reach a better BLEU score than the recurrent baseline on every translation pair we tested.";
+const METHODS_TEXT =
+  "We trained each model on eight GPUs for three and a half days and used one shared vocabulary for every configuration.";
 const PASSAGES: FullTextPassage[] = [
-  paragraph("Recurrent neural networks have been the standard approach to sequence modelling for many years and remain the default choice.", "Introduction", 0),
+  paragraph(
+    "Recurrent neural networks have been the standard approach to sequence modelling for many years and remain the default choice.",
+    "Introduction",
+    0,
+  ),
   paragraph(RESULTS_TEXT, "Results", 1),
-  paragraph("We compare against a strong recurrent baseline and report the average of five runs for each configuration.", "Results", 2),
+  paragraph(
+    "We compare against a strong recurrent baseline and report the average of five runs for each configuration.",
+    "Results",
+    2,
+  ),
   paragraph(METHODS_TEXT, "Methods", 3),
 ];
 
 function snapshot(passages: FullTextPassage[], contentSha256: string): FullTextSnapshot {
-  const sections = [...new Set(passages.map((passage) => passage.section_id))].map((id) => ({ id, title: passages.find((passage) => passage.section_id === id)?.section_title ?? null }));
-  return { kind: "doi", id: "10.1038/s41586-020-2649-2", requested_id: "10.1038/s41586-020-2649-2", requested_version: null, state: "available", note: null, provider: "europepmc", url: "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC1/fullTextXML", retrieved_at: new Date().toISOString(), content_sha256: contentSha256, license: null, sections, passages };
+  const sections = [...new Set(passages.map((passage) => passage.section_id))].map((id) => ({
+    id,
+    title: passages.find((passage) => passage.section_id === id)?.section_title ?? null,
+  }));
+  return {
+    kind: "doi",
+    id: "10.1038/s41586-020-2649-2",
+    requested_id: "10.1038/s41586-020-2649-2",
+    requested_version: null,
+    state: "available",
+    note: null,
+    provider: "europepmc",
+    url: "https://www.ebi.ac.uk/europepmc/webservices/rest/PMC1/fullTextXML",
+    retrieved_at: new Date().toISOString(),
+    content_sha256: contentSha256,
+    license: null,
+    sections,
+    passages,
+  };
 }
 
 async function seed(cwd: string, value: FullTextSnapshot): Promise<string> {
-  await writeJsonAtomic(fullTextSnapshotPath(cwd, value.kind, value.id, value.requested_version), value);
+  await writeJsonAtomic(
+    fullTextSnapshotPath(cwd, value.kind, value.id, value.requested_version),
+    value,
+  );
   return String(snapshotIdOf(value));
 }
 
@@ -71,8 +119,17 @@ function arxivSnapshot(version: string, text: string): FullTextSnapshot {
   };
 }
 
-async function read(cwd: string, session = SESSION, source = KEY, extra: Record<string, unknown> = {}) {
-  return await citationEvidenceService.readSource(cwd, { session_id: session, source, ...extra }, DEPS);
+async function read(
+  cwd: string,
+  session = SESSION,
+  source = KEY,
+  extra: Record<string, unknown> = {},
+) {
+  return await citationEvidenceService.readSource(
+    cwd,
+    { session_id: session, source, ...extra },
+    DEPS,
+  );
 }
 
 describe("generation-time evidence", () => {
@@ -92,8 +149,10 @@ describe("generation-time evidence", () => {
 
   it("delivers, and records, the text of the arXiv version each citation names", async () => {
     const cwd = await makeWorkspace();
-    const V1_TEXT = "The first version reports that the encoder adds no recurrent state of its own to the model.";
-    const V2_TEXT = "The second version reports that the encoder was replaced by a convolutional stem in every experiment.";
+    const V1_TEXT =
+      "The first version reports that the encoder adds no recurrent state of its own to the model.";
+    const V2_TEXT =
+      "The second version reports that the encoder was replaced by a convolutional stem in every experiment.";
     const v1 = arxivSnapshot("1", V1_TEXT);
     const v2 = arxivSnapshot("2", V2_TEXT);
     await writeJsonAtomic(fullTextSnapshotPath(cwd, "arxiv", "2401.12345", "1"), v1);
@@ -108,10 +167,24 @@ describe("generation-time evidence", () => {
     expect(readV2.snapshot_id).toBe(snapshotIdOf(v2));
     expect(readV2.snapshot_id).not.toBe(readV1.snapshot_id);
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: "arxiv:2401.12345v2", claim: V2_TEXT, snapshot_id: String(readV2.snapshot_id), passage_ids: ["p0"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        {
+          source: "arxiv:2401.12345v2",
+          claim: V2_TEXT,
+          snapshot_id: String(readV2.snapshot_id),
+          passage_ids: ["p0"],
+        },
+      ],
+    });
     expect(recorded).toMatchObject({ accepted: 1, rejected: 0 });
 
-    const [position] = await citationPassagesService.positions(cwd, { session_id: SESSION, positions: [{ key: "arxiv:2401.12345v2", claim: V2_TEXT }] }, DEPS);
+    const [position] = await citationPassagesService.positions(
+      cwd,
+      { session_id: SESSION, positions: [{ key: "arxiv:2401.12345v2", claim: V2_TEXT }] },
+      DEPS,
+    );
     expect(position?.origin).toBe("generation");
     expect(position?.excerpts.map((excerpt) => excerpt.text)).toEqual([V2_TEXT]);
   });
@@ -138,10 +211,19 @@ describe("generation-time evidence", () => {
 
   it("reports a source with no open full text and records no delivery", async () => {
     const cwd = await makeWorkspace();
-    await writeJsonAtomic(fullTextSnapshotPath(cwd, "doi", "10.1038/s41586-020-2649-2"), { ...snapshot([], "sha-a"), state: "no_open_fulltext", note: "europepmc: no open-access full text", content_sha256: null });
+    await writeJsonAtomic(fullTextSnapshotPath(cwd, "doi", "10.1038/s41586-020-2649-2"), {
+      ...snapshot([], "sha-a"),
+      state: "no_open_fulltext",
+      note: "europepmc: no open-access full text",
+      content_sha256: null,
+    });
 
     const result = await read(cwd);
-    const recorded = await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: RESULTS_TEXT });
+    const recorded = await citationEvidenceService.lookup(cwd, {
+      session_id: SESSION,
+      key: KEY,
+      claim: RESULTS_TEXT,
+    });
 
     expect(result.state).toBe("no_open_fulltext");
     expect(result.passages).toEqual([]);
@@ -153,10 +235,19 @@ describe("generation-time evidence", () => {
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
     expect(recorded).toMatchObject({ accepted: 1, rejected: 0 });
 
-    const [position] = await citationPassagesService.positions(cwd, { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] }, DEPS);
+    const [position] = await citationPassagesService.positions(
+      cwd,
+      { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] },
+      DEPS,
+    );
 
     expect(position?.origin).toBe("generation");
     expect(position?.state).toBe("matched");
@@ -181,7 +272,17 @@ describe("generation-time evidence", () => {
       ],
     });
 
-    const positions = await citationPassagesService.positions(cwd, { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }, { key: KEY, claim: METHODS_TEXT }] }, DEPS);
+    const positions = await citationPassagesService.positions(
+      cwd,
+      {
+        session_id: SESSION,
+        positions: [
+          { key: KEY, claim: RESULTS_TEXT },
+          { key: KEY, claim: METHODS_TEXT },
+        ],
+      },
+      DEPS,
+    );
 
     expect(positions[0]?.excerpts[0]?.text).toBe(RESULTS_TEXT);
     expect(positions[1]?.excerpts[0]?.text).toBe(METHODS_TEXT);
@@ -193,10 +294,23 @@ describe("generation-time evidence", () => {
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd, SESSION, KEY, { limit: 1 });
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p2"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p2"] },
+      ],
+    });
 
     expect(recorded.results[0]).toMatchObject({ accepted: false, reason: "not_delivered" });
-    expect((await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: RESULTS_TEXT })).state).toBe("absent");
+    expect(
+      (
+        await citationEvidenceService.lookup(cwd, {
+          session_id: SESSION,
+          key: KEY,
+          claim: RESULTS_TEXT,
+        })
+      ).state,
+    ).toBe("absent");
   });
 
   it("keeps one session's delivery out of another session's evidence", async () => {
@@ -204,7 +318,12 @@ describe("generation-time evidence", () => {
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd, SESSION);
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: OTHER_SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: OTHER_SESSION,
+      selections: [
+        { source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
 
     expect(recorded.results[0]).toMatchObject({ accepted: false, reason: "not_delivered" });
   });
@@ -213,9 +332,18 @@ describe("generation-time evidence", () => {
     const cwd = await makeWorkspace();
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd, SESSION);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
 
-    const [position] = await citationPassagesService.positions(cwd, { session_id: OTHER_SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] }, DEPS);
+    const [position] = await citationPassagesService.positions(
+      cwd,
+      { session_id: OTHER_SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] },
+      DEPS,
+    );
 
     expect(position?.origin).toBe("located");
   });
@@ -225,7 +353,12 @@ describe("generation-time evidence", () => {
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p99"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p99"] },
+      ],
+    });
 
     expect(recorded.results[0]).toMatchObject({ accepted: false, reason: "unknown_passage" });
   });
@@ -235,14 +368,29 @@ describe("generation-time evidence", () => {
     await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: "0123456789abcdef01234567", passage_ids: ["p1"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        {
+          source: KEY,
+          claim: RESULTS_TEXT,
+          snapshot_id: "0123456789abcdef01234567",
+          passage_ids: ["p1"],
+        },
+      ],
+    });
 
     expect(recorded.results[0]).toMatchObject({ accepted: false, reason: "unknown_snapshot" });
   });
 
   it("rejects a source key that is not a DOI or an arXiv id", async () => {
     const cwd = await makeWorkspace();
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: "pmid:12345", claim: "A sentence.", snapshot_id: "x", passage_ids: ["p1"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: "pmid:12345", claim: "A sentence.", snapshot_id: "x", passage_ids: ["p1"] },
+      ],
+    });
 
     expect(recorded.results[0]).toMatchObject({ accepted: false, reason: "bad_source" });
   });
@@ -267,14 +415,31 @@ describe("generation-time evidence", () => {
     const cwd = await makeWorkspace();
     const first = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: first, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: first, passage_ids: ["p1"] }],
+    });
 
-    const rewritten = PASSAGES.map((passage, index) => (index === 1 ? { ...passage, text: "The revised analysis reports a smaller gain than the first submission did." } : passage));
+    const rewritten = PASSAGES.map((passage, index) =>
+      index === 1
+        ? {
+            ...passage,
+            text: "The revised analysis reports a smaller gain than the first submission did.",
+          }
+        : passage,
+    );
     // No version file was written for the first read, so the recorded bytes are
     // gone: the card must say so rather than quote the new text.
-    await writeJsonAtomic(fullTextSnapshotPath(cwd, "doi", "10.1038/s41586-020-2649-2"), snapshot(rewritten, "sha-b"));
+    await writeJsonAtomic(
+      fullTextSnapshotPath(cwd, "doi", "10.1038/s41586-020-2649-2"),
+      snapshot(rewritten, "sha-b"),
+    );
 
-    const [position] = await citationPassagesService.positions(cwd, { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] }, DEPS);
+    const [position] = await citationPassagesService.positions(
+      cwd,
+      { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] },
+      DEPS,
+    );
 
     expect(position?.origin).toBe("generation");
     expect(position?.state).toBe("stale");
@@ -285,17 +450,36 @@ describe("generation-time evidence", () => {
     const cwd = await makeWorkspace();
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
 
-    const rewritten = PASSAGES.map((passage, index) => (index === 1 ? { ...passage, text: "The revised analysis reports a smaller gain than the first submission did." } : passage));
+    const rewritten = PASSAGES.map((passage, index) =>
+      index === 1
+        ? {
+            ...passage,
+            text: "The revised analysis reports a smaller gain than the first submission did.",
+          }
+        : passage,
+    );
     const refetched = { ...snapshot(rewritten, "sha-b") };
     await writeJsonAtomic(fullTextSnapshotPath(cwd, "doi", "10.1038/s41586-020-2649-2"), refetched);
     // The earlier read is kept beside the current one, which is what lets the
     // recorded citation keep showing the paragraph it was recorded against.
     const { fullTextVersionPath } = await import("./citation-fulltext.js");
-    await writeJsonAtomic(fullTextVersionPath(cwd, "doi", "10.1038/s41586-020-2649-2", snapshotId), snapshot(PASSAGES, "sha-a"));
+    await writeJsonAtomic(
+      fullTextVersionPath(cwd, "doi", "10.1038/s41586-020-2649-2", snapshotId),
+      snapshot(PASSAGES, "sha-a"),
+    );
 
-    const [position] = await citationPassagesService.positions(cwd, { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] }, DEPS);
+    const [position] = await citationPassagesService.positions(
+      cwd,
+      { session_id: SESSION, positions: [{ key: KEY, claim: RESULTS_TEXT }] },
+      DEPS,
+    );
 
     expect(position?.state).toBe("matched");
     expect(position?.excerpts[0]?.text).toBe(RESULTS_TEXT);
@@ -315,9 +499,18 @@ describe("recorded claim matching", () => {
     const cwd = await makeWorkspace();
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: CLAIM_WITH_DOI, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: CLAIM_WITH_DOI, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
 
-    const found = await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: "AlphaFold reached a median backbone RMSD of 0.96 Å in CASP14, [1]" });
+    const found = await citationEvidenceService.lookup(cwd, {
+      session_id: SESSION,
+      key: KEY,
+      claim: "AlphaFold reached a median backbone RMSD of 0.96 Å in CASP14, [1]",
+    });
 
     expect(found.state).toBe("recorded");
     if (found.state === "absent") return;
@@ -329,9 +522,18 @@ describe("recorded claim matching", () => {
     const cwd = await makeWorkspace();
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: CLAIM_WITH_DOI, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: CLAIM_WITH_DOI, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
 
-    const found = await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: "In CASP14, AlphaFold reached a median backbone RMSD of 0.96 Å." });
+    const found = await citationEvidenceService.lookup(cwd, {
+      session_id: SESSION,
+      key: KEY,
+      claim: "In CASP14, AlphaFold reached a median backbone RMSD of 0.96 Å.",
+    });
 
     expect(found.state).toBe("recorded");
     if (found.state === "absent") return;
@@ -343,9 +545,18 @@ describe("recorded claim matching", () => {
     const cwd = await makeWorkspace();
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: CLAIM_WITH_DOI, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        { source: KEY, claim: CLAIM_WITH_DOI, snapshot_id: snapshotId, passage_ids: ["p1"] },
+      ],
+    });
 
-    const found = await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: "Photosynthesis in alpine lichens depends on the snow cover of the previous winter." });
+    const found = await citationEvidenceService.lookup(cwd, {
+      session_id: SESSION,
+      key: KEY,
+      claim: "Photosynthesis in alpine lichens depends on the snow cover of the previous winter.",
+    });
 
     expect(found.state).toBe("absent");
   });
@@ -357,12 +568,26 @@ describe("recorded claim matching", () => {
     await citationEvidenceService.record(cwd, {
       session_id: SESSION,
       selections: [
-        { source: KEY, claim: "The model reached its best CASP14 score under the standard protocol.", snapshot_id: snapshotId, passage_ids: ["p1"] },
-        { source: KEY, claim: "The model reached its best CASP14 score under the revised protocol.", snapshot_id: snapshotId, passage_ids: ["p2"] },
+        {
+          source: KEY,
+          claim: "The model reached its best CASP14 score under the standard protocol.",
+          snapshot_id: snapshotId,
+          passage_ids: ["p1"],
+        },
+        {
+          source: KEY,
+          claim: "The model reached its best CASP14 score under the revised protocol.",
+          snapshot_id: snapshotId,
+          passage_ids: ["p2"],
+        },
       ],
     });
 
-    const found = await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: "The model reached its best CASP14 score under the protocol." });
+    const found = await citationEvidenceService.lookup(cwd, {
+      session_id: SESSION,
+      key: KEY,
+      claim: "The model reached its best CASP14 score under the protocol.",
+    });
 
     expect(found.state).toBe("absent");
   });
@@ -372,19 +597,61 @@ describe("recorded claim matching", () => {
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd, SESSION, "doi:10.1038/S41586-020-2649-2");
 
-    const recorded = await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: "doi:10.1038/s41586-020-2649-2", claim: RESULTS_TEXT, snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    const recorded = await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        {
+          source: "doi:10.1038/s41586-020-2649-2",
+          claim: RESULTS_TEXT,
+          snapshot_id: snapshotId,
+          passage_ids: ["p1"],
+        },
+      ],
+    });
 
     expect(recorded.results[0]).toMatchObject({ accepted: true, reason: null });
-    expect((await citationEvidenceService.lookup(cwd, { session_id: SESSION, key: KEY, claim: RESULTS_TEXT })).state).toBe("recorded");
+    expect(
+      (
+        await citationEvidenceService.lookup(cwd, {
+          session_id: SESSION,
+          key: KEY,
+          claim: RESULTS_TEXT,
+        })
+      ).state,
+    ).toBe("recorded");
   });
 
   it("still answers for a claim the model recorded before a rewrite of the answer", async () => {
     const cwd = await makeWorkspace();
     const snapshotId = await seed(cwd, snapshot(PASSAGES, "sha-a"));
     await read(cwd);
-    await citationEvidenceService.record(cwd, { session_id: SESSION, selections: [{ source: KEY, claim: "Attention layers alone reach a better BLEU score than the recurrent baseline on every translation pair we tested.", snapshot_id: snapshotId, passage_ids: ["p1"] }] });
+    await citationEvidenceService.record(cwd, {
+      session_id: SESSION,
+      selections: [
+        {
+          source: KEY,
+          claim:
+            "Attention layers alone reach a better BLEU score than the recurrent baseline on every translation pair we tested.",
+          snapshot_id: snapshotId,
+          passage_ids: ["p1"],
+        },
+      ],
+    });
 
-    const [position] = await citationPassagesService.positions(cwd, { session_id: SESSION, positions: [{ key: KEY, claim: "Attention layers alone reach a better BLEU score than the recurrent baseline, [1]" }] }, DEPS);
+    const [position] = await citationPassagesService.positions(
+      cwd,
+      {
+        session_id: SESSION,
+        positions: [
+          {
+            key: KEY,
+            claim:
+              "Attention layers alone reach a better BLEU score than the recurrent baseline, [1]",
+          },
+        ],
+      },
+      DEPS,
+    );
 
     expect(position?.origin).toBe("generation");
     expect(position?.excerpts[0]?.text).toBe(RESULTS_TEXT);
