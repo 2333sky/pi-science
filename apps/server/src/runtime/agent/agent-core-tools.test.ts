@@ -1295,8 +1295,11 @@ describe("agent-core product tools", () => {
       },
     ]);
     const children = observed.filter(
-      (item) => item.system.includes("subagent") || item.system.includes("independent reviewer"),
+      (item) =>
+        item.system.includes("You are a research subagent") ||
+        item.system.includes("You are an independent reviewer"),
     );
+
     expect(children).toHaveLength(3);
     for (const child of children)
       expect(

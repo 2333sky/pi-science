@@ -22,7 +22,8 @@ import {
   thinking,
   failed,
 } from "./identity.js";
-import { systemPrompt, globalSkillPolicy } from "./resource-policy.js";
+import { globalSkillPolicy } from "./resource-policy.js";
+
 import type { SessionContext } from "./context.js";
 
 export type SessionStartupContext = Pick<
@@ -86,7 +87,7 @@ export async function createAdmitted(
       model,
       thinking: thinking(config.thinking),
       settings: config,
-      systemPrompt: await systemPrompt(),
+      prompt: { mode: "interactive" },
       skillPaths: config.skills,
       skillPolicy: await globalSkillPolicy(),
       env: await context.workerEnvironment(cwd),
@@ -326,7 +327,8 @@ export async function openOnce(
             ? config.model_context_window_override
             : saved?.model_context_window_override,
       },
-      systemPrompt: await systemPrompt(),
+      prompt: { mode: "interactive" },
+
       skillPaths: saved?.skills ?? config.skills,
       skillPolicy: await globalSkillPolicy(),
       env: await context.workerEnvironment(cwd),

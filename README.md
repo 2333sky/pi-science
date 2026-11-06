@@ -156,10 +156,17 @@ automatic recall. Smart review permits narrowly validated low-risk preferences;
 scientific claims always require approval of the exact version. All-manual queues
 all Agent/background changes. Approval means adoption, not scientific proof.
 
-Memory lives in the application SQLite database. It does not rewrite `PROJECT.md`
-or automatically import old ledger/Project Knowledge data. See
+Memory lives in the application SQLite database. It does not rewrite user-owned
+workspace files or automatically import old ledger/Project Knowledge data. See
 [Unified Memory](docs/unified-memory.md) for scopes, recall, Extraction/Dream,
 budget limits, retention and backup.
+
+Project instructions are optional: place an `AGENTS.md` in the workspace root
+to provide project background and conventions. You can edit, empty or delete it;
+Pi-Science never creates or restores it automatically. Authorized conversation
+requests read its current content without storing a second copy in history.
+Application rules live separately in `harness/SYSTEM.md`. See
+[Agent prompts and workspace instructions](docs/agent-prompts.md).
 
 ## Scientific MCP Connectors
 

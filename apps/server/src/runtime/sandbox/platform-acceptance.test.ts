@@ -36,13 +36,16 @@ import { writeSandboxFile } from "./file-write.js";
 import { AgentMcpTools } from "../agent/worker/mcp-tools.js";
 import { InteractionBridge } from "../agent/worker/interaction-bridge.js";
 import { builtinMcpConnectors } from "../../mcp/builtin-connectors.js";
+import { httpsUpstream } from "./test-fixtures/https-upstream.js";
 
 const roots: string[] = [];
 /** The Homebrew prefix this server runs from, when node came from a keg. */
 const homebrewPrefix = /^(.*)\/Cellar\//.exec(process.execPath)?.[1];
 const managers: NodeKernelManager[] = [];
+const upstreams: Array<Awaited<ReturnType<typeof httpsUpstream>>> = [];
 afterEach(async () => {
   await Promise.all(managers.splice(0).map((manager) => manager.shutdownAll()));
+  await Promise.all(upstreams.splice(0).map((upstream) => upstream.close()));
   vi.unstubAllEnvs();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
@@ -264,28 +267,60 @@ describe.skipIf(
     const cwd = await fixture(),
       control = await fixture();
     vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
+    const upstream = await httpsUpstream(control, cwd);
+    upstreams.push(upstream);
     const config = join(control, "profiles.json");
     await writeFile(
       config,
       JSON.stringify({
         schemaVersion: 1,
-        profiles: { analysis: { allowedDomains: ["example.com"] } },
+        profiles: { analysis: { allowedDomains: [upstream.endpoint] } },
       }),
       { mode: 0o600 },
     );
     vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", config);
-    const result = await execute(
-      cwd,
-      [
-        "/bin/bash",
-        "-c",
-        "set -e; curl -sS --fail --max-time 15 https://example.com -o allowed.html; if curl -sS --fail --max-time 2 https://example.org >/dev/null 2>&1; then exit 77; fi; echo filtered",
-      ],
-      [],
-      25,
-    );
-    expect(result, result.stderr).toMatchObject({ code: 0, stdout: "filtered\n" });
-    expect(await readFile(join(cwd, "allowed.html"), "utf8")).toContain("Example Domain");
+    // SRT's NO_PROXY may cover private addresses. Force this fixture through
+    // the policy proxy, just as the explicit CONNECT in the Python case does.
+    const untrusted = await execute(cwd, [
+      "curl",
+      "--noproxy",
+      "",
+      "-sS",
+      "--fail",
+      "--max-time",
+      "5",
+      upstream.url,
+    ]);
+    expect(untrusted.code, untrusted.stderr).toBe(60);
+    const result = await execute(cwd, [
+      "curl",
+      "--noproxy",
+      "",
+      "-sS",
+      "--fail",
+      "--max-time",
+      "5",
+      "--cacert",
+      upstream.ca,
+      upstream.url,
+    ]);
+    expect(result, result.stderr).toMatchObject({ code: 0, stdout: "sandbox-fixture-ok\n" });
+    // The other endpoint is listening with the same valid certificate. A failed
+    // connection is insufficient: prove the policy rejected CONNECT with 403.
+    const denied = await execute(cwd, [
+      "curl",
+      "--noproxy",
+      "",
+      "-sS",
+      "--fail",
+      "--max-time",
+      "5",
+      "--cacert",
+      upstream.ca,
+      upstream.deniedUrl,
+    ]);
+    expect(denied.code).not.toBe(0);
+    expect(denied.stderr).toContain("403");
   }, 40_000);
   it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)(
     "runs persistent Python cells and isolates the installed environment",
@@ -402,6 +437,8 @@ describe.skipIf(
     async () => {
       const cwd = await fixture(),
         home = await fixture();
+      const upstream = await httpsUpstream(home, cwd);
+      upstreams.push(upstream);
       vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
       vi.stubEnv("PI_SCIENCE_HOME", home);
       vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", "");
@@ -421,18 +458,19 @@ describe.skipIf(
         },
         timeoutMs: 20_000,
       };
-      // A verified TLS handshake proves the HTTPS tunnel works without depending
-      // on the public site's HTTP status (example.com can temporarily return 503).
+      // A controlled upstream keeps certificate and availability changes outside
+      // this test while still requiring a real, hostname-verified TLS handshake.
       const probe = [
-        "import contextlib, http.client, urllib.request, urllib.parse",
+        "import contextlib, http.client, ssl, urllib.request, urllib.parse",
         "def probe_https():",
         " proxy=urllib.parse.urlsplit(urllib.request.getproxies()['https'])",
-        " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15)) as connection:",
-        "  connection.set_tunnel('example.com',443)",
+        ` context=ssl.create_default_context(cafile=${JSON.stringify(upstream.ca)})`,
+        " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15,context=context)) as connection:",
+        `  connection.set_tunnel(${JSON.stringify(upstream.host)},${upstream.port})`,
         "  connection.connect()",
       ].join("\n");
       const blocked =
-        "try:\n probe_https()\nexcept Exception:\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
+        "try:\n probe_https()\nexcept OSError as error:\n assert '403' in str(error), str(error)\n print('blocked')\nelse:\n raise AssertionError('network unexpectedly open')";
       expect(
         await manager.execute({
           ...options,
@@ -440,7 +478,7 @@ describe.skipIf(
         }),
       ).toMatchObject({ ok: true, stdout: "blocked\n" });
       await changeNetworkGrant(
-        { profile: "analysis", domain: "example.com", decision: "allow" },
+        { profile: "analysis", domain: upstream.endpoint, decision: "allow" },
         "settings",
       );
       const granted = await manager.execute({
@@ -452,17 +490,25 @@ describe.skipIf(
         const confined = await execute(
           cwd,
           [
-            "/bin/bash",
-            "-c",
-            "if curl -sS --fail --max-time 2 https://example.com >/dev/null 2>&1; then exit 77; fi; echo role-isolated",
+            "curl",
+            "--noproxy",
+            "",
+            "-sS",
+            "--fail",
+            "--max-time",
+            "2",
+            "--cacert",
+            upstream.ca,
+            upstream.url,
           ],
           [],
           5,
           profile,
         );
-        expect(confined, confined.stderr).toMatchObject({ code: 0, stdout: "role-isolated\n" });
+        expect(confined.code).not.toBe(0);
+        expect(confined.stderr).toContain("403");
       }
-      await revokeNetworkGrant("analysis", "example.com");
+      await revokeNetworkGrant("analysis", upstream.endpoint);
       expect(
         await manager.execute({
           ...options,

@@ -1,8 +1,7 @@
 import { ApplicationError } from "../../modules/application-error.js";
 import { applicationErrorStatus } from "../application-error.js";
 import { legacyArchives, exportLegacyArchive } from "../../project-review/legacy-archives.js";
-import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+
 import type { FastifyInstance } from "fastify";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import type { MemoryService } from "../../memory/service.js";
@@ -47,22 +46,6 @@ export function registerProjectRoutes(
     const cwd = await projectWorkspace((req.query as { cwd?: string }).cwd ?? ".");
     const archive = await exportLegacyArchive(cwd, req.params.id);
     return archive ? { archive } : reply.code(404).send({ error: "Archive not found" });
-  });
-  app.get("/api/project/document", async (req) => {
-    const cwd = await projectWorkspace((req.query as { cwd?: string }).cwd ?? ".");
-    try {
-      return { content: await readFile(join(cwd, "PROJECT.md"), "utf8") };
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return { content: "" };
-      throw error;
-    }
-  });
-  app.put("/api/project/document", async (req, reply) => {
-    const cwd = await projectWorkspace((req.query as { cwd?: string }).cwd ?? ".");
-    const { content } = (req.body ?? {}) as { content?: unknown };
-    if (typeof content !== "string") return reply.code(400).send({ error: "content must be text" });
-    await writeFile(join(cwd, "PROJECT.md"), content, "utf8");
-    return { ok: true };
   });
 }
 

@@ -98,9 +98,11 @@ snapshot before activation. Approval changes retain their verified shutdown
 fallback. A watchdog probe must still validate live identity and operation
 progress before initiating recovery; successful IPC alone is not progress.
 
-`resource-policy.ts` resolves `harness/AGENTS.md` relative to its deeper source
-or compiled directory. The additional path level is intentional; source
-worker tests and a compiled policy-load check validate asset resolution after relocation.
+`prompts/compose.ts` resolves `harness/SYSTEM.md` and the main role relative to
+its source or compiled directory. Interactive children share the core and add
+their role; isolated background tasks use their own prompts. Workspace-root
+`AGENTS.md` is optional, user-owned and refreshed as ephemeral context subject
+to read capabilities and execution scope. See [Agent prompts](agent-prompts.md).
 
 ## Settings HTTP adapters
 
