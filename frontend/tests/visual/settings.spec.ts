@@ -124,11 +124,18 @@ test("native web search settings save provider credentials and switches @accessi
   await expect(dialog.getByRole("checkbox", { name: "Enable web search" })).toBeChecked();
   await dialog.getByRole("button", { name: /^Search provider:/ }).click();
   await page.getByRole("menuitemradio", { name: "Brave", exact: true }).click();
-  await dialog.getByLabel("API key", { exact: true }).fill("fixture-key");
+  await expect.poll(() => writes.length).toBe(1);
   await dialog.getByRole("checkbox", { name: "Enable web search" }).uncheck();
-  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect.poll(() => writes.length).toBe(2);
+  await dialog.getByLabel("API key", { exact: true }).fill("fixture-key");
+  expect(writes).toHaveLength(2);
+  await dialog.getByRole("button", { name: "Update API key", exact: true }).click();
   await expect(dialog.getByText("Settings saved", { exact: true })).toBeVisible();
-  expect(writes).toEqual([{ search_enabled: false, fetch_enabled: true, provider: "brave", api_keys: { brave: "fixture-key" } }]);
+  expect(writes).toEqual([
+    { search_enabled: true, fetch_enabled: true, provider: "brave" },
+    { search_enabled: false, fetch_enabled: true, provider: "brave" },
+    { api_keys: { brave: "fixture-key" } },
+  ]);
   await expect(dialog.getByLabel("API key", { exact: true })).toHaveValue("");
   expect(await dialog.getByRole("tabpanel").evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
   const violations = (await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations.filter(item => item.impact === "critical" || item.impact === "serious");
