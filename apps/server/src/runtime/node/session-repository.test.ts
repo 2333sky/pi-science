@@ -315,6 +315,79 @@ describe("SessionRepository messages streaming", () => {
     expect(older.next_cursor).toBeNull();
   });
 
+  it("starts the newest page at the user message that opened its oldest turn", async () => {
+    const cwd = await makeWorkspace();
+    const repo = new SessionRepository();
+    const lines = [
+      sessionHeader("boundary", cwd),
+      messageLine("m1", "user", "question"),
+      messageLine("m2", "assistant", "step"),
+      messageLine("m3", "assistant", "step"),
+      messageLine("m4", "user", "follow-up"),
+      messageLine("m5", "assistant", "step"),
+      messageLine("m6", "assistant", "step"),
+      messageLine("m7", "assistant", "answer"),
+    ];
+    await writeFile(join(cwd, ".pi-science", "sessions", "boundary.jsonl"), lines.join(""), "utf8");
+
+    const latest = await repo.messagesPage(cwd, "boundary", { limit: 3 });
+    expect(latest.messages.map((message) => message.id)).toEqual(["m4", "m5", "m6", "m7"]);
+    expect(latest.has_more).toBe(true);
+
+    const older = await repo.messagesPage(cwd, "boundary", { limit: 3, before: latest.next_cursor! });
+    expect(older.messages.map((message) => message.id)).toEqual(["m1", "m2", "m3"]);
+    expect(older.has_more).toBe(false);
+    expect(older.next_cursor).toBeNull();
+  });
+
+  it("caps the newest page at 200 messages inside one oversized turn", async () => {
+    const cwd = await makeWorkspace();
+    const repo = new SessionRepository();
+    const lines = [sessionHeader("cap", cwd), messageLine("m1", "user", "question")];
+    for (let index = 2; index <= 251; index += 1) lines.push(messageLine(`m${index}`, "assistant", `step ${index}`));
+    await writeFile(join(cwd, ".pi-science", "sessions", "cap.jsonl"), lines.join(""), "utf8");
+
+    const latest = await repo.messagesPage(cwd, "cap", { limit: 50 });
+    expect(latest.messages).toHaveLength(200);
+    expect(latest.messages[0]).toMatchObject({ id: "m52", role: "assistant" });
+    expect(latest.has_more).toBe(true);
+
+    const older = await repo.messagesPage(cwd, "cap", { limit: 100, before: latest.next_cursor! });
+    expect(older.messages).toHaveLength(51);
+    expect(older.messages[0]).toMatchObject({ id: "m1", role: "user" });
+    expect(older.has_more).toBe(false);
+  });
+
+  it("keeps has_more when the message before the page fills a whole scan chunk", async () => {
+    const cwd = await makeWorkspace();
+    const repo = new SessionRepository();
+    // A message whose serialized line is at least one 64 KiB scan chunk long sits
+    // between the newest page and the older history. Reading must continue past
+    // that chunk boundary, otherwise the page reports `has_more: false` and the
+    // older messages become unreachable from the UI.
+    const padded = (id: string, role: string, bytes: number) => messageLine(id, role, "x".repeat(bytes - Buffer.byteLength(messageLine(id, role, ""))));
+    for (const [session, bytes] of [["chunk-exact", 64 * 1024], ["chunk-short", 64 * 1024 - 1]] as const) {
+      const lines = [
+        sessionHeader(session, cwd),
+        messageLine("m1", "user", "question"),
+        padded("m2", "assistant", bytes),
+        messageLine("m3", "user", "follow up"),
+        messageLine("m4", "assistant", "answer"),
+      ];
+      await writeFile(join(cwd, ".pi-science", "sessions", `${session}.jsonl`), lines.join(""), "utf8");
+
+      const latest = await repo.messagesPage(cwd, session, { limit: 2 });
+      expect(latest.messages.map((message) => message.id), session).toEqual(["m3", "m4"]);
+      expect(latest.has_more, session).toBe(true);
+      expect(latest.next_cursor, session).toEqual(expect.any(String));
+
+      const older = await repo.messagesPage(cwd, session, { limit: 10, before: latest.next_cursor! });
+      expect(older.messages.map((message) => message.id), session).toEqual(["m1", "m2"]);
+      expect(older.has_more, session).toBe(false);
+      expect(older.next_cursor, session).toBeNull();
+    }
+  });
+
   it("rejects a cursor when bytes before its boundary were rewritten", async () => {
     const cwd = await makeWorkspace();
     const repo = new SessionRepository();

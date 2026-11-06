@@ -96,6 +96,10 @@ function sessionsRoot(cwd: string): string {
 
 const HISTORY_PAGE_SIZE = 50;
 const HISTORY_PAGE_MAX_SIZE = 100;
+/** Keep the newest page on a turn boundary: extend it back to the user message
+ * that opened its oldest turn. A turn longer than this keeps a mid-turn first
+ * page instead of paging back forever. */
+const HISTORY_FIRST_PAGE_TURN_MAX = 200;
 const HISTORY_SCAN_CHUNK_BYTES = 64 * 1024;
 const LAST_MESSAGE_SCAN_CHUNK_BYTES = 128 * 1024;
 const LAST_MESSAGE_SCAN_MAX_BYTES = 512 * 1024;
@@ -186,6 +190,7 @@ async function readMessagePage(
   path: string,
   endOffset: number,
   limit: number,
+  firstPage = false,
 ): Promise<{ messages: SessionMessageRecord[]; hasMore: boolean; nextOffset: number | null }> {
   const handle = await open(path, "r");
   try {
@@ -194,8 +199,17 @@ async function readMessagePage(
     let pending = Buffer.alloc(0);
     const selected: Array<{ message: SessionMessageRecord; offset: number }> = [];
     let hasMore = false;
+    // `selected` runs newest first, so its last entry is the oldest one seen.
+    const wantsMore = () => selected.length < limit
+      || (firstPage
+        && selected.length < HISTORY_FIRST_PAGE_TURN_MAX
+        && selected[selected.length - 1]?.message.role !== "user");
 
-    while (scanPosition > 0 && selected.length <= limit) {
+    // Keep scanning until the older-history verdict is known. Stopping the
+    // moment the page fills loses `hasMore` whenever the next older message
+    // line still sits in a chunk that has not been read yet — which happens for
+    // any message whose serialized line is at least one scan chunk long.
+    while (scanPosition > 0) {
       const chunkStart = Math.max(0, scanPosition - HISTORY_SCAN_CHUNK_BYTES);
       const chunk = Buffer.alloc(scanPosition - chunkStart);
       const { bytesRead } = await handle.read(chunk, 0, chunk.length, chunkStart);
@@ -212,7 +226,7 @@ async function readMessagePage(
         if (lineStart === 0 && chunkStart > 0) break;
         const message = parseMessageLine(pending.subarray(lineStart, cursor).toString("utf8"));
         if (message) {
-          if (selected.length < limit) {
+          if (wantsMore()) {
             selected.push({ message, offset: chunkStart + lineStart });
           } else {
             hasMore = true;
@@ -729,7 +743,7 @@ export class SessionRepository {
         throw new Error("stale history cursor");
       }
     }
-    const page = await readMessagePage(file.path, endOffset, requestedLimit);
+    const page = await readMessagePage(file.path, endOffset, requestedLimit, !decoded);
     const nextBoundaryHash = page.nextOffset === null ? undefined : await messageBoundaryHash(file.path, page.nextOffset);
     return {
       messages: page.messages,

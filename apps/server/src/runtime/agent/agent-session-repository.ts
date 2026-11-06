@@ -12,6 +12,25 @@ import type { SessionInfoRecord, SessionMessagePage, SessionMessageRecord, Sessi
 
 const context = BACKGROUND_CONTEXT;
 const PAGE_SIZE = 50;
+/** The newest page must start at a turn boundary (a user message), because the
+ * conversation UI groups a turn by its user message. A turn longer than this
+ * keeps a mid-turn first page rather than paging back forever. */
+const FIRST_PAGE_TURN_MAX_MESSAGES = 200;
+
+function messageRole(entry: Entry): string {
+  return entry.type === "message" ? String((entry.message as { role?: unknown }).role ?? "") : "";
+}
+
+/** Extend the newest page until its oldest entry is the user message that
+ * opened the turn, so a page never begins in the middle of a turn. */
+function firstPageWindow(entries: Entry[], limit: number): Entry[] {
+  let count = Math.min(limit, entries.length);
+  while (
+    count > 0 && count < entries.length && count < FIRST_PAGE_TURN_MAX_MESSAGES
+    && messageRole(entries[count - 1]!) !== "user"
+  ) count += 1;
+  return entries.slice(0, count);
+}
 
 function asMessage(entry: Entry): SessionMessageRecord | null {
   if (entry.type !== "message") return null;
@@ -221,15 +240,23 @@ export class AgentSessionRepository {
       const session = await repo.open(metadata, context);
       try {
         const [entries, file] = await Promise.all([
-          session.findEntries({ type: "message", order: "desc", limit: limit + 1, cursor }, context),
+          session.findEntries({
+            type: "message",
+            order: "desc",
+            limit: cursor ? limit + 1 : FIRST_PAGE_TURN_MAX_MESSAGES + 1,
+            cursor,
+          }, context),
           stat(metadata.path),
         ]);
-        const selected = entries.slice(0, limit).reverse();
+        const page = cursor
+          ? entries.slice(0, limit)
+          : firstPageWindow(entries, limit);
+        const selected = page.reverse();
         const oldest = selected[0];
         return { messages: await projectMessages(session, selected),
-          next_cursor: entries.length > limit && oldest
+          next_cursor: entries.length > page.length && oldest
             ? Buffer.from(JSON.stringify({ v: 4, s: oldest.seq })).toString("base64url") : null,
-          has_more: entries.length > limit,
+          has_more: entries.length > page.length,
           snapshot_version: `${file.size}:${file.mtimeMs}` };
       } finally { await session.close(context); }
     });

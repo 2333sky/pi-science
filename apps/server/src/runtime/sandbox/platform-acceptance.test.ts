@@ -136,8 +136,13 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     const config = join(control, "profiles.json");
     await writeFile(config, JSON.stringify({ schemaVersion: 1, profiles: { analysis: { allowedDomains: ["example.com"] } } }), { mode: 0o600 });
     vi.stubEnv("PI_SCIENCE_SANDBOX_PROFILES", config);
-    const result = await execute(cwd, ["/bin/bash", "-c", "set -e; curl -sS --fail --max-time 15 https://example.com -o allowed.html; if curl -sS --fail --max-time 2 https://example.org >/dev/null 2>&1; then exit 77; fi; echo filtered"], [], 25);
-    expect(result, result.stderr).toMatchObject({ code: 0, stdout: "filtered\n" }); expect(await readFile(join(cwd, "allowed.html"), "utf8")).toContain("Example Domain");
+    // The tunnel is asserted with a real, verified TLS handshake. Only the public
+    // site's HTTP status is ignored: example.com can answer 503 without saying
+    // anything about the sandbox, and `--fail` turned that into a red test.
+    const result = await execute(cwd, ["/bin/bash", "-c", "set -e; if [ -n \"$CURL_CA_BUNDLE\" ]; then test -s \"$CURL_CA_BUNDLE\"; fi; curl -sS --max-time 15 -o allowed.html -w '%{http_code}' https://example.com > allowed.status; case \"$(cat allowed.status)\" in [1-5][0-9][0-9]) ;; *) exit 78;; esac; if curl -sS --max-time 2 https://example.org >/dev/null 2>&1; then exit 77; fi; echo filtered"], [], 25);
+    expect(result, result.stderr).toMatchObject({ code: 0, stdout: "filtered\n" });
+    expect((await readFile(join(cwd, "allowed.status"), "utf8")).trim()).toMatch(/^[1-5]\d\d$/);
+    expect(await readFile(join(cwd, "allowed.html"), "utf8")).not.toHaveLength(0);
   }, 40_000);
   it.skipIf(!process.env.PI_SCIENCE_SANDBOX_PYTHON_ROOT)("runs persistent Python cells and isolates the installed environment", async () => {
     const cwd = await fixture(); vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "required");
@@ -194,11 +199,14 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || !["darwin", "linu
     const options = { cwd, language: "python" as const, environment: { ready: true, workspace: cwd, prefix, python: join(prefix, "bin/python3"), pip: join(prefix, "bin/pip"), npm: { local_prefix: cwd, global_prefix: cwd, cache: cwd } }, timeoutMs: 20_000 };
     // A verified TLS handshake proves the HTTPS tunnel works without depending
     // on the public site's HTTP status (example.com can temporarily return 503).
+    // The default context verifies the chain against the CA bundle the sandbox
+    // hands the workload, so a missing trust store fails here instead of passing.
     const probe = [
-      "import contextlib, http.client, urllib.request, urllib.parse",
+      "import contextlib, http.client, ssl, urllib.request, urllib.parse",
       "def probe_https():",
       " proxy=urllib.parse.urlsplit(urllib.request.getproxies()['https'])",
-      " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15)) as connection:",
+      " context=ssl.create_default_context()",
+      " with contextlib.closing(http.client.HTTPSConnection(proxy.hostname,proxy.port,timeout=15,context=context)) as connection:",
       "  connection.set_tunnel('example.com',443)",
       "  connection.connect()",
     ].join("\n");
