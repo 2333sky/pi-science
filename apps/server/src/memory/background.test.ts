@@ -279,7 +279,7 @@ it("bounds extraction input and advances only the portion of the transcript actu
 });
 
 it("queues science review with its own deduplication and leaves extraction cursor intact", async () => {
-  const { sessionRepository } = await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
@@ -364,7 +364,7 @@ it("queues science review with its own deduplication and leaves extraction curso
 });
 
 it("rejects a science review result that fabricates its message source", async () => {
-  const { sessionRepository } = await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
@@ -411,7 +411,7 @@ it("rejects a science review result that fabricates its message source", async (
 });
 
 it("queues a busy science review and discards output after cancellation", async () => {
-  const { sessionRepository } = await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
@@ -471,7 +471,7 @@ it("queues a busy science review and discards output after cancellation", async 
 });
 
 it("requests an automatic science review on a settled turn without a frontend", async () => {
-  const { sessionRepository } = await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
@@ -500,7 +500,7 @@ it("requests an automatic science review on a settled turn without a frontend", 
 });
 
 it("does not review an old report for failed, aborted or answerless turns", async () => {
-  const { sessionRepository } = await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
@@ -569,7 +569,7 @@ it("does not review an old report for failed, aborted or answerless turns", asyn
 it("queues an automatic review through the HTTP route for the specified turn", async () => {
   const { default: Fastify } = await import("fastify");
   const { registerProjectRoutes } = await import("../http/routes/project-routes.js");
-  const { sessionRepository } = await import("../runtime/node/session-repository.js");
+  const sessionRepository = memory.sessions;
   const path = vi.spyOn(sessionRepository, "findPath").mockResolvedValue("/fixture/session.jsonl");
   const messages = vi.spyOn(sessionRepository, "messages").mockResolvedValue([
     {
@@ -595,6 +595,13 @@ it("queues an automatic review through the HTTP route for the specified turn", a
     expect(response.statusCode).toBe(200);
     const run = response.json();
     expect(run).toMatchObject({ status: "queued", purpose: "science_review" });
+    path.mockResolvedValueOnce(null);
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/project-knowledge/science-review",
+      payload: { cwd: root, session_id: "missing-session" },
+    });
+    expect(missing.statusCode).toBe(404);
     await vi.waitFor(async () =>
       expect((await memory.command(ctx, "run.get", { id: run.id })).status).toBe("completed"),
     );
