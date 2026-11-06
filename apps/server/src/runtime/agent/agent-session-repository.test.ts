@@ -297,3 +297,110 @@ it("never repairs a live Worker's partial result transaction while projecting hi
     await rm(cwd, { recursive: true, force: true });
   }
 });
+
+it("projects a failed model call as readable assistant content instead of an empty array", async () => {
+  const cwd = await mkdtemp(join(tmpdir(), "core-history-model-failure-"));
+  const env = new NodeExecutionEnv({ cwd });
+  const ctx = BACKGROUND_CONTEXT;
+  const repo = new JsonlSessionRepo({
+    fileSystem: env,
+    sessionsRoot: join(cwd, ".pi-science", "agent-sessions"),
+  });
+  try {
+    const session = await repo.create({ cwd }, ctx);
+    const branch = await session.createBranch("main", null, ctx);
+    const user = await branch.appendMessage(
+      { role: "user", content: "Reply with exactly: OK", timestamp: 1000 },
+      ctx,
+    );
+    const failed = await branch.appendMessage(
+      {
+        role: "assistant",
+        content: [],
+        api: "openai-completions",
+        provider: "opencode-go",
+        model: "deepseek-v4.1-flash",
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "error",
+        errorMessage: "Provider is not configured: opencode-go",
+        timestamp: 2000,
+      },
+      ctx,
+    );
+    const ok = await branch.appendMessage(
+      {
+        role: "assistant",
+        content: [{ type: "text", text: "OK" }],
+        api: "openai-completions",
+        provider: "opencode-go",
+        model: "deepseek-v4.1-flash",
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: "stop",
+        timestamp: 4000,
+      },
+      ctx,
+    );
+    await session.setValue(
+      operationResult("failed-run"),
+      {
+        operationId: "failed-run",
+        kind: "run",
+        status: "failed",
+        fromTipId: user,
+        tipId: failed,
+        startedAt: 1000,
+        endedAt: 2000,
+      },
+      ctx,
+    );
+    await session.setValue(
+      operationResult("ok-run"),
+      {
+        operationId: "ok-run",
+        kind: "run",
+        status: "completed",
+        fromTipId: failed,
+        tipId: ok,
+        startedAt: 3000,
+        endedAt: 4000,
+      },
+      ctx,
+    );
+    const id = session.metadata.id;
+    await session.close(ctx);
+    await repo.close(ctx);
+    const history = new AgentSessionRepository();
+    const messages = await history.messages(cwd, id);
+    expect(messages.find((message) => message.id === failed)).toMatchObject({
+      role: "assistant",
+      turnStatus: "failed",
+    });
+    expect(messages.find((message) => message.id === failed)?.content).toEqual([
+      {
+        type: "text",
+        text: "Model request failed (opencode-go/deepseek-v4.1-flash, credential_missing): Provider is not configured: opencode-go",
+      },
+    ]);
+    expect(messages.find((message) => message.id === ok)?.content).toEqual([
+      { type: "text", text: "OK" },
+    ]);
+  } finally {
+    await repo.close(ctx);
+    await env.cleanup(ctx);
+    await rm(cwd, { recursive: true, force: true });
+  }
+});
