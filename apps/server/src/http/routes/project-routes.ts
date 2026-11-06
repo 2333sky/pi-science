@@ -1,3 +1,5 @@
+import { ApplicationError } from "../../modules/application-error.js";
+import { applicationErrorStatus } from "../application-error.js";
 import { legacyArchives, exportLegacyArchive } from "../../project-review/legacy-archives.js";
 
 import type { FastifyInstance } from "fastify";
@@ -29,6 +31,8 @@ export function registerProjectRoutes(
         ...(typeof body.turn_id === "string" ? { turnId: body.turn_id } : {}),
       });
     } catch (error) {
+      if (error instanceof ApplicationError)
+        return reply.code(applicationErrorStatus(error)).send({ error: error.message });
       const status = (error as { statusCode?: number }).statusCode;
       if (status) return reply.code(status).send({ error: (error as Error).message });
       throw error;
