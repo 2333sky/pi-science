@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Type } from "typebox";
 import {
   createBashTool,
   NodeExecutionEnv,
@@ -18,7 +19,7 @@ import { diffWorkspaceSnapshots } from "../../artifacts/workspace-artifact-snaps
 import { publishWorkspaceArtifactsDetailed } from "../../artifacts/workspace-artifact-publisher.js";
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
-/** Keep upstream schema, output capture/checkpoints and result contract. Only replace its OS backend. */
+/** Add an optional display description and run upstream Bash with the selected OS backend. */
 export function sandboxBashTool(
   identity: SandboxIdentity,
   hostEnvironment: Record<string, string> = toolEnvironment(process.env),
@@ -27,6 +28,16 @@ export function sandboxBashTool(
   const original = createBashTool();
   return {
     ...original,
+    parameters: Type.Object({
+      ...original.parameters.properties,
+      description: Type.Optional(
+        Type.String({
+          description:
+            "A short task description in the user's language, such as checking Python or running tests. Describe the purpose of this command for the tool activity row.",
+          maxLength: 160,
+        }),
+      ),
+    }),
     description: `Use for running programs, scripts, tests, builds, scientific computations and operations that require a shell. When available, prefer the dedicated ls tool for directory browsing, glob for finding files by name, grep for searching file contents, and read for inspecting a known file. Keep routine file inspection in those tools rather than combining ls/find/rg/grep/cat into a Bash command for convenience. Use Bash when the task requires program execution or shell processing beyond those tools' supported operations. A dedicated tool's access_denied result is not a reason to retry the same access through Bash.\n${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts.`,
     async execute(id, params, update, ctx, invocation, context) {
       const confined =

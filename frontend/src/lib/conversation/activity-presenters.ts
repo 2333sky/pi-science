@@ -6,15 +6,6 @@ const DEFAULT_LABELS: Record<string, string> = {
   "conversation.activity.read": "Reading {{target}}", "conversation.activity.search": "Searching for {{target}}", "conversation.activity.list": "Listing {{target}}", "conversation.activity.write": "Updating {{target}}", "conversation.activity.run": "Running {{target}}", "conversation.activity.webSearch": "Searching the web for {{target}}", "conversation.activity.tool": "Running {{tool}}",
 };
 
-// Only fixed program and subcommand names can appear in the collapsed shell
-// row. Even positional arguments can contain credentials or inline code.
-const SHELL_ACTIONS = [
-  /^git[ \t]+(?:status|diff|log|show|branch|add|commit|fetch|pull|push)(?=\s|$)/,
-  /^(?:pnpm|npm|yarn|bun)[ \t]+(?:test|build|lint|typecheck|install|run)(?=\s|$)/,
-  /^(?:pip3?|uv)[ \t]+(?:install|run|sync|list)(?=\s|$)/,
-  /^(?:python3?|node|pytest|vitest|rg|ls|pwd)(?=\s|$)/,
-];
-
 export function presentToolActivity(block: ToolCallBlock, translate: ActivityTranslator = defaultTranslate): string {
   const title = meaningfulActivityTitle(block.presentation?.title, block.tool) ?? meaningfulActivityTitle(block.title, block.tool);
   if (title) return title;
@@ -27,18 +18,29 @@ export function presentToolActivity(block: ToolCallBlock, translate: ActivityTra
   if (["edit", "write", "write_file", "apply_patch"].includes(tool)) return translate("conversation.activity.write", { target: shortPath(text(input.path) || text(input.file_path) || "file") });
   if (["web_search", "tavily_search", "search_web"].includes(tool)) return translate("conversation.activity.webSearch", { target: trim(text(input.query) || "sources") });
   if (["bash", "python", "run_code", "execute"].includes(tool)) {
-    const target = tool === "bash" ? shellActionPreview(text(input.command)) ?? tool : tool;
+    const target = tool === "bash" ? shellCommandPreview(text(input.command)) || tool : tool;
     return description || translate("conversation.activity.run", { target });
   }
   return description || translate("conversation.activity.tool", { tool: block.tool.replace(/[_-]+/g, " ").trim() || "tool" });
 }
 
-function shellActionPreview(command: string): string | undefined {
-  for (const pattern of SHELL_ACTIONS) {
-    const action = pattern.exec(command)?.[0];
-    if (action) return `${action.replace(/[ \t]+/g, " ")}${command.length > action.length ? " …" : ""}`;
-  }
-  return undefined;
+export function shellCommandPreview(command: string): string {
+  // Redact before shortening so a clipped credential cannot become a preview.
+  const redacted = command
+    .replace(/(\b[\w-]*(?:api[_-]?key|token|secret|password|credential|authorization|cookie)[\w-]*\s*(?:[:=]\s*|\s+))(?:(?:Bearer|Basic)\s+)?("(?:\\.|[^"])*(?:"|$)|'(?:[^'])*(?:'|$)|[^\s;|&"']+)/gi, "$1[redacted]")
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/-]+=*/gi, "$1 [redacted]")
+    .replace(/\b([A-Z][A-Z0-9_]*=)("(?:\\.|[^"])*(?:"|$)|'(?:[^'])*(?:'|$)|[^\s;|&]+)/g, "$1[redacted]")
+    .replace(/https?:\/\/[^\s"'\x60)]+/gi, (url) => {
+      try {
+        const parsed = new URL(url);
+        parsed.username = "";
+        parsed.password = "";
+        parsed.search = "";
+        parsed.hash = "";
+        return parsed.toString();
+      } catch { return "[redacted-url]"; }
+    });
+  return trim(redacted.replace(/\s+/g, " ").trim(), 160);
 }
 
 export function meaningfulActivityTitle(title: string | undefined, tool: string): string | undefined {

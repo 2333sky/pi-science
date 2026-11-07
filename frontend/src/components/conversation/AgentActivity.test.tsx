@@ -395,6 +395,18 @@ describe("AgentActivity live stream", () => {
     expect(screen.getByText("1.9s")).toBeInTheDocument();
   });
 
+  it("shows echo-prefixed Bash commands in completed rows and commands beneath task descriptions", () => {
+    render(<AgentActivity blocks={[
+      tool("first", "bash", "done", { command: 'echo "第 1 次调用"; date; hostname' }),
+      tool("second", "bash", "done", { description: "Check Python", command: "python3 -V" }),
+    ]} />);
+    expect(screen.getByText('Running echo "第 1 次调用"; date; hostname')).toBeInTheDocument();
+    expect(screen.getByText("Check Python")).toBeInTheDocument();
+    expect(screen.getByText("python3 -V")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Running echo/ }));
+    expect(screen.getByText("Command").parentElement).toHaveTextContent('echo "第 1 次调用"; date; hostname');
+  });
+
   it("renders a shell command, exit code and output in the expanded tool row", () => {
     render(<AgentActivity blocks={[{
       ...tool("bash", "bash", "done", { command: "pnpm test --filter ui" }),
