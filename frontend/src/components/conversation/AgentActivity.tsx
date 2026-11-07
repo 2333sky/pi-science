@@ -205,7 +205,7 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
   return <div id={`thread-block-${block.id}`} data-running={running} className={cn(styles.entry, styles.thinking, "min-w-0")}>
     <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className={cn(styles.toolButton, "flex min-h-primary max-w-full items-center gap-2 rounded-input py-1.5 text-left text-ui-label text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-control")}>
       {running ? <span aria-hidden className="mx-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : <Check size={14} aria-hidden className="shrink-0 text-muted" />}
-      <span className="min-w-0 truncate">{t("conversation.activity.thinking")}</span>
+      <span className="min-w-0 truncate">{t(running ? "conversation.activity.thinking" : "conversation.activity.reasoning")}</span>
       {liveTail && <span aria-hidden className="hidden min-w-0 flex-1 truncate text-right font-mono text-[10px] text-muted sm:block">{liveTail}</span>}
       {duration && <span aria-hidden="true" className="shrink-0 font-mono text-[10px] tabular-nums text-muted">{duration}</span>}
       {running && <LiveStepElapsed since={block.startedAt} />}

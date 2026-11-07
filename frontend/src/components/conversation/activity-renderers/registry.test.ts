@@ -165,4 +165,12 @@ describe("ActivityRendererRegistry", () => {
     expect(view.detail).toContain("resultCount:4");
   });
 
+  it("shows the requested preprint date range when there is no keyword query", () => {
+    const source = tool("mcp__paper-search__search_biorxiv_preprints", { input: { date_from: "2026-11-01", date_to: "2026-11-05", limit: 3 }, details: { count: 3 } });
+    const activity = projectToolActivity(source);
+    const view = activityRendererRegistry.resolve(activity.kind).compact({ activity, source, live: false, t });
+    expect(view.title).toBe("bioRxiv · 2026-11-01 → 2026-11-05");
+    expect(view.detail).toContain("resultCount:3");
+  });
+
 });

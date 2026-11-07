@@ -43,4 +43,23 @@ describe("presentToolActivity", () => {
     expect(presentToolActivity(block("future_tool", { token: "private" }))).toBe("future tool");
   });
 
+  it.each([
+    ["search_memory", { q: "回复语言" }, "Search memory · 回复语言"],
+    ["read_memory", { id: "7dcc186c-9a84-4dfc-9248-5000cd726be7" }, "Read memory · 7dcc186…"],
+    ["write_memory", { operation: "append", content: { title: "工具连通性测试记录" } }, "Update memory · 工具连通性测试记录"],
+    ["mcp__structures-interactions__get_pdb_entry", { pdb_id: "1LYZ" }, "Get PDB structures · 1LYZ"],
+    ["mcp__structures-interactions__get_alphafold_prediction", { uniprot_accession: "P69905" }, "Get AlphaFold predictions · P69905"],
+    ["mcp__structures-interactions__get_emdb_entry", { emdb_id: "EMD-10180" }, "Get EMDB density maps · EMD-10180"],
+    ["mcp__structures-interactions__search_pdb_entries", { query: "lysozyme" }, "Search PDB structures · lysozyme"],
+    ["mcp__structures-interactions__get_uniprot_sequence", { accession: "P69905" }, "Get UniProt sequences · P69905"],
+    ["verify_citations", { text: "a DOI to check" }, "Verify citations"],
+    ["read_source_evidence", { source: "arxiv:2211.16742" }, "Read source evidence · arxiv:2211.16742"],
+    ["cite_evidence", { selections: [{ source: "arxiv:2211.16742", passage_ids: ["p1"] }] }, "Record evidence citations · arxiv:2211.16742"],
+    ["subagent", { agent: "researcher", task: "Run a test" }, "Delegate task · researcher"],
+    ["subagent_control", { action: "list" }, "List subagents"],
+    ["subagent_control", { action: "status", id: "test" }, "Check subagent status"],
+  ])("presents actual session parameters for %s", (name, input, expected) => {
+    expect(presentToolActivity(block(name as string, input as Record<string, unknown>))).toBe(expected);
+  });
+
 });

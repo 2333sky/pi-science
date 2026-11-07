@@ -4,6 +4,28 @@ export type ActivityTranslator = (key: string, values?: Record<string, unknown>)
 
 const DEFAULT_LABELS: Record<string, string> = {
   "conversation.activity.terminal": "Terminal", "conversation.activity.fetch": "Fetching {{target}}", "conversation.activity.read": "Reading {{target}}", "conversation.activity.search": "Searching for {{target}}", "conversation.activity.list": "Listing {{target}}", "conversation.activity.write": "Updating {{target}}", "conversation.activity.run": "Running {{target}}", "conversation.activity.webSearch": "Searching the web for {{target}}", "conversation.activity.tool": "Running {{tool}}",
+  "conversation.activity.resource.search": "Search {{resource}}",
+  "conversation.activity.resource.read": "Get {{resource}}",
+  "conversation.activity.resource.pdb": "PDB structures",
+  "conversation.activity.resource.alphafold": "AlphaFold predictions",
+  "conversation.activity.resource.emdb": "EMDB density maps",
+  "conversation.activity.resource.uniprot": "UniProt proteins",
+  "conversation.activity.resource.sequence": "UniProt sequences",
+  "conversation.activity.resource.intact": "protein interactions",
+  "conversation.activity.resource.complex": "protein complexes",
+  "conversation.activity.memory.search": "Search memory",
+  "conversation.activity.memory.read": "Read memory",
+  "conversation.activity.memory.write": "Update memory",
+  "conversation.activity.citation.verify": "Verify citations",
+  "conversation.activity.citation.read": "Read source evidence",
+  "conversation.activity.citation.record": "Record evidence citations",
+  "conversation.activity.delegate": "Delegate task",
+  "conversation.activity.delegate.list": "List subagents",
+  "conversation.activity.delegate.status": "Check subagent status",
+  "conversation.activity.delegate.collect": "Collect subagent results",
+  "conversation.activity.delegate.stop": "Stop subagent",
+  "conversation.activity.delegate.manage": "Manage subagents",
+  "conversation.activity.reasoning": "Thinking",
 };
 
 /** MCP names retain their connector identity in details, but share the same UI rules. */
@@ -20,12 +42,22 @@ export function activityTaskTitle(block: ToolCallBlock): string | undefined {
 
 export function activityTarget(block: ToolCallBlock): string {
   const input = block.input ?? {};
-  for (const key of ["query", "pattern", "search_query", "path", "file_path", "directory", "url", "doi", "pmcid", "accession", "identifier", "gene", "name"]) {
+  for (const key of ["query", "q", "pattern", "search_query", "path", "file_path", "directory", "url", "doi", "pmcid", "accession", "uniprot_accession", "pdb_id", "emdb_id", "identifier", "gene", "name"]) {
     const value = text(input[key]);
     if (value) return trim(shellCommandPreview(value));
   }
+  const from = text(input.date_from), to = text(input.date_to);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) return `${from} → ${to}`;
   return "";
 }
+
+const SCIENCE_RESOURCES: Record<string, [action: "search" | "read", resource: string]> = {
+  search_pdb_entries: ["search", "pdb"], get_pdb_entry: ["read", "pdb"],
+  get_alphafold_prediction: ["read", "alphafold"],
+  search_emdb_entries: ["search", "emdb"], get_emdb_entry: ["read", "emdb"],
+  search_uniprot_proteins: ["search", "uniprot"], get_uniprot_entry: ["read", "uniprot"], get_uniprot_sequence: ["read", "sequence"],
+  search_intact_interactions: ["search", "intact"], search_complex_portal: ["search", "complex"],
+};
 
 export function presentToolActivity(block: ToolCallBlock, translate: ActivityTranslator = defaultTranslate): string {
   const title = activityTaskTitle(block);
@@ -34,6 +66,32 @@ export function presentToolActivity(block: ToolCallBlock, translate: ActivityTra
   const tool = activityToolName(block.tool);
   const path = text(input.path) || text(input.file_path) || text(input.directory);
   const target = activityTarget(block);
+  const append = (label: string, value: string = target) => value ? `${label} · ${value}` : label;
+  const science = SCIENCE_RESOURCES[tool];
+  if (science) return append(translate(`conversation.activity.resource.${science[0]}`, { resource: translate(`conversation.activity.resource.${science[1]}`) }));
+  if (tool === "search_memory") return append(translate("conversation.activity.memory.search"));
+  if (tool === "read_memory") return append(translate("conversation.activity.memory.read"), trim(text(input.id), 8));
+  if (tool === "write_memory") {
+    const content = input.content && typeof input.content === "object" ? input.content as Record<string, unknown> : {};
+    return append(translate("conversation.activity.memory.write"), trim(text(content.title) || text(input.reason)));
+  }
+  if (tool === "verify_citations") return translate("conversation.activity.citation.verify");
+  if (tool === "read_source_evidence") return append(translate("conversation.activity.citation.read"), trim(shellCommandPreview(text(input.source))));
+  if (tool === "cite_evidence") {
+    const selections = Array.isArray(input.selections) ? input.selections : [];
+    const sources = [...new Set(selections.flatMap((selection: unknown) => {
+      const source = selection && typeof selection === "object" ? text((selection as Record<string, unknown>).source) : "";
+      return source ? [source] : [];
+    }))];
+    return append(translate("conversation.activity.citation.record"), trim(shellCommandPreview(sources.join(", "))));
+  }
+  if (tool === "subagent") return append(translate("conversation.activity.delegate"), trim(text(input.agent)));
+  if (tool === "subagent_control") {
+    const action = text(input.action);
+    return ["list", "status", "collect", "stop"].includes(action)
+      ? translate(`conversation.activity.delegate.${action}`)
+      : translate("conversation.activity.delegate.manage");
+  }
   if (["read", "read_file", "notebook_read", "view_image"].includes(tool)) return translate("conversation.activity.read", { target: shortPath(path || "file") });
   if (["grep", "glob", "search", "search_files", "rg", "find"].includes(tool)) return translate("conversation.activity.search", { target: target || "matching files" });
   if (["ls", "list", "list_files"].includes(tool)) return translate("conversation.activity.list", { target: shortPath(path || "workspace files") });
