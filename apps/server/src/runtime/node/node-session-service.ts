@@ -16,6 +16,7 @@ import { resolve } from "node:path";
 import { ConversationEventHub } from "../events/conversation-event-hub.js";
 import { DurableEventStore } from "../events/event-store.js";
 import { CitationAutoVerifyService } from "../citations/citation-auto-verify.js";
+import { reportModelFailure } from "../agent/model-failure.js";
 
 import type { RuntimeResult, RuntimeSkillPolicy } from "../agent/agent-runtime-types.js";
 import { AgentCoreSessionService } from "../agent/agent-core-session-service.js";
@@ -105,8 +106,10 @@ export class NodeSessionService {
     this.agentCore =
       agentCore ?? new AgentCoreSessionService(eventHub, environments, agentCoreServer);
     this.agentCore.configureProductLifecycle({
-      observe: (cwd, sessionId, event) =>
-        this.statsProjector.track(runtimeKey(cwd, sessionId), event, Date.now()),
+      observe: (cwd, sessionId, event) => {
+        this.statsProjector.track(runtimeKey(cwd, sessionId), event, Date.now());
+        reportModelFailure(this.log, event);
+      },
       settled: (cwd, sessionId, turnId, status) => {
         this.citationsAutoVerify.schedule(cwd, sessionId, turnId, this.log);
         if (this.memoryHooks)
