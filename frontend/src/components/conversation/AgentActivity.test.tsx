@@ -398,16 +398,16 @@ describe("AgentActivity live stream", () => {
   it("shows compact terminal summaries and keeps full commands in expanded details", () => {
     render(<AgentActivity blocks={[
       tool("first", "bash", "done", { command: 'echo "第 1 次调用"; date; hostname' }),
-      tool("second", "bash", "done", { description: "Check Python", command: "python3 -V" }),
+      { ...tool("second", "bash", "done", { description: "Check Python", command: "python3 -V" }), title: "Running bash" },
     ]} />);
     expect(screen.getByText('echo "第 1 次调用"; date; hostname')).toBeInTheDocument();
     expect(screen.getByText("Check Python")).toBeInTheDocument();
     expect(screen.queryByText("python3 -V")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Terminal")).toHaveLength(2);
-    fireEvent.click(screen.getByRole("button", { name: /Terminal.*Check Python/ }));
+    expect(screen.queryByText("Terminal")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Check Python/ }));
     expect(screen.getByText("Command").parentElement).toHaveTextContent("python3 -V");
-    fireEvent.click(screen.getByRole("button", { name: "Terminal", expanded: true }));
-    fireEvent.click(screen.getByRole("button", { name: /Terminal.*echo/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Check Python", expanded: true }));
+    fireEvent.click(screen.getByRole("button", { name: /echo/ }));
     expect(screen.getByText("Command").parentElement).toHaveTextContent('echo "第 1 次调用"; date; hostname');
   });
 
@@ -418,7 +418,7 @@ describe("AgentActivity live stream", () => {
       output: "7 passed",
     }]} />);
     expect(screen.getByText("pnpm test --filter ui")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Terminal.*pnpm test/ }));
+    fireEvent.click(screen.getByRole("button", { name: /pnpm test/ }));
     expect(screen.getByText("Command").parentElement).toHaveTextContent("pnpm test --filter ui");
     expect(screen.getByText("Exit code").parentElement).toHaveTextContent("0");
     expect(screen.getByText("Output").parentElement).toHaveTextContent("7 passed");

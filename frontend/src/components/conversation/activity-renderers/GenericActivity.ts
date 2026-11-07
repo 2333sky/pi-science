@@ -7,13 +7,12 @@ export const GenericActivityRenderer: ActivityRenderer = {
     const title = presentToolActivity(source, t);
     if (source.tool.trim().toLowerCase() !== "bash") return { title };
     const command = typeof source.input?.command === "string" ? shellCommandPreview(source.input.command) : "";
-    const label = t(source.status === "running" ? "conversation.activity.terminalRunning" : "conversation.activity.terminal");
-    const summary = command
-      ? title.includes(command) ? command : title
-      : meaningfulActivityTitle(source.presentation?.title, source.tool)
-        ?? meaningfulActivityTitle(source.title, source.tool)
-        ?? (typeof source.input?.description === "string" ? source.input.description.trim() : "");
-    return { title: label, ...(summary ? { detail: summary } : {}) };
+    const description = typeof source.input?.description === "string" ? source.input.description.trim() : "";
+    const task = description
+      || source.presentation?.description?.trim()
+      || meaningfulActivityTitle(source.presentation?.title, source.tool)
+      || meaningfulActivityTitle(source.title, source.tool);
+    return { title: task || command || t(source.status === "running" ? "conversation.activity.terminalRunning" : "conversation.activity.terminal") };
   },
   expanded: toolDetails,
 };
