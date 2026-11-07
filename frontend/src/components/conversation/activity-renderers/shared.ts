@@ -1,8 +1,9 @@
+import { activityToolName } from "../../../lib/conversation/activity-presenters";
 import type { ToolCallBlock } from "../../../types/thread";
 import type { ActivityDetailView, ActivityRendererProps } from "./types";
 
 export function genericDetails({ source, t }: ActivityRendererProps, outputLabel = t("conversation.activity.output")): ActivityDetailView[] {
-  const discovery = ["ls", "glob", "grep"].includes(source.tool);
+  const discovery = ["ls", "glob", "grep"].includes(activityToolName(source.tool));
   const details: ActivityDetailView[] = [{ label: t("conversation.activity.toolLabel"), value: source.tool, plain: true }];
   if (source.input) details.push({ label: t("conversation.activity.input"), value: stringify(source.input), pre: true });
   const output = source.output ?? source.partialOutput;

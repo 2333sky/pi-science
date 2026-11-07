@@ -106,7 +106,7 @@ describe("AgentActivity live stream", () => {
     ]} />);
     expect(screen.getByText("Python")).toBeInTheDocument();
     expect(screen.getByText("2 outputs")).toBeInTheDocument();
-    expect(screen.getByText("PubMed")).toBeInTheDocument();
+    expect(screen.getByText("PubMed · kinetics")).toBeInTheDocument();
     expect(screen.getByText("3 results · 1 retained")).toBeInTheDocument();
   });
 
@@ -126,17 +126,17 @@ describe("AgentActivity live stream", () => {
   it("updates the running tool line immediately when consecutive tools share the same phase", () => {
     const read = tool("read", "read", "running", { path: "a.ts", description: "Find why the second reply stops following" });
     const { rerender } = render(<AgentActivity blocks={[read]} />);
-    expect(screen.getByText("Reading a.ts")).toBeInTheDocument();
+    expect(screen.getByText("Find why the second reply stops following")).toBeInTheDocument();
     rerender(<AgentActivity blocks={[{ ...read, status: "done" }, tool("next", "read", "running", { path: "b.ts", description: "Check how virtual list measurements update" })]} />);
     expect(screen.getByText("Working")).toBeInTheDocument();
     // Completed steps stay in the feed; the new running step appears below.
-    expect(screen.getByText("Reading a.ts")).toBeInTheDocument();
-    expect(screen.getByText("Reading b.ts")).toBeInTheDocument();
+    expect(screen.getByText("Find why the second reply stops following")).toBeInTheDocument();
+    expect(screen.getByText("Check how virtual list measurements update")).toBeInTheDocument();
   });
 
   it("names a running tool that carries no task description", () => {
     render(<AgentActivity blocks={[tool("bash-1", "bash", "running")]} />);
-    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("Terminal")).toBeInTheDocument();
     expect(screen.queryByText("Understanding your request and deciding what to do next")).not.toBeInTheDocument();
   });
 
@@ -510,7 +510,7 @@ describe("AgentActivity settled display", () => {
   it("exposes structured tool details even when there is no text output", () => {
     render(<AgentActivity lifecycle="settled" blocks={[{ ...tool("structured", "compute"), output: undefined, details: { rows: 3 } }]} />);
     fireEvent.click(screen.getByText(/Complete|Encountered a problem|Stopped|Working/));
-    fireEvent.click(screen.getByText("Running compute"));
+    fireEvent.click(screen.getByText("compute"));
     expect(screen.getByText("Details")).toBeInTheDocument();
     expect(screen.getByText(/"rows": 3/)).toBeInTheDocument();
   });

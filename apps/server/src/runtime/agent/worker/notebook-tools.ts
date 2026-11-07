@@ -1,5 +1,6 @@
 import type { AgentHarnessTool, NodeExecutionEnv } from "@earendil-works/pi-agent-core/node";
 import type { TSchema } from "typebox";
+import { withTaskDescription } from "./task-description.js";
 import registerNotebookTools from "../../shared/extensions/pi-science-notebook.js";
 import { realpath, lstat } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
@@ -42,7 +43,8 @@ export function notebookHarnessTools(
     description: [tool.description, tool.promptSnippet, ...(tool.promptGuidelines ?? [])]
       .filter(Boolean)
       .join("\n"),
-    parameters: tool.parameters,
+    parameters:
+      tool.name === "notebook_run" ? withTaskDescription(tool.parameters) : tool.parameters,
     async execute(toolCallId, params, onUpdate, _context, invocation, context) {
       let sandboxGrant: string | undefined;
       if (

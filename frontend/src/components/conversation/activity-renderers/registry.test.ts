@@ -143,4 +143,26 @@ describe("ActivityRendererRegistry", () => {
     const unknown = tool("future_science_tool", { title: "Future analysis" });
     expect(registry.resolve("not-registered").compact({ activity: projectToolActivity(unknown), source: unknown, live: false, t })).toEqual({ title: "Future analysis" });
   });
+  it.each([
+    ["mcp__compute__python", "kernel"],
+    ["mcp__compute__r", "kernel"],
+    ["mcp__papers__search_pubmed", "literature"],
+    ["notebook_run", "kernel"],
+  ])("uses task descriptions in the specialized renderer for %s", (name, kind) => {
+    const source = tool(name, { input: { description: "分析实验数据", path: "analysis.ipynb" }, title: `Running ${name}` });
+    const activity = projectToolActivity(source);
+    expect(activity.kind).toBe(kind);
+    const view = activityRendererRegistry.resolve(activity.kind).compact({ activity, source, live: false, t });
+    expect(view.title).toBe("分析实验数据");
+    expect(view.detail).toBeDefined();
+  });
+
+  it("includes a literature query and preserves result counts for MCP calls", () => {
+    const source = tool("mcp__papers__search_pubmed", { input: { query: "kinase" }, details: { count: 4 } });
+    const activity = projectToolActivity(source);
+    const view = activityRendererRegistry.resolve(activity.kind).compact({ activity, source, live: false, t });
+    expect(view.title).toBe("PubMed · kinase");
+    expect(view.detail).toContain("resultCount:4");
+  });
+
 });

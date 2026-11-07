@@ -3,25 +3,50 @@ import type { ToolCallBlock } from "../../types/thread";
 export type ActivityTranslator = (key: string, values?: Record<string, unknown>) => string;
 
 const DEFAULT_LABELS: Record<string, string> = {
-  "conversation.activity.read": "Reading {{target}}", "conversation.activity.search": "Searching for {{target}}", "conversation.activity.list": "Listing {{target}}", "conversation.activity.write": "Updating {{target}}", "conversation.activity.run": "Running {{target}}", "conversation.activity.webSearch": "Searching the web for {{target}}", "conversation.activity.tool": "Running {{tool}}",
+  "conversation.activity.terminal": "Terminal", "conversation.activity.fetch": "Fetching {{target}}", "conversation.activity.read": "Reading {{target}}", "conversation.activity.search": "Searching for {{target}}", "conversation.activity.list": "Listing {{target}}", "conversation.activity.write": "Updating {{target}}", "conversation.activity.run": "Running {{target}}", "conversation.activity.webSearch": "Searching the web for {{target}}", "conversation.activity.tool": "Running {{tool}}",
 };
 
+/** MCP names retain their connector identity in details, but share the same UI rules. */
+export function activityToolName(tool: string): string {
+  const name = tool.trim().toLowerCase();
+  return name.startsWith("mcp__") ? name.split("__").at(-1) || name : name;
+}
+
+export function activityTaskTitle(block: ToolCallBlock): string | undefined {
+  const description = text(block.presentation?.description) || text(block.input?.description);
+  return description ? trim(description.replace(/\s+/g, " "), 160)
+    : meaningfulActivityTitle(block.presentation?.title, block.tool) ?? meaningfulActivityTitle(block.title, block.tool);
+}
+
+export function activityTarget(block: ToolCallBlock): string {
+  const input = block.input ?? {};
+  for (const key of ["query", "pattern", "search_query", "path", "file_path", "directory", "url", "doi", "pmcid", "accession", "identifier", "gene", "name"]) {
+    const value = text(input[key]);
+    if (value) return trim(shellCommandPreview(value));
+  }
+  return "";
+}
+
 export function presentToolActivity(block: ToolCallBlock, translate: ActivityTranslator = defaultTranslate): string {
-  const title = meaningfulActivityTitle(block.presentation?.title, block.tool) ?? meaningfulActivityTitle(block.title, block.tool);
+  const title = activityTaskTitle(block);
   if (title) return title;
   const input = block.input ?? {};
-  const tool = block.tool.trim().toLowerCase();
-  const description = text(block.presentation?.description) || text(input.description);
-  if (tool === "read" || tool === "read_file") return translate("conversation.activity.read", { target: shortPath(text(input.path) || text(input.file_path) || "file") });
-  if (["grep", "search", "search_files", "rg"].includes(tool)) return translate("conversation.activity.search", { target: trim(text(input.pattern) || text(input.query) || "matching code") });
-  if (["find", "ls", "list_files"].includes(tool)) return translate("conversation.activity.list", { target: shortPath(text(input.path) || text(input.directory) || "workspace files") });
-  if (["edit", "write", "write_file", "apply_patch"].includes(tool)) return translate("conversation.activity.write", { target: shortPath(text(input.path) || text(input.file_path) || "file") });
-  if (["web_search", "tavily_search", "search_web"].includes(tool)) return translate("conversation.activity.webSearch", { target: trim(text(input.query) || "sources") });
-  if (["bash", "python", "run_code", "execute"].includes(tool)) {
-    const target = tool === "bash" ? shellCommandPreview(text(input.command)) || tool : tool;
-    return description || translate("conversation.activity.run", { target });
-  }
-  return description || translate("conversation.activity.tool", { tool: block.tool.replace(/[_-]+/g, " ").trim() || "tool" });
+  const tool = activityToolName(block.tool);
+  const path = text(input.path) || text(input.file_path) || text(input.directory);
+  const target = activityTarget(block);
+  if (["read", "read_file", "notebook_read", "view_image"].includes(tool)) return translate("conversation.activity.read", { target: shortPath(path || "file") });
+  if (["grep", "glob", "search", "search_files", "rg", "find"].includes(tool)) return translate("conversation.activity.search", { target: target || "matching files" });
+  if (["ls", "list", "list_files"].includes(tool)) return translate("conversation.activity.list", { target: shortPath(path || "workspace files") });
+  if (["edit", "write", "write_file", "apply_patch", "notebook_edit"].includes(tool)) return translate("conversation.activity.write", { target: shortPath(path || "file") });
+  if (["web_search", "tavily_search", "search_web"].includes(tool)) return translate("conversation.activity.webSearch", { target: target || "sources" });
+  if (["web_fetch", "fetch_url", "fetch", "read_url"].includes(tool)) return translate("conversation.activity.fetch", { target: target || "web page" });
+  if (tool === "notebook_run") return translate("conversation.activity.run", { target: shortPath(path || "notebook") });
+  if (tool === "bash") return shellCommandPreview(text(input.command)) || translate("conversation.activity.terminal");
+  if (/^(search|find)_/.test(tool) && target) return translate("conversation.activity.search", { target });
+  if (/^(get|fetch|read)_/.test(tool) && target) return translate("conversation.activity.read", { target });
+  if (/^list_/.test(tool) && target) return translate("conversation.activity.list", { target });
+  const label = tool.replace(/[_-]+/g, " ").trim() || "tool";
+  return target ? `${label} · ${target}` : label;
 }
 
 export function shellCommandPreview(command: string): string {
@@ -48,8 +73,8 @@ export function meaningfulActivityTitle(title: string | undefined, tool: string)
   if (!value) return undefined;
   const normalize = (name: string) => name.toLowerCase().replace(/[_-]+/g, " ").replace(/\s+/g, " ").trim();
   const normalizedTitle = normalize(value);
-  const normalizedTool = normalize(tool);
-  if (normalizedTitle === normalizedTool || normalizedTitle === `running ${normalizedTool}`) return undefined;
+  const names = [normalize(tool), normalize(activityToolName(tool))];
+  if (names.some((name) => [name, `running ${name}`, `正在运行 ${name}`, `正在执行 ${name}`].includes(normalizedTitle))) return undefined;
   return value;
 }
 

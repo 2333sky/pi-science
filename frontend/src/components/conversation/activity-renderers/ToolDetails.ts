@@ -1,3 +1,4 @@
+import { activityToolName } from "../../../lib/conversation/activity-presenters";
 import { genericDetails, record, text } from "./shared";
 import type { ActivityDetailView, ActivityRendererProps } from "./types";
 
@@ -6,7 +7,7 @@ const EDIT_TOOLS = new Set(["edit", "write", "write_file", "apply_patch"]);
 
 export function toolDetails(props: ActivityRendererProps): ActivityDetailView[] {
   const { source, t } = props;
-  const tool = source.tool.trim().toLowerCase();
+  const tool = activityToolName(source.tool);
   if (tool === "bash") {
     const { command, ...input } = source.input ?? {};
     const { exit_code, exitCode, ...details } = record(source.details) ?? {};
