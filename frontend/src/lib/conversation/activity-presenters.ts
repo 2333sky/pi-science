@@ -4,15 +4,6 @@ export type ActivityTranslator = (key: string, values?: Record<string, unknown>)
 
 const DEFAULT_LABELS: Record<string, string> = {
   "conversation.activity.terminal": "Terminal", "conversation.activity.fetch": "Fetching {{target}}", "conversation.activity.read": "Reading {{target}}", "conversation.activity.search": "Searching for {{target}}", "conversation.activity.list": "Listing {{target}}", "conversation.activity.write": "Updating {{target}}", "conversation.activity.run": "Running {{target}}", "conversation.activity.webSearch": "Searching the web for {{target}}", "conversation.activity.tool": "Running {{tool}}",
-  "conversation.activity.resource.search": "Search {{resource}}",
-  "conversation.activity.resource.read": "Get {{resource}}",
-  "conversation.activity.resource.pdb": "PDB structures",
-  "conversation.activity.resource.alphafold": "AlphaFold predictions",
-  "conversation.activity.resource.emdb": "EMDB density maps",
-  "conversation.activity.resource.uniprot": "UniProt proteins",
-  "conversation.activity.resource.sequence": "UniProt sequences",
-  "conversation.activity.resource.intact": "protein interactions",
-  "conversation.activity.resource.complex": "protein complexes",
   "conversation.activity.memory.search": "Search memory",
   "conversation.activity.memory.read": "Read memory",
   "conversation.activity.memory.write": "Update memory",
@@ -28,10 +19,18 @@ const DEFAULT_LABELS: Record<string, string> = {
   "conversation.activity.reasoning": "Thinking",
 };
 
-/** MCP names retain their connector identity in details, but share the same UI rules. */
+/** Tool names are matched exactly; MCP names never enter built-in inference. */
 export function activityToolName(tool: string): string {
-  const name = tool.trim().toLowerCase();
-  return name.startsWith("mcp__") ? name.split("__").at(-1) || name : name;
+  return tool.trim().toLowerCase();
+}
+
+export function isMcpTool(tool: string): boolean {
+  return activityToolName(tool).startsWith("mcp__");
+}
+
+function mcpActivityLabel(tool: string): string {
+  const [server, ...name] = tool.trim().slice(5).split("__");
+  return server && name.length ? `${server} · ${name.join("__")}` : tool.trim();
 }
 
 export function activityTaskTitle(block: ToolCallBlock): string | undefined {
@@ -42,24 +41,15 @@ export function activityTaskTitle(block: ToolCallBlock): string | undefined {
 
 export function activityTarget(block: ToolCallBlock): string {
   const input = block.input ?? {};
-  for (const key of ["query", "q", "pattern", "search_query", "path", "file_path", "directory", "url", "doi", "pmcid", "accession", "uniprot_accession", "pdb_id", "emdb_id", "identifier", "gene", "name"]) {
+  for (const key of ["query", "q", "pattern", "search_query", "path", "file_path", "directory", "url", "doi", "pmcid", "accession", "identifier", "gene", "name"]) {
     const value = text(input[key]);
     if (value) return trim(shellCommandPreview(value));
   }
-  const from = text(input.date_from), to = text(input.date_to);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(from) && /^\d{4}-\d{2}-\d{2}$/.test(to)) return `${from} → ${to}`;
   return "";
 }
 
-const SCIENCE_RESOURCES: Record<string, [action: "search" | "read", resource: string]> = {
-  search_pdb_entries: ["search", "pdb"], get_pdb_entry: ["read", "pdb"],
-  get_alphafold_prediction: ["read", "alphafold"],
-  search_emdb_entries: ["search", "emdb"], get_emdb_entry: ["read", "emdb"],
-  search_uniprot_proteins: ["search", "uniprot"], get_uniprot_entry: ["read", "uniprot"], get_uniprot_sequence: ["read", "sequence"],
-  search_intact_interactions: ["search", "intact"], search_complex_portal: ["search", "complex"],
-};
-
 export function presentToolActivity(block: ToolCallBlock, translate: ActivityTranslator = defaultTranslate): string {
+  if (isMcpTool(block.tool)) return mcpActivityLabel(block.tool);
   const title = activityTaskTitle(block);
   if (title) return title;
   const input = block.input ?? {};
@@ -67,8 +57,6 @@ export function presentToolActivity(block: ToolCallBlock, translate: ActivityTra
   const path = text(input.path) || text(input.file_path) || text(input.directory);
   const target = activityTarget(block);
   const append = (label: string, value: string = target) => value ? `${label} · ${value}` : label;
-  const science = SCIENCE_RESOURCES[tool];
-  if (science) return append(translate(`conversation.activity.resource.${science[0]}`, { resource: translate(`conversation.activity.resource.${science[1]}`) }));
   if (tool === "search_memory") return append(translate("conversation.activity.memory.search"));
   if (tool === "read_memory") return append(translate("conversation.activity.memory.read"), trim(text(input.id), 8));
   if (tool === "write_memory") {

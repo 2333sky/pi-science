@@ -143,34 +143,24 @@ describe("ActivityRendererRegistry", () => {
     const unknown = tool("future_science_tool", { title: "Future analysis" });
     expect(registry.resolve("not-registered").compact({ activity: projectToolActivity(unknown), source: unknown, live: false, t })).toEqual({ title: "Future analysis" });
   });
-  it.each([
-    ["mcp__compute__python", "kernel"],
-    ["mcp__compute__r", "kernel"],
-    ["mcp__papers__search_pubmed", "literature"],
-    ["notebook_run", "kernel"],
-  ])("uses task descriptions in the specialized renderer for %s", (name, kind) => {
-    const source = tool(name, { input: { description: "分析实验数据", path: "analysis.ipynb" }, title: `Running ${name}` });
+
+  it("keeps the native notebook renderer and task description", () => {
+    const source = tool("notebook_run", { input: { description: "分析实验数据", path: "analysis.ipynb" } });
     const activity = projectToolActivity(source);
-    expect(activity.kind).toBe(kind);
+    expect(activity.kind).toBe("kernel");
     const view = activityRendererRegistry.resolve(activity.kind).compact({ activity, source, live: false, t });
     expect(view.title).toBe("分析实验数据");
-    expect(view.detail).toBeDefined();
+    expect(view.detail).toContain("Python");
   });
 
-  it("includes a literature query and preserves result counts for MCP calls", () => {
-    const source = tool("mcp__papers__search_pubmed", { input: { query: "kinase" }, details: { count: 4 } });
+  it.each(["python", "r", "search_pubmed", "read_file", "get_pdb_entry", "subagent"])("uses generic MCP rendering even when %s resembles a built-in tool", (name) => {
+    const source = tool(`mcp__custom__${name}`, { input: { description: "Resource description", query: "kinase", path: "data.csv" }, details: { count: 4 } });
     const activity = projectToolActivity(source);
-    const view = activityRendererRegistry.resolve(activity.kind).compact({ activity, source, live: false, t });
-    expect(view.title).toBe("PubMed · kinase");
-    expect(view.detail).toContain("resultCount:4");
+    expect(activity.kind).toBe("tool");
+    const renderer = activityRendererRegistry.resolve(activity.kind);
+    expect(renderer.compact({ activity, source, live: false, t })).toEqual({ title: `custom · ${name}` });
+    const details = renderer.expanded({ activity, source, live: false, t });
+    expect(details.find(row => row.label.startsWith("conversation.activity.input"))?.value).toContain('"query": "kinase"');
+    expect(details.find(row => row.label.startsWith("conversation.activity.toolLabel"))?.value).toBe(source.tool);
   });
-
-  it("shows the requested preprint date range when there is no keyword query", () => {
-    const source = tool("mcp__paper-search__search_biorxiv_preprints", { input: { date_from: "2026-11-01", date_to: "2026-11-05", limit: 3 }, details: { count: 3 } });
-    const activity = projectToolActivity(source);
-    const view = activityRendererRegistry.resolve(activity.kind).compact({ activity, source, live: false, t });
-    expect(view.title).toBe("bioRxiv · 2026-11-01 → 2026-11-05");
-    expect(view.detail).toContain("resultCount:3");
-  });
-
 });
