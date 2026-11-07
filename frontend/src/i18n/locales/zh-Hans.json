@@ -155,6 +155,7 @@
   "conversation.activity.previewTruncated": "预览已截断，仅显示前 {{count}} 个字符",
   "conversation.activity.fullOutput": "查看完整输出",
   "conversation.activity.fullOutputUnavailable": "完整输出不可用",
+  "conversation.activity.outputTruncated": "已截断（仅显示末尾）",
   "conversation.activity.kernelRunning": "正在运行 {{kernel}}",
   "conversation.activity.kernelComplete": "{{kernel}}",
   "conversation.activity.kernelFailed": "{{kernel}} 运行失败",
