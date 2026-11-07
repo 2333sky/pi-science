@@ -149,6 +149,12 @@ export function recover(
           type: "error",
           sessionId,
           code: "worker_recovery_failed",
+          // A failed reopen is retried below while an attempt remains, so the
+          // client must not treat it as fatal: a fatal record ends the turn and
+          // blocks the settled event a successful retry produces. Only the last
+          // attempt is terminal; earlier ones stay recoverable, like
+          // worker_recovering above.
+          ...(attempt < 3 ? { recoverable: true } : {}),
           terminal: attempt >= 3,
           message: String(opened.error),
         });
