@@ -136,7 +136,7 @@ describe("AgentActivity live stream", () => {
 
   it("names a running tool that carries no task description", () => {
     render(<AgentActivity blocks={[tool("bash-1", "bash", "running")]} />);
-    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
     expect(screen.queryByText("Understanding your request and deciding what to do next")).not.toBeInTheDocument();
   });
 
@@ -254,7 +254,7 @@ describe("AgentActivity live stream", () => {
 
   it("shows the shell action without replacing the turn's working indicator", () => {
     render(<AgentActivity blocks={[tool("bash", "bash", "running", { command: "git status" })]} />);
-    expect(screen.getByText("Running git status")).toBeInTheDocument();
+    expect(screen.getByText("git status")).toBeInTheDocument();
     expect(screen.getByText("Working")).toBeInTheDocument();
   });
 
@@ -395,15 +395,19 @@ describe("AgentActivity live stream", () => {
     expect(screen.getByText("1.9s")).toBeInTheDocument();
   });
 
-  it("shows echo-prefixed Bash commands in completed rows and commands beneath task descriptions", () => {
+  it("shows compact terminal summaries and keeps full commands in expanded details", () => {
     render(<AgentActivity blocks={[
       tool("first", "bash", "done", { command: 'echo "第 1 次调用"; date; hostname' }),
       tool("second", "bash", "done", { description: "Check Python", command: "python3 -V" }),
     ]} />);
-    expect(screen.getByText('Running echo "第 1 次调用"; date; hostname')).toBeInTheDocument();
+    expect(screen.getByText('echo "第 1 次调用"; date; hostname')).toBeInTheDocument();
     expect(screen.getByText("Check Python")).toBeInTheDocument();
-    expect(screen.getByText("python3 -V")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Running echo/ }));
+    expect(screen.queryByText("python3 -V")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Terminal")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: /Terminal.*Check Python/ }));
+    expect(screen.getByText("Command").parentElement).toHaveTextContent("python3 -V");
+    fireEvent.click(screen.getByRole("button", { name: "Terminal", expanded: true }));
+    fireEvent.click(screen.getByRole("button", { name: /Terminal.*echo/ }));
     expect(screen.getByText("Command").parentElement).toHaveTextContent('echo "第 1 次调用"; date; hostname');
   });
 
@@ -413,8 +417,8 @@ describe("AgentActivity live stream", () => {
       details: { exit_code: 0 },
       output: "7 passed",
     }]} />);
-    expect(screen.queryByText("pnpm test --filter ui")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Running pnpm test/ }));
+    expect(screen.getByText("pnpm test --filter ui")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Terminal.*pnpm test/ }));
     expect(screen.getByText("Command").parentElement).toHaveTextContent("pnpm test --filter ui");
     expect(screen.getByText("Exit code").parentElement).toHaveTextContent("0");
     expect(screen.getByText("Output").parentElement).toHaveTextContent("7 passed");
@@ -469,13 +473,13 @@ describe("AgentActivity settled display", () => {
     expect(screen.queryByText("Step notes: the CSV has 4 columns.")).not.toBeInTheDocument();
     expect(screen.queryByText("The final answer.")).not.toBeInTheDocument();
     expect(screen.queryByText("Reading one.ts")).not.toBeInTheDocument();
-    expect(screen.queryByText("Running bash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Terminal")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Execution trace")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText(/Complete|Encountered a problem|Stopped|Working/));
     expect(screen.getByText("Step notes: the CSV has 4 columns.")).toBeInTheDocument();
     expect(screen.getByText("Reading one.ts")).toBeInTheDocument();
-    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    expect(screen.getByText("Terminal")).toBeInTheDocument();
     expect(screen.queryByText("The final answer.")).not.toBeInTheDocument();
   });
 

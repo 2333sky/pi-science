@@ -90,6 +90,8 @@
   "conversation.activity.list": "Listing {{target}}",
   "conversation.activity.write": "Updating {{target}}",
   "conversation.activity.run": "Running {{target}}",
+  "conversation.activity.terminal": "Terminal",
+  "conversation.activity.terminalRunning": "Running",
   "conversation.activity.webSearch": "Searching the web for {{target}}",
   "conversation.activity.tool": "Running {{tool}}",
   "conversation.activity.completed": "Completed",

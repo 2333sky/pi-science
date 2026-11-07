@@ -90,6 +90,8 @@
   "conversation.activity.list": "正在查看 {{target}}",
   "conversation.activity.write": "正在更新 {{target}}",
   "conversation.activity.run": "正在运行 {{target}}",
+  "conversation.activity.terminal": "终端",
+  "conversation.activity.terminalRunning": "正在执行",
   "conversation.activity.webSearch": "正在搜索网页资料：{{target}}",
   "conversation.activity.tool": "正在运行 {{tool}}",
   "conversation.activity.completed": "已完成",
