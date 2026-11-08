@@ -1,0 +1,674 @@
+{
+  "before": {
+    "desktop-collapsed": {
+      "panel": {
+        "x": 495.59,
+        "y": 192.25,
+        "w": 748.8,
+        "h": 45,
+        "height": 45
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 495.59,
+        "y": 192.25,
+        "w": 748.8,
+        "h": 36,
+        "paddingBlock": "8px/8px",
+        "labelX": 495.59,
+        "chevron": {
+          "size": 13,
+          "opacity": 0.6
+        }
+      },
+      "rows": [],
+      "status": {
+        "text": "Completed · 1m00s",
+        "x": 495.59,
+        "y": 192.25,
+        "w": 748.8,
+        "h": 45,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "desktop-expanded": {
+      "panel": {
+        "x": 495.59,
+        "y": 171.25,
+        "w": 748.8,
+        "h": 229,
+        "height": 229
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 495.59,
+        "y": 171.25,
+        "w": 748.8,
+        "h": 36,
+        "paddingBlock": "8px/8px",
+        "labelX": 495.59,
+        "chevron": {
+          "size": 13,
+          "opacity": 0.6
+        }
+      },
+      "rows": [
+        {
+          "label": "Reading shikimate.csv",
+          "x": 495.59,
+          "y": 227.25,
+          "w": 213.47,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Searching for fold_change",
+          "x": 495.59,
+          "y": 263.25,
+          "w": 237.25,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Thinking",
+          "x": 495.59,
+          "y": 307.25,
+          "w": 95.83,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Running bash",
+          "x": 495.59,
+          "y": 351.25,
+          "w": 152.88,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        }
+      ],
+      "status": {
+        "text": "Completed · 1m00sExplored · 2 operationsReading shikimate.csv4.0sSearching for fold_change4.0sThinkingRunning bash10s",
+        "x": 495.59,
+        "y": 171.25,
+        "w": 748.8,
+        "h": 229,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "desktop-live": {
+      "panel": {
+        "x": 495.59,
+        "y": 146.75,
+        "w": 748.8,
+        "h": 134,
+        "height": 134
+      },
+      "summary": null,
+      "rows": [
+        {
+          "label": "Reading shikimate.csv",
+          "x": 495.59,
+          "y": 166.75,
+          "w": 213.47,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Searching for SAH",
+          "x": 495.59,
+          "y": 202.75,
+          "w": 188.44,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Running bash",
+          "x": 495.59,
+          "y": 240.75,
+          "w": 126.88,
+          "h": 36,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 1,
+          "labelX": 517.59
+        }
+      ],
+      "status": {
+        "text": "Working12s",
+        "x": 495.59,
+        "y": 280.75,
+        "w": 748.8,
+        "h": 40,
+        "paddingBlock": "0px/0px"
+      }
+    },
+    "mobile-collapsed": {
+      "panel": {
+        "x": 100,
+        "y": -12.75,
+        "w": 248,
+        "h": 49,
+        "height": 49
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 100,
+        "y": -12.75,
+        "w": 248,
+        "h": 40,
+        "paddingBlock": "8px/8px",
+        "labelX": 100,
+        "chevron": {
+          "size": 13,
+          "opacity": 0.6
+        }
+      },
+      "rows": [],
+      "status": {
+        "text": "Completed · 1m00s",
+        "x": 100,
+        "y": -12.75,
+        "w": 248,
+        "h": 49,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "mobile-expanded": {
+      "panel": {
+        "x": 100,
+        "y": -212.75,
+        "w": 248,
+        "h": 249,
+        "height": 249
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 100,
+        "y": -212.75,
+        "w": 248,
+        "h": 40,
+        "paddingBlock": "8px/8px",
+        "labelX": 100,
+        "chevron": {
+          "size": 13,
+          "opacity": 0.6
+        }
+      },
+      "rows": [
+        {
+          "label": "Reading shikimate.csv",
+          "x": 100,
+          "y": -152.75,
+          "w": 213.47,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Searching for fold_change",
+          "x": 100,
+          "y": -112.75,
+          "w": 237.25,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Thinking",
+          "x": 100,
+          "y": -64.75,
+          "w": 95.83,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Running bash",
+          "x": 100,
+          "y": -16.75,
+          "w": 152.88,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        }
+      ],
+      "status": {
+        "text": "Completed · 1m00sExplored · 2 operationsReading shikimate.csv4.0sSearching for fold_change4.0sThinkingRunning bash10s",
+        "x": 100,
+        "y": -212.75,
+        "w": 248,
+        "h": 249,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "mobile-live": {
+      "panel": {
+        "x": 100,
+        "y": 192.25,
+        "w": 248,
+        "h": 146,
+        "height": 146
+      },
+      "summary": null,
+      "rows": [
+        {
+          "label": "Reading shikimate.csv",
+          "x": 100,
+          "y": 212.25,
+          "w": 213.47,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Searching for SAH",
+          "x": 100,
+          "y": 252.25,
+          "w": 188.44,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Running bash",
+          "x": 100,
+          "y": 294.25,
+          "w": 126.88,
+          "h": 40,
+          "paddingBlock": "6px/6px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 1,
+          "labelX": 122
+        }
+      ],
+      "status": {
+        "text": "Working12s",
+        "x": 100,
+        "y": 338.25,
+        "w": 248,
+        "h": 40,
+        "paddingBlock": "0px/0px"
+      }
+    }
+  },
+  "after": {
+    "desktop-collapsed": {
+      "panel": {
+        "x": 495.59,
+        "y": 192.25,
+        "w": 748.8,
+        "h": 45,
+        "height": 45
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 495.59,
+        "y": 192.25,
+        "w": 748.8,
+        "h": 36,
+        "paddingBlock": "8px/8px",
+        "labelX": 495.59,
+        "chevron": {
+          "size": 12,
+          "opacity": 1
+        }
+      },
+      "rows": [],
+      "status": {
+        "text": "Completed · 1m00s",
+        "x": 495.59,
+        "y": 192.25,
+        "w": 748.8,
+        "h": 45,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "desktop-expanded": {
+      "panel": {
+        "x": 495.59,
+        "y": 181.25,
+        "w": 748.8,
+        "h": 219,
+        "height": 219
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 495.59,
+        "y": 181.25,
+        "w": 748.8,
+        "h": 36,
+        "paddingBlock": "8px/8px",
+        "labelX": 495.59,
+        "chevron": {
+          "size": 12,
+          "opacity": 1
+        }
+      },
+      "rows": [
+        {
+          "label": "Reading shikimate.csv:1-40",
+          "x": 495.59,
+          "y": 221.25,
+          "w": 245.75,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "read",
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Searching for fold_change",
+          "x": 495.59,
+          "y": 263.25,
+          "w": 237.25,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "search",
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Thinking",
+          "x": 495.59,
+          "y": 307.25,
+          "w": 95.83,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Running python",
+          "x": 495.59,
+          "y": 351.25,
+          "w": 165.91,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "run",
+          "glyphCount": 2,
+          "labelX": 517.59
+        }
+      ],
+      "status": {
+        "text": "Completed · 1m00sReading shikimate.csv:1-404.0sSearching for fold_change4.0sThinkingRunning python10s",
+        "x": 495.59,
+        "y": 181.25,
+        "w": 748.8,
+        "h": 219,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "desktop-live": {
+      "panel": {
+        "x": 495.59,
+        "y": 146.75,
+        "w": 748.8,
+        "h": 120,
+        "height": 120
+      },
+      "summary": null,
+      "rows": [
+        {
+          "label": "Reading shikimate.csv:1-20",
+          "x": 495.59,
+          "y": 150.75,
+          "w": 244.83,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "read",
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Searching for SAH",
+          "x": 495.59,
+          "y": 188.75,
+          "w": 188.44,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "search",
+          "glyphCount": 2,
+          "labelX": 517.59
+        },
+        {
+          "label": "Running python",
+          "x": 495.59,
+          "y": 226.75,
+          "w": 139.91,
+          "h": 36,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 1,
+          "labelX": 517.59
+        }
+      ],
+      "status": {
+        "text": "WorkingReviewing the implementation12s",
+        "x": 495.59,
+        "y": 266.75,
+        "w": 748.8,
+        "h": 40,
+        "paddingBlock": "0px/0px"
+      }
+    },
+    "mobile-collapsed": {
+      "panel": {
+        "x": 100,
+        "y": -12.75,
+        "w": 248,
+        "h": 49,
+        "height": 49
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 100,
+        "y": -12.75,
+        "w": 248,
+        "h": 40,
+        "paddingBlock": "8px/8px",
+        "labelX": 100,
+        "chevron": {
+          "size": 12,
+          "opacity": 1
+        }
+      },
+      "rows": [],
+      "status": {
+        "text": "Completed · 1m00s",
+        "x": 100,
+        "y": -12.75,
+        "w": 248,
+        "h": 49,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "mobile-expanded": {
+      "panel": {
+        "x": 100,
+        "y": -202.75,
+        "w": 248,
+        "h": 239,
+        "height": 239
+      },
+      "summary": {
+        "text": "Completed · 1m00s",
+        "x": 100,
+        "y": -202.75,
+        "w": 248,
+        "h": 40,
+        "paddingBlock": "8px/8px",
+        "labelX": 100,
+        "chevron": {
+          "size": 12,
+          "opacity": 1
+        }
+      },
+      "rows": [
+        {
+          "label": "Reading shikimate.csv:1-40",
+          "x": 100,
+          "y": -158.75,
+          "w": 245.75,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "read",
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Searching for fold_change",
+          "x": 100,
+          "y": -112.75,
+          "w": 237.25,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "search",
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Thinking",
+          "x": 100,
+          "y": -64.75,
+          "w": 95.83,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Running python",
+          "x": 100,
+          "y": -16.75,
+          "w": 165.91,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "run",
+          "glyphCount": 2,
+          "labelX": 122
+        }
+      ],
+      "status": {
+        "text": "Completed · 1m00sReading shikimate.csv:1-404.0sSearching for fold_change4.0sThinkingRunning python10s",
+        "x": 100,
+        "y": -202.75,
+        "w": 248,
+        "h": 239,
+        "paddingBlock": "0px/8px"
+      }
+    },
+    "mobile-live": {
+      "panel": {
+        "x": 100,
+        "y": 192.25,
+        "w": 248,
+        "h": 132,
+        "height": 132
+      },
+      "summary": null,
+      "rows": [
+        {
+          "label": "Reading shikimate.csv:1-20",
+          "x": 100,
+          "y": 196.25,
+          "w": 244.83,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "read",
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Searching for SAH",
+          "x": 100,
+          "y": 238.25,
+          "w": 188.44,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": "search",
+          "glyphCount": 2,
+          "labelX": 122
+        },
+        {
+          "label": "Running python",
+          "x": 100,
+          "y": 280.25,
+          "w": 139.91,
+          "h": 40,
+          "paddingBlock": "8px/8px",
+          "fontSize": "13px / 18px",
+          "category": null,
+          "glyphCount": 1,
+          "labelX": 122
+        }
+      ],
+      "status": {
+        "text": "WorkingReviewing the implementation12s",
+        "x": 100,
+        "y": 324.25,
+        "w": 248,
+        "h": 40,
+        "paddingBlock": "0px/0px"
+      }
+    }
+  }
+}
