@@ -106,8 +106,8 @@ test("collapsed workspace keeps a direct Projects link and names the sidebar act
   expect(projectsBox.y + projectsBox.height).toBeLessThanOrEqual(settingsBox.y);
   expect(await projects.evaluate(element => element.nextElementSibling?.getAttribute("aria-label"))).toBe("Settings");
   for (const svg of await rail.locator("svg").all()) {
-    await expect(svg).toHaveAttribute("width", "20");
-    await expect(svg).toHaveAttribute("height", "20");
+    await expect(svg).toHaveAttribute("width", "16");
+    await expect(svg).toHaveAttribute("height", "16");
     await expect(svg).toHaveAttribute("stroke-width", "1.75");
   }
   await expand.focus();
