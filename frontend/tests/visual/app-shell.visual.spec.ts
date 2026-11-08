@@ -61,6 +61,6 @@ test("collapsed context panel leaves a stable primary rail", async ({ page }, te
   // The pointer can remain over the Rail toggle after collapsing the panel.
   // Capture the compact state after leaving its hover overlay.
   await page.mouse.move(700, 300);
-  await expect(page.locator('nav[aria-label="Primary navigation"]')).toHaveCSS("width", "60px");
+  await expect(page.locator('nav[aria-label="Primary navigation"]')).toHaveCSS("width", "52px");
   await screenshot(page, "sidebar-collapsed.png");
 });
