@@ -238,14 +238,15 @@ it("refreshes instructions between model generations in the same tool-using turn
       expect(requests).toHaveLength(2);
       expect(await instance.command("get_state", {})).toMatchObject({ data: { busy: false } });
     },
-    { timeout: 10000 },
+    // On macOS the write uses a real sandbox helper with a 30s execution budget.
+    { timeout: 30000 },
   );
   expect(JSON.stringify(requests[0]!.messages)).toContain("BEFORE_TOOL_EDIT");
   expect(JSON.stringify(requests[1]!.messages)).not.toContain("BEFORE_TOOL_EDIT");
   expect(JSON.stringify(requests[1]!.messages)).toContain("AFTER_TOOL_EDIT");
   expect(await readFile(join(parts.executionEnv.cwd, "AGENTS.md"), "utf8")).toBe("AFTER_TOOL_EDIT");
-  // Include runtime setup and sandboxed writes in addition to the 10s generation wait.
-}, 20_000);
+  // Include runtime setup and cleanup in addition to the sandboxed generation wait.
+}, 45_000);
 
 it("shares core rules with a delegated role without assigning the main role", async () => {
   const { instance, parts } = await runtime(undefined, {
