@@ -26,16 +26,26 @@ export function PermissionCard({ interaction, submitting, selectedOption, select
     event.preventDefault();
     onRespond({ confirmed: true });
   };
-  const options = (interaction.options || []).map((option) => typeof option === "string"
-    ? { label: option, value: option }
-    : { label: option.label || option.value || t("interaction.option"), value: option.value || option.label || "" });
+  const presentation = interaction.presentation;
+  const title = presentation
+    ? t(presentation.titleKey, { ...(presentation.titleParams ?? {}), defaultValue: interaction.operation || interaction.title })
+    : interaction.operation || interaction.title;
+  const message = presentation?.messageKey
+    ? t(presentation.messageKey, { ...(presentation.messageParams ?? {}), defaultValue: interaction.message })
+    : interaction.message;
+  const options = (interaction.options || []).map((option) => {
+    const value = typeof option === "string" ? option : option.value || option.label || "";
+    const fallback = typeof option === "string" ? option : option.label || option.value || t("interaction.option");
+    const labelKey = presentation?.optionLabelKeys?.[value];
+    return { label: labelKey ? t(labelKey, { defaultValue: fallback }) : fallback, value };
+  });
   return <div ref={rootRef} tabIndex={-1} onKeyDown={onKeyDown} className="rounded-card border border-accent/30 bg-accent/5 p-4 animate-fadeIn outline-none" role="alertdialog" aria-labelledby={`permission-${interaction.requestId}`}>
     <div className="flex items-start gap-3">
       <span className="mt-0.5 rounded-full bg-accent/10 p-1.5 text-accent"><ShieldCheck size={16} aria-hidden /></span>
       <div className="min-w-0 flex-1">
         <div id={`permission-${interaction.requestId}`} className="text-xs font-semibold uppercase tracking-wide text-accent">{t("interaction.approvalRequired")}</div>
-        <div className="mt-1 text-sm font-medium text-text">{interaction.operation || interaction.title}</div>
-        {interaction.message && <div className="mt-1 text-sm leading-relaxed text-muted">{interaction.message}</div>}
+        <div className="mt-1 text-sm font-medium text-text">{title}</div>
+        {message && <div className="mt-1 text-sm leading-relaxed text-muted">{message}</div>}
         {(interaction.scope || interaction.effect) && <dl className="mt-3 grid gap-1.5 text-xs sm:grid-cols-[auto_1fr]">
           {interaction.scope && <><dt className="font-medium text-muted">{t("interaction.scope")}</dt><dd className="text-text">{interaction.scope}</dd></>}
           {interaction.effect && <><dt className="font-medium text-muted">{t("interaction.effect")}</dt><dd className="text-text">{interaction.effect}</dd></>}

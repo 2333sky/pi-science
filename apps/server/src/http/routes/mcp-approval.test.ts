@@ -108,6 +108,15 @@ it.each(["always", "once", "save-failed"])("coordinates two live MCP workers thr
     for (const worker of workers) expect(worker.diagnostics).toEqual([]);
     calls.push(workers[0]!.tools[0]!.execute("first", {}, () => undefined, {} as never, {} as never, {} as never));
     await vi.waitFor(() => expect(requested[0]).toHaveLength(1));
+    expect(requested[0]![0]).toMatchObject({
+      type: "interaction.requested",
+      presentation: {
+        titleKey: "interaction.mcpPermission.title",
+        titleParams: { connector: "approval-test", tool: "echo" },
+        messageKey: "interaction.mcpPermission.arguments",
+        messageParams: { preview: expect.any(String) },
+      },
+    });
     calls.push(workers[1]!.tools[0]!.execute("second", {}, () => undefined, {} as never, {} as never, {} as never));
     await vi.waitFor(() => expect(bridges[1]!.hasPending).toBe(true));
     expect(requested[1]).toHaveLength(0);

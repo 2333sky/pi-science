@@ -83,6 +83,27 @@ export async function requestNetworkAccess(
           { label: "Deny this request", value: "deny_once" },
           { label: "Never allow", value: "deny" },
         ],
+        // The browser resolves these keys against its active locale; the
+        // English strings above remain the fallback for older clients.
+        presentation: {
+          titleKey: "interaction.networkApproval.title",
+          titleParams: { domain },
+          messageKey: reason
+            ? "interaction.networkApproval.messageWithReason"
+            : "interaction.networkApproval.message",
+          messageParams: {
+            domain,
+            access,
+            profile,
+            port: target?.port ?? 443,
+            ...(reason ? { reason } : {}),
+          },
+          optionLabelKeys: {
+            allow: "interaction.networkApproval.alwaysAllow",
+            deny_once: "interaction.networkApproval.denyThisRequest",
+            deny: "interaction.networkApproval.neverAllow",
+          },
+        },
       });
       signal?.throwIfAborted();
       if (answer !== "allow" && answer !== "deny")

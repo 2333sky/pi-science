@@ -11,6 +11,32 @@ function interactionKind(value: unknown): InteractionKind | undefined {
   return value === "permission" || value === "confirmation" || value === "question" ? value : undefined;
 }
 
+function interactionParams(value: unknown): Record<string, string | number> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+    typeof item === "string" || typeof item === "number" ? [[key, item] as const] : []);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+function interactionPresentation(value: unknown): PendingInteraction["presentation"] | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  if (typeof source.titleKey !== "string" || !source.titleKey) return undefined;
+  const titleParams = interactionParams(source.titleParams);
+  const messageParams = interactionParams(source.messageParams);
+  const optionLabelKeys = source.optionLabelKeys && typeof source.optionLabelKeys === "object" && !Array.isArray(source.optionLabelKeys)
+    ? Object.fromEntries(Object.entries(source.optionLabelKeys as Record<string, unknown>).flatMap(([key, item]) =>
+      typeof item === "string" && item ? [[key, item] as const] : []))
+    : undefined;
+  return {
+    titleKey: source.titleKey,
+    ...(titleParams ? { titleParams } : {}),
+    ...(typeof source.messageKey === "string" && source.messageKey ? { messageKey: source.messageKey } : {}),
+    ...(messageParams ? { messageParams } : {}),
+    ...(optionLabelKeys && Object.keys(optionLabelKeys).length ? { optionLabelKeys } : {}),
+  };
+}
+
 function questionnaireQuestions(value: unknown): PendingQuestionnaire["questions"] {  if (!Array.isArray(value)) return [];
   return value.flatMap((rawQuestion) => {
     if (!rawQuestion || typeof rawQuestion !== "object" || Array.isArray(rawQuestion)) return [];
@@ -90,6 +116,9 @@ export function applyInteractionEvent(event: PiScienceEvent): void {
         && typeof grant?.connectorId === "string" && grant.connectorId
         && typeof grant?.toolName === "string" && grant.toolName
         ? { connectorId: grant.connectorId, toolName: grant.toolName } : undefined;
+      const presentation = event.questionnaire === true
+        ? undefined
+        : interactionPresentation(event.presentation ?? payload.presentation);
       runtimeStore.setState({
         working: true,
         turnLifecycle: "waiting",
@@ -106,6 +135,7 @@ export function applyInteractionEvent(event: PiScienceEvent): void {
           operation: String(event.operation || payload.operation || ""),
           scope: String(event.scope || payload.scope || ""),
           effect: String(event.effect || payload.effect || ""),
+          ...(presentation ? { presentation } : {}),
           ...(mcpGrant ? { mcpGrant } : {}),
           ...(event.toolCallId ? { toolCallId: String(event.toolCallId) } : {}),
           ...(event.questionnaire === true ? { questionnaire: true } : {}),

@@ -5,8 +5,17 @@ import { ApprovalQueue, runtimeApprovalQueue, type AcquireApproval } from "../ap
 
 type McpToolGrant = { connectorId: string; toolName: string; connectorRevision?: number; settingsRevision?: number };
 
+/** Locale-neutral keys the browser resolves against its active locale. */
+export type InteractionPresentation = {
+  titleKey: string;
+  titleParams?: Record<string, string | number>;
+  messageKey?: string;
+  messageParams?: Record<string, string | number>;
+  optionLabelKeys?: Record<string, string>;
+};
+
 type Pending = { resolve: (value: string | null) => void; reject: (error: Error) => void; cleanup: () => void; submitted?: { value: string | null } };
-type RequestOptions = { toolCallId?: string; method?: "input" | "confirm" | "select"; kind?: "permission"; message?: string; mcpGrant?: McpToolGrant; options?: Array<{ label: string; value: string }> };
+type RequestOptions = { toolCallId?: string; method?: "input" | "confirm" | "select"; kind?: "permission"; message?: string; mcpGrant?: McpToolGrant; options?: Array<{ label: string; value: string }>; presentation?: InteractionPresentation };
 
 /** Keeps browser interaction promises inside the worker that owns the tool call. */
 export class InteractionBridge {
@@ -64,7 +73,8 @@ export class InteractionBridge {
       this.publish({ type: "interaction.requested", id, method: options.method ?? "input", title, prefill,
         ...(options.toolCallId ? { toolCallId: options.toolCallId } : {}),
         ...(options.options ? { options: options.options } : {}), ...(options.kind ? { kind: options.kind } : {}), ...(options.message ? { message: options.message } : {}),
-        ...(options.mcpGrant ? { mcpGrant: options.mcpGrant } : {}) });
+        ...(options.mcpGrant ? { mcpGrant: options.mcpGrant } : {}),
+        ...(options.presentation ? { presentation: options.presentation } : {}) });
     });
   }
 
@@ -88,8 +98,8 @@ export class InteractionBridge {
       : { success: false, code: "not_found", error: "interaction is no longer pending" };
   }
 
-  async confirmPermission(title: string, message: string, signal?: AbortSignal, toolCallId?: string, mcpGrant?: McpToolGrant): Promise<boolean> {
-    const value = await this.request(title, "", signal, { method: "confirm", kind: "permission", message, toolCallId, mcpGrant });
+  async confirmPermission(title: string, message: string, signal?: AbortSignal, toolCallId?: string, mcpGrant?: McpToolGrant, presentation?: InteractionPresentation): Promise<boolean> {
+    const value = await this.request(title, "", signal, { method: "confirm", kind: "permission", message, toolCallId, mcpGrant, presentation });
     return value === "true";
   }
 

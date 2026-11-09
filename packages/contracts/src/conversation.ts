@@ -85,12 +85,24 @@ const toolStartedEventSchema = toolUpdatedEventSchema.extend({ type: z.literal("
 const toolCompletedEventSchema = toolUpdatedEventSchema.extend({
   type: z.literal("tool.completed"),
 });
+/** Locale-neutral presentation keys for a server-produced interaction card.
+ * The legacy title/message/options stay authoritative when this is absent. */
+export const interactionPresentationSchema = z.object({
+  titleKey: z.string().min(1),
+  titleParams: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  messageKey: z.string().min(1).optional(),
+  messageParams: z.record(z.string(), z.union([z.string(), z.number()])).optional(),
+  optionLabelKeys: z.record(z.string(), z.string().min(1)).optional(),
+});
+export type InteractionPresentation = z.infer<typeof interactionPresentationSchema>;
+
 const interactionRequestedEventSchema = z.object({
   type: z.literal("interaction.requested"),
   sessionId: z.string(),
   requestId: z.string(),
   kind: z.enum(["permission", "confirmation", "question"]),
   method: z.string(),
+  presentation: interactionPresentationSchema.optional(),
 });
 const sessionErrorEventSchema = z.object({
   type: z.literal("error"),

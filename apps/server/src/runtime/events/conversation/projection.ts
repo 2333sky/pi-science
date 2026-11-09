@@ -4,7 +4,7 @@ import { toolActivityPresentation, toolActivityTitle } from "../../presentation/
 import type { TurnState } from "./types.js";
 import { MAX_EVENT_TEXT, MAX_TOOL_EVENT_OUTPUT_BYTES } from "./limits.js";
 import { cap, capUtf8, stringify, snapshotText, safeValue } from "./text.js";
-import { questionnairePayload, browserQuestionnaireRequestId, markedMcpPermissionTitle, interactionKind, eventField } from "./interactions.js";
+import { questionnairePayload, browserQuestionnaireRequestId, markedMcpPermissionTitle, interactionKind, interactionPresentation, eventField } from "./interactions.js";
 import { streamKey, newConversationId, turnFields, eventPhase, modelError } from "./records.js";
 import { ConversationStreams } from "./streams.js";
 
@@ -221,6 +221,7 @@ export class ConversationProjection {
         const type = "interaction.requested";
         const requestId = String(eventField(event, "id") ?? eventField(event, "requestId") ?? "");
         const questionnaireId = method !== "confirm" ? browserQuestionnaireRequestId(rawTitle) : null;
+        const presentation = questionnaireId ? undefined : interactionPresentation(eventField(event, "presentation"));
         const common = {
           type,
           sessionId,
@@ -237,6 +238,7 @@ export class ConversationProjection {
           scope: cap(eventField(event, "scope"), 500),
           effect: cap(eventField(event, "effect"), 500),
           ...(mcpGrant ? { mcpGrant } : {}),
+          ...(presentation ? { presentation } : {}),
         };
         if (method === "confirm") return [common];
         if (["select", "input", "editor"].includes(method)) {

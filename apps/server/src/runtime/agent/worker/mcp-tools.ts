@@ -323,9 +323,10 @@ export class AgentMcpTools {
                       );
                     // Another worker may have saved Always allow while this call waited.
                     if ((await checkAuthority()) === "allow") return "allowed";
+                    const argumentsPreview = JSON.stringify(params).slice(0, 4_000);
                     return (await bridge.confirmPermission(
                       `Allow ${name}: ${tool.name}?`,
-                      `Arguments: ${JSON.stringify(params).slice(0, 4_000)}`,
+                      `Arguments: ${argumentsPreview}`,
                       context.abortSignal,
                       _toolCallId,
                       {
@@ -333,6 +334,12 @@ export class AgentMcpTools {
                         toolName: tool.name,
                         connectorRevision: server.__piScienceConnectorRevision,
                         settingsRevision: server.__piScienceSettingsRevision,
+                      },
+                      {
+                        titleKey: "interaction.mcpPermission.title",
+                        titleParams: { connector: name, tool: tool.name },
+                        messageKey: "interaction.mcpPermission.arguments",
+                        messageParams: { preview: argumentsPreview },
                       },
                     ))
                       ? "approved"

@@ -5,6 +5,14 @@ import type { ModelSelection, CreateSessionRequest } from "@pi-science/contracts
 import type { TransportStatus } from "./transport-status";
 import type { Thread } from "./folding/types";
 
+export interface InteractionPresentation {
+  titleKey: string;
+  titleParams?: Record<string, string | number>;
+  messageKey?: string;
+  messageParams?: Record<string, string | number>;
+  optionLabelKeys?: Record<string, string>;
+}
+
 export interface PendingInteraction {
   requestId: string;
   kind?: "permission" | "question" | "confirmation";
@@ -20,6 +28,8 @@ export interface PendingInteraction {
   operation?: string;
   scope?: string;
   effect?: string;
+  /** Locale-neutral keys resolved by the card; legacy strings above are the fallback. */
+  presentation?: InteractionPresentation;
   /** Only managed MCP tool approvals may save a project-scoped grant. */
   mcpGrant?: { connectorId: string; toolName: string };
 }

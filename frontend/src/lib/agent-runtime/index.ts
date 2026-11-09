@@ -7,6 +7,7 @@ export { applySessionReplacements } from "./session-replacement";
 export { convertHistoryToBlocks, mergeHistoryWindow, replaceHistoryTail, resetThreadProjection } from "./event-fold";
 export type { HistoryWindowMerge } from "./event-fold";
 export type {
+  InteractionPresentation,
   PendingInteraction,
   PendingQuestionnaire,
   QuestionnaireOption,

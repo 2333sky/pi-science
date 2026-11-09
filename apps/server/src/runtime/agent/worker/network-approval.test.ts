@@ -83,6 +83,19 @@ it.each(["api.example.org", "192.168.1.10:8080"])(
     expect(events[0]).toMatchObject({
       message: expect.stringContaining("TLS handshake is not verified"),
     });
+    expect(events[0]).toMatchObject({
+      presentation: {
+        titleKey: "interaction.networkApproval.title",
+        titleParams: { domain },
+        messageKey: "interaction.networkApproval.messageWithReason",
+        messageParams: { domain, profile: "analysis", reason: "Download study data", port: domain.includes(":") ? 8080 : 443 },
+        optionLabelKeys: {
+          allow: "interaction.networkApproval.alwaysAllow",
+          deny_once: "interaction.networkApproval.denyThisRequest",
+          deny: "interaction.networkApproval.neverAllow",
+        },
+      },
+    });
     if (domain.includes(":"))
       expect(events[0]).toMatchObject({
         message: expect.stringContaining("HTTP and a TCP tunnel on port 8080"),

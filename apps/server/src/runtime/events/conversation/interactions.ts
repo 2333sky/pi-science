@@ -59,6 +59,43 @@ export function interactionKind(value: unknown): InteractionKind | undefined {
   return value === "permission" || value === "confirmation" || value === "question" ? value : undefined;
 }
 
+export type InteractionPresentation = {
+  titleKey: string;
+  titleParams?: Record<string, string | number>;
+  messageKey?: string;
+  messageParams?: Record<string, string | number>;
+  optionLabelKeys?: Record<string, string>;
+};
+
+function interactionParams(value: unknown): Record<string, string | number> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(([key, item]) =>
+    typeof item === "string" || typeof item === "number"
+      ? [[key.slice(0, 200), typeof item === "string" ? cap(item, 4_000) : item] as const]
+      : []);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+/** Validates the locale-neutral presentation contract before it reaches SSE. */
+export function interactionPresentation(value: unknown): InteractionPresentation | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const source = value as Record<string, unknown>;
+  if (typeof source.titleKey !== "string" || !source.titleKey) return undefined;
+  const titleParams = interactionParams(source.titleParams);
+  const messageParams = interactionParams(source.messageParams);
+  const labelKeys = source.optionLabelKeys && typeof source.optionLabelKeys === "object" && !Array.isArray(source.optionLabelKeys)
+    ? Object.fromEntries(Object.entries(source.optionLabelKeys as Record<string, unknown>).flatMap(([key, item]) =>
+      typeof item === "string" && item ? [[key.slice(0, 200), item.slice(0, 200)] as const] : []))
+    : undefined;
+  return {
+    titleKey: source.titleKey.slice(0, 200),
+    ...(titleParams ? { titleParams } : {}),
+    ...(typeof source.messageKey === "string" && source.messageKey ? { messageKey: source.messageKey.slice(0, 200) } : {}),
+    ...(messageParams ? { messageParams } : {}),
+    ...(labelKeys && Object.keys(labelKeys).length ? { optionLabelKeys: labelKeys } : {}),
+  };
+}
+
 export function eventField(event: ProductInput, key: string): unknown {
   const direct = (event as Record<string, unknown>)[key];
   if (direct !== undefined) return direct;
