@@ -578,6 +578,4 @@ falls back to the tool's own neutral name, so `Running bash` is the floor, not
 bodies are never read for a program name. A read row adds the 1-based `offset` and the
 requested window (`a.ts:120-159`). `limit` is what the call asked for; the tool
 clamps it to the file, so the row describes the request and not a promise about
-bytes returned. The server generates that title and the client repeats it only
-as a fallback for stored events that carry none, which keeps a live row and a
-replayed one identical.
+bytes returned.

@@ -13,12 +13,14 @@ describe("presentToolActivity", () => {
     expect(presentToolActivity(block("glob", { pattern: "**/*.ts", path: "frontend" }))).toContain("**/*.ts");
   });
   it("names the url a fetch opens instead of the server's placeholder", () => {
-    expect(presentToolActivity(block("web_fetch", { url: "https://example.com/a" }))).toBe("Fetching https://example.com/a");
+    const call: ToolCallBlock = { ...block("web_fetch", { url: "https://example.com/a" }), presentation: { version: 1, kind: "fetch", title: "Running web fetch", importance: "micro", domain: "research" } };
+    expect(presentToolActivity(call)).toBe("Fetching https://example.com/a");
   });
   it("rebuilds a read row in the active locale", () => {
     const labels: Record<string, string> = { "conversation.activity.read": "读取 {{target}}" };
     const zh = (key: string, values?: Record<string, unknown>) => (labels[key] ?? key).replace("{{target}}", String(values?.target ?? ""));
-    const row = presentToolActivity(block("read", { path: "a.ts", offset: 120, limit: 40 }), zh);
+    const call: ToolCallBlock = { ...block("read", { path: "a.ts", offset: 120, limit: 40 }), presentation: { version: 1, kind: "read", title: "Reading a.ts:120-159", importance: "micro", domain: "code" } };
+    const row = presentToolActivity(call, zh);
     expect(row).toContain("读取");
     expect(row).not.toContain("Reading");
     expect(row).toContain("a.ts:120-159");
