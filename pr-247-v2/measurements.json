@@ -1,0 +1,3612 @@
+{
+ "before": {
+  "settled-1440": {
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 1440,
+    "docCW": 1440,
+    "bodySW": 1440
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "false",
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 169.5,
+     "b": 205.5,
+     "w": 748.8,
+     "h": 36
+    },
+    "font": "14px",
+    "h": 36
+   },
+   "trace": null,
+   "root": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 169.5,
+    "b": 214.5,
+    "w": 748.8,
+    "h": 45
+   },
+   "rows": [],
+   "groupCaptions": [],
+   "live": [],
+   "shot": "before/1440-settled.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 65
+   }
+  },
+  "settled-390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 390,
+    "docCW": 390,
+    "bodySW": 390
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "false",
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 260.5,
+     "b": 300.5,
+     "w": 274,
+     "h": 40
+    },
+    "font": "14px",
+    "h": 40
+   },
+   "trace": null,
+   "root": {
+    "l": 84,
+    "r": 358,
+    "t": 260.5,
+    "b": 309.5,
+    "w": 274,
+    "h": 49
+   },
+   "rows": [],
+   "groupCaptions": [],
+   "live": [],
+   "shot": "before/390-settled.png",
+   "clip": {
+    "x": 74,
+    "y": 251,
+    "width": 294,
+    "height": 69
+   }
+  },
+  "expanded-1440": {
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 1440,
+    "docCW": 1440,
+    "bodySW": 1440
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "true",
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 169.5,
+     "b": 205.5,
+     "w": 748.8,
+     "h": 36
+    },
+    "font": "14px",
+    "h": 36
+   },
+   "trace": {
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 205.5,
+     "b": 361.5,
+     "w": 748.8,
+     "h": 156
+    },
+    "sw": 749,
+    "cw": 749,
+    "text": "Explored \u00b7 2 operations\nReading shikimate.csv\n3.0s\nSearching for chorismate\n2.0s\npython analysis/aggregate.py --condition SAH\n12s\nRunning shikimate-figures.ipynb\nPython\n7.0s"
+   },
+   "root": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 169.5,
+    "b": 370.5,
+    "w": 748.8,
+    "h": 201
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv",
+     "titleAttr": "Reading shikimate.csv",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 225.5,
+      "b": 257.5,
+      "w": 748.8,
+      "h": 32
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 234.5,
+      "b": 248.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 1196.4,
+       "r": 1220.4,
+       "t": 232.5,
+       "b": 250.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Searching for chorismate",
+     "titleAttr": "Searching for chorismate",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 257.5,
+      "b": 289.5,
+      "w": 748.8,
+      "h": 32
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 266.5,
+      "b": 280.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "2.0s",
+      "font": "10px",
+      "rect": {
+       "l": 1196.4,
+       "r": 1220.4,
+       "t": 264.5,
+       "b": 282.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "python analysis/aggregate.py --condition SAH",
+     "titleAttr": "python analysis/aggregate.py --condition SAH",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 291.5,
+      "b": 323.5,
+      "w": 748.8,
+      "h": 32
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 300.5,
+      "b": 314.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "12s",
+      "font": "10px",
+      "rect": {
+       "l": 1202.4,
+       "r": 1220.4,
+       "t": 298.5,
+       "b": 316.5,
+       "w": 18,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running shikimate-figures.ipynb",
+     "titleAttr": "Running shikimate-figures.ipynb",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 325.5,
+      "b": 357.5,
+      "w": 748.8,
+      "h": 32
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 334.5,
+      "b": 348.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "7.0s",
+      "font": "10px",
+      "rect": {
+       "l": 1196.4,
+       "r": 1220.4,
+       "t": 332.5,
+       "b": 350.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [
+    {
+     "text": "Explored \u00b7 2 operations",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 209.5,
+      "b": 289.5,
+      "w": 748.8,
+      "h": 80
+     },
+     "rowCount": 2
+    }
+   ],
+   "live": [
+    {
+     "text": "Reading shikimate.csv | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 225.5,
+      "b": 257.5,
+      "w": 748.8,
+      "h": 32
+     }
+    },
+    {
+     "text": "Searching for chorismate | 2.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 257.5,
+      "b": 289.5,
+      "w": 748.8,
+      "h": 32
+     }
+    },
+    {
+     "text": "python analysis/aggregate.py --condition SAH | 12s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 291.5,
+      "b": 323.5,
+      "w": 748.8,
+      "h": 32
+     }
+    },
+    {
+     "text": "Running shikimate-figures.ipynb | Python | 7.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 325.5,
+      "b": 357.5,
+      "w": 748.8,
+      "h": 32
+     }
+    }
+   ],
+   "shot": "before/1440-expanded.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 221
+   }
+  },
+  "expanded-390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 390,
+    "docCW": 390,
+    "bodySW": 390
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "true",
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 188.5,
+     "b": 228.5,
+     "w": 274,
+     "h": 40
+    },
+    "font": "14px",
+    "h": 40
+   },
+   "trace": {
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 228.5,
+     "b": 400.5,
+     "w": 274,
+     "h": 172
+    },
+    "sw": 274,
+    "cw": 274,
+    "text": "Explored \u00b7 2 operations\nReading shikimate.csv\n3.0s\nSearching for chorismate\n2.0s\npython analysis/aggregate.py --condition SAH\n12s\nRunning shikimate-figures.ipynb\nPython\n7.0s"
+   },
+   "root": {
+    "l": 84,
+    "r": 358,
+    "t": 188.5,
+    "b": 409.5,
+    "w": 274,
+    "h": 221
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv",
+     "titleAttr": "Reading shikimate.csv",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 248.5,
+      "b": 284.5,
+      "w": 274,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 259.5,
+      "b": 273.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 314,
+       "r": 338,
+       "t": 257.5,
+       "b": 275.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Searching for chorismate",
+     "titleAttr": "Searching for chorismate",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 284.5,
+      "b": 320.5,
+      "w": 274,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 295.5,
+      "b": 309.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "2.0s",
+      "font": "10px",
+      "rect": {
+       "l": 314,
+       "r": 338,
+       "t": 293.5,
+       "b": 311.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "python analysis/aggregate.py --condition SAH",
+     "titleAttr": "python analysis/aggregate.py --condition SAH",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 322.5,
+      "b": 358.5,
+      "w": 274,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 333.5,
+      "b": 347.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "12s",
+      "font": "10px",
+      "rect": {
+       "l": 320,
+       "r": 338,
+       "t": 331.5,
+       "b": 349.5,
+       "w": 18,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running shikimate-figures.ipynb",
+     "titleAttr": "Running shikimate-figures.ipynb",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 360.5,
+      "b": 396.5,
+      "w": 274,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 371.5,
+      "b": 385.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "7.0s",
+      "font": "10px",
+      "rect": {
+       "l": 314,
+       "r": 338,
+       "t": 369.5,
+       "b": 387.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [
+    {
+     "text": "Explored \u00b7 2 operations",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 232.5,
+      "b": 320.5,
+      "w": 274,
+      "h": 88
+     },
+     "rowCount": 2
+    }
+   ],
+   "live": [
+    {
+     "text": "Reading shikimate.csv | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 248.5,
+      "b": 284.5,
+      "w": 274,
+      "h": 36
+     }
+    },
+    {
+     "text": "Searching for chorismate | 2.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 284.5,
+      "b": 320.5,
+      "w": 274,
+      "h": 36
+     }
+    },
+    {
+     "text": "python analysis/aggregate.py --condition SAH | 12s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 322.5,
+      "b": 358.5,
+      "w": 274,
+      "h": 36
+     }
+    },
+    {
+     "text": "Running shikimate-figures.ipynb | Python | 7.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 360.5,
+      "b": 396.5,
+      "w": 274,
+      "h": 36
+     }
+    }
+   ],
+   "shot": "before/390-expanded.png",
+   "clip": {
+    "x": 74,
+    "y": 179,
+    "width": 294,
+    "height": 241
+   }
+  },
+  "expanded-360": {
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 360,
+    "docCW": 360,
+    "bodySW": 360
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "true",
+    "rect": {
+     "l": 84,
+     "r": 328,
+     "t": 163.5,
+     "b": 203.5,
+     "w": 244,
+     "h": 40
+    },
+    "font": "14px",
+    "h": 40
+   },
+   "trace": {
+    "rect": {
+     "l": 84,
+     "r": 328,
+     "t": 203.5,
+     "b": 375.5,
+     "w": 244,
+     "h": 172
+    },
+    "sw": 244,
+    "cw": 244,
+    "text": "Explored \u00b7 2 operations\nReading shikimate.csv\n3.0s\nSearching for chorismate\n2.0s\npython analysis/aggregate.py --condition SAH\n12s\nRunning shikimate-figures.ipynb\nPython\n7.0s"
+   },
+   "root": {
+    "l": 84,
+    "r": 328,
+    "t": 163.5,
+    "b": 384.5,
+    "w": 244,
+    "h": 221
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv",
+     "titleAttr": "Reading shikimate.csv",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 223.5,
+      "b": 259.5,
+      "w": 244,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 234.5,
+      "b": 248.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 284,
+       "r": 308,
+       "t": 232.5,
+       "b": 250.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Searching for chorismate",
+     "titleAttr": "Searching for chorismate",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 259.5,
+      "b": 295.5,
+      "w": 244,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 270.5,
+      "b": 284.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "2.0s",
+      "font": "10px",
+      "rect": {
+       "l": 284,
+       "r": 308,
+       "t": 268.5,
+       "b": 286.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "python analysis/aggregate.py --condition SAH",
+     "titleAttr": "python analysis/aggregate.py --condition SAH",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 297.5,
+      "b": 333.5,
+      "w": 244,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 308.5,
+      "b": 322.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "12s",
+      "font": "10px",
+      "rect": {
+       "l": 290,
+       "r": 308,
+       "t": 306.5,
+       "b": 324.5,
+       "w": 18,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running shikimate-figures.ipynb",
+     "titleAttr": "Running shikimate-figures.ipynb",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 335.5,
+      "b": 371.5,
+      "w": 244,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 346.5,
+      "b": 360.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "7.0s",
+      "font": "10px",
+      "rect": {
+       "l": 284,
+       "r": 308,
+       "t": 344.5,
+       "b": 362.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [
+    {
+     "text": "Explored \u00b7 2 operations",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 207.5,
+      "b": 295.5,
+      "w": 244,
+      "h": 88
+     },
+     "rowCount": 2
+    }
+   ],
+   "live": [
+    {
+     "text": "Reading shikimate.csv | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 223.5,
+      "b": 259.5,
+      "w": 244,
+      "h": 36
+     }
+    },
+    {
+     "text": "Searching for chorismate | 2.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 259.5,
+      "b": 295.5,
+      "w": 244,
+      "h": 36
+     }
+    },
+    {
+     "text": "python analysis/aggregate.py --condition SAH | 12s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 297.5,
+      "b": 333.5,
+      "w": 244,
+      "h": 36
+     }
+    },
+    {
+     "text": "Running shikimate-figures.ipynb | Python | 7.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 335.5,
+      "b": 371.5,
+      "w": 244,
+      "h": 36
+     }
+    }
+   ],
+   "shot": "before/360-expanded.png",
+   "clip": {
+    "x": 74,
+    "y": 154,
+    "width": 264,
+    "height": 241
+   }
+  },
+  "running-1440": {
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 1440,
+    "docCW": 1440,
+    "bodySW": 1440
+   },
+   "summary": null,
+   "trace": {
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 169.5,
+     "b": 243.5,
+     "w": 748.8,
+     "h": 74
+    },
+    "sw": 749,
+    "cw": 749,
+    "text": "Reading shikimate.csv\n3.0s\npip install --quiet pandas matplotlib seaborn statsmodels"
+   },
+   "root": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 169.5,
+    "b": 243.5,
+    "w": 748.8,
+    "h": 74
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv",
+     "titleAttr": "Reading shikimate.csv",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 173.5,
+      "b": 205.5,
+      "w": 748.8,
+      "h": 32
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 182.5,
+      "b": 196.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 1196.4,
+       "r": 1220.4,
+       "t": 180.5,
+       "b": 198.5,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "titleAttr": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 207.5,
+      "b": 239.5,
+      "w": 748.8,
+      "h": 32
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 12,
+      "h": 12,
+      "cls": "lucide lucide-chevron-right _chevron_s1rj8_115 shrink-0 transition-transform"
+     },
+     "iconRect": {
+      "l": 1228.4,
+      "r": 1240.4,
+      "t": 217.5,
+      "b": 229.5,
+      "w": 12,
+      "h": 12
+     },
+     "duration": null,
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 173.5,
+      "b": 205.5,
+      "w": 748.8,
+      "h": 32
+     }
+    },
+    {
+     "text": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "running": "true",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 207.5,
+      "b": 239.5,
+      "w": 748.8,
+      "h": 32
+     }
+    }
+   ],
+   "shot": "before/1440-running.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 94
+   }
+  },
+  "running-390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 390,
+    "docCW": 390,
+    "bodySW": 390
+   },
+   "summary": null,
+   "trace": {
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 215,
+     "b": 297,
+     "w": 274,
+     "h": 82
+    },
+    "sw": 274,
+    "cw": 274,
+    "text": "Reading shikimate.csv\n3.0s\npip install --quiet pandas matplotlib seaborn statsmodels"
+   },
+   "root": {
+    "l": 84,
+    "r": 358,
+    "t": 215,
+    "b": 297,
+    "w": 274,
+    "h": 82
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv",
+     "titleAttr": "Reading shikimate.csv",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 219,
+      "b": 255,
+      "w": 274,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-check shrink-0 text-muted"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 230,
+      "b": 244,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 314,
+       "r": 338,
+       "t": 228,
+       "b": 246,
+       "w": 24,
+       "h": 18
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "titleAttr": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 257,
+      "b": 293,
+      "w": 274,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 12,
+      "h": 12,
+      "cls": "lucide lucide-chevron-right _chevron_s1rj8_115 shrink-0 transition-transform"
+     },
+     "iconRect": {
+      "l": 346,
+      "r": 358,
+      "t": 269,
+      "b": 281,
+      "w": 12,
+      "h": 12
+     },
+     "duration": null,
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 219,
+      "b": 255,
+      "w": 274,
+      "h": 36
+     }
+    },
+    {
+     "text": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "running": "true",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 257,
+      "b": 293,
+      "w": 274,
+      "h": 36
+     }
+    }
+   ],
+   "shot": "before/390-running.png",
+   "clip": {
+    "x": 74,
+    "y": 205,
+    "width": 294,
+    "height": 102
+   }
+  },
+  "notebook-1440": {
+   "shot": "before/1440-notebook.png",
+   "clip": {
+    "x": 492,
+    "y": 322,
+    "width": 749,
+    "height": 40
+   },
+   "band": {
+    "clip": {
+     "x": 492,
+     "y": 322,
+     "width": 749,
+     "height": 40
+    },
+    "row": {
+     "h": 32,
+     "w": 748.8,
+     "l": 491.6
+    },
+    "title": "Running shikimate-figures.ipynb",
+    "titleAttr": "Running shikimate-figures.ipynb",
+    "textWidth": 436.4,
+    "icon": {
+     "w": 14,
+     "h": 14,
+     "cls": "lucide-check shrink-0 text-muted"
+    },
+    "duration": {
+     "text": "7.0s",
+     "font": "10px"
+    }
+   }
+  },
+  "hover-1440": {
+   "shot": "before/1440-hover.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 221
+   },
+   "rest": {
+    "color": "rgb(97, 102, 107)",
+    "chevronOpacity": "0",
+    "chevronVisible": true
+   },
+   "hovered": {
+    "color": "rgb(15, 17, 21)",
+    "chevronOpacity": "1",
+    "chevronVisible": true
+   },
+   "changed": true
+  },
+  "settled-360": {
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "scroll": {
+    "docSW": 360,
+    "docCW": 360
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "expanded": "false",
+    "rect": {
+     "l": 84,
+     "t": 260.5,
+     "w": 244,
+     "h": 40
+    }
+   },
+   "trace": null,
+   "root": {
+    "l": 84,
+    "t": 260.5,
+    "w": 244,
+    "h": 49
+   },
+   "rows": [],
+   "captions": [],
+   "clip": {
+    "x": 74,
+    "y": 251,
+    "width": 264,
+    "height": 69
+   },
+   "shot": "before/360-settled.png"
+  },
+  "running-360": {
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "scroll": {
+    "docSW": 360,
+    "docCW": 360
+   },
+   "summary": null,
+   "trace": {
+    "rect": {
+     "l": 84,
+     "t": 237.8,
+     "w": 244,
+     "h": 82
+    },
+    "sw": 244,
+    "cw": 244
+   },
+   "root": {
+    "l": 84,
+    "t": 237.8,
+    "w": 244,
+    "h": 82
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv",
+     "rect": {
+      "l": 84,
+      "t": 241.8,
+      "w": 244,
+      "h": 36
+     },
+     "icon": {
+      "glyph": "check",
+      "w": 14
+     },
+     "iconRect": {
+      "l": 84,
+      "t": 252.8,
+      "w": 14,
+      "h": 14
+     },
+     "titleRect": {
+      "l": 106,
+      "t": 250.8,
+      "w": 170,
+      "h": 18
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px"
+     }
+    },
+    {
+     "title": "pip install --quiet pandas matplotlib seaborn statsmodels",
+     "rect": {
+      "l": 84,
+      "t": 279.8,
+      "w": 244,
+      "h": 36
+     },
+     "icon": {
+      "glyph": "chevron-right",
+      "w": 12
+     },
+     "iconRect": {
+      "l": 316,
+      "t": 291.8,
+      "w": 12,
+      "h": 12
+     },
+     "titleRect": {
+      "l": 106,
+      "t": 288.8,
+      "w": 202,
+      "h": 18
+     },
+     "duration": null
+    }
+   ],
+   "captions": [],
+   "clip": {
+    "x": 74,
+    "y": 228,
+    "width": 264,
+    "height": 102
+   },
+   "shot": "before/360-running.png"
+  }
+ },
+ "after": {
+  "settled-1440": {
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 1440,
+    "docCW": 1440,
+    "bodySW": 1440
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "false",
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 169.5,
+     "b": 205.5,
+     "w": 748.8,
+     "h": 36
+    },
+    "font": "14px",
+    "h": 36
+   },
+   "trace": null,
+   "root": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 169.5,
+    "b": 214.5,
+    "w": 748.8,
+    "h": 45
+   },
+   "rows": [],
+   "groupCaptions": [],
+   "live": [],
+   "shot": "after/1440-settled.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 65
+   }
+  },
+  "settled-390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 390,
+    "docCW": 390,
+    "bodySW": 390
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "false",
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 260.5,
+     "b": 300.5,
+     "w": 274,
+     "h": 40
+    },
+    "font": "14px",
+    "h": 40
+   },
+   "trace": null,
+   "root": {
+    "l": 84,
+    "r": 358,
+    "t": 260.5,
+    "b": 309.5,
+    "w": 274,
+    "h": 49
+   },
+   "rows": [],
+   "groupCaptions": [],
+   "live": [],
+   "shot": "after/390-settled.png",
+   "clip": {
+    "x": 74,
+    "y": 251,
+    "width": 294,
+    "height": 69
+   }
+  },
+  "expanded-1440": {
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 1440,
+    "docCW": 1440,
+    "bodySW": 1440
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "true",
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 169.5,
+     "b": 205.5,
+     "w": 748.8,
+     "h": 36
+    },
+    "font": "14px",
+    "h": 36
+   },
+   "trace": {
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 205.5,
+     "b": 363.5,
+     "w": 748.8,
+     "h": 158
+    },
+    "sw": 749,
+    "cw": 749,
+    "text": "Reading shikimate.csv:1-40\n3.0s\nSearching for chorismate\n2.0s\nRunning python\n12s\nRunning shikimate-figures.ipynb\nPython\n7.0s"
+   },
+   "root": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 169.5,
+    "b": 372.5,
+    "w": 748.8,
+    "h": 203
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv:1-40",
+     "titleAttr": "Reading shikimate.csv:1-40",
+     "rect": {
+      "l": 491.6,
+      "r": 737.3,
+      "t": 209.5,
+      "b": 245.5,
+      "w": 245.8,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-file-text"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 220.5,
+      "b": 234.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 693.3,
+       "r": 717.3,
+       "t": 220.5,
+       "b": 234.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Searching for chorismate",
+     "titleAttr": "Searching for chorismate",
+     "rect": {
+      "l": 491.6,
+      "r": 722.2,
+      "t": 247.5,
+      "b": 283.5,
+      "w": 230.6,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-search"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 258.5,
+      "b": 272.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "2.0s",
+      "font": "10px",
+      "rect": {
+       "l": 678.2,
+       "r": 702.2,
+       "t": 258.5,
+       "b": 272.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running python",
+     "titleAttr": "Running python",
+     "rect": {
+      "l": 491.6,
+      "r": 657.5,
+      "t": 285.5,
+      "b": 321.5,
+      "w": 165.9,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-terminal"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 296.5,
+      "b": 310.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "12s",
+      "font": "10px",
+      "rect": {
+       "l": 619.5,
+       "r": 637.5,
+       "t": 296.5,
+       "b": 310.5,
+       "w": 18,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running shikimate-figures.ipynb",
+     "titleAttr": "Running shikimate-figures.ipynb",
+     "rect": {
+      "l": 491.6,
+      "r": 815.4,
+      "t": 323.5,
+      "b": 359.5,
+      "w": 323.8,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-sigma"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 334.5,
+      "b": 348.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "7.0s",
+      "font": "10px",
+      "rect": {
+       "l": 771.4,
+       "r": 795.4,
+       "t": 334.5,
+       "b": 348.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv:1-40 | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 209.5,
+      "b": 245.5,
+      "w": 748.8,
+      "h": 36
+     }
+    },
+    {
+     "text": "Searching for chorismate | 2.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 247.5,
+      "b": 283.5,
+      "w": 748.8,
+      "h": 36
+     }
+    },
+    {
+     "text": "Running python | 12s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 285.5,
+      "b": 321.5,
+      "w": 748.8,
+      "h": 36
+     }
+    },
+    {
+     "text": "Running shikimate-figures.ipynb | Python | 7.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 323.5,
+      "b": 359.5,
+      "w": 748.8,
+      "h": 36
+     }
+    }
+   ],
+   "shot": "after/1440-expanded.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 223
+   }
+  },
+  "expanded-390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 390,
+    "docCW": 390,
+    "bodySW": 390
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "true",
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 186.5,
+     "b": 226.5,
+     "w": 274,
+     "h": 40
+    },
+    "font": "14px",
+    "h": 40
+   },
+   "trace": {
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 226.5,
+     "b": 400.5,
+     "w": 274,
+     "h": 174
+    },
+    "sw": 274,
+    "cw": 274,
+    "text": "Reading shikimate.csv:1-40\n3.0s\nSearching for chorismate\n2.0s\nRunning python\n12s\nRunning shikimate-figures.ipynb\nPython\n7.0s"
+   },
+   "root": {
+    "l": 84,
+    "r": 358,
+    "t": 186.5,
+    "b": 409.5,
+    "w": 274,
+    "h": 223
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv:1-40",
+     "titleAttr": "Reading shikimate.csv:1-40",
+     "rect": {
+      "l": 84,
+      "r": 329.8,
+      "t": 230.5,
+      "b": 270.5,
+      "w": 245.8,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-file-text"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 243.5,
+      "b": 257.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 285.8,
+       "r": 309.8,
+       "t": 243.5,
+       "b": 257.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Searching for chorismate",
+     "titleAttr": "Searching for chorismate",
+     "rect": {
+      "l": 84,
+      "r": 314.6,
+      "t": 272.5,
+      "b": 312.5,
+      "w": 230.6,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-search"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 285.5,
+      "b": 299.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "2.0s",
+      "font": "10px",
+      "rect": {
+       "l": 270.6,
+       "r": 294.6,
+       "t": 285.5,
+       "b": 299.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running python",
+     "titleAttr": "Running python",
+     "rect": {
+      "l": 84,
+      "r": 249.9,
+      "t": 314.5,
+      "b": 354.5,
+      "w": 165.9,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-terminal"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 327.5,
+      "b": 341.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "12s",
+      "font": "10px",
+      "rect": {
+       "l": 211.9,
+       "r": 229.9,
+       "t": 327.5,
+       "b": 341.5,
+       "w": 18,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running shikimate-figures.ipynb",
+     "titleAttr": "Running shikimate-figures.ipynb",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 356.5,
+      "b": 396.5,
+      "w": 274,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-sigma"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 369.5,
+      "b": 383.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "7.0s",
+      "font": "10px",
+      "rect": {
+       "l": 314,
+       "r": 338,
+       "t": 369.5,
+       "b": 383.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv:1-40 | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 230.5,
+      "b": 270.5,
+      "w": 274,
+      "h": 40
+     }
+    },
+    {
+     "text": "Searching for chorismate | 2.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 272.5,
+      "b": 312.5,
+      "w": 274,
+      "h": 40
+     }
+    },
+    {
+     "text": "Running python | 12s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 314.5,
+      "b": 354.5,
+      "w": 274,
+      "h": 40
+     }
+    },
+    {
+     "text": "Running shikimate-figures.ipynb | Python | 7.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 356.5,
+      "b": 396.5,
+      "w": 274,
+      "h": 40
+     }
+    }
+   ],
+   "shot": "after/390-expanded.png",
+   "clip": {
+    "x": 74,
+    "y": 177,
+    "width": 294,
+    "height": 243
+   }
+  },
+  "expanded-360": {
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 360,
+    "docCW": 360,
+    "bodySW": 360
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "label": "Completed \u00b7 1m05s. Total turn duration: 1m05s",
+    "expanded": "true",
+    "rect": {
+     "l": 84,
+     "r": 328,
+     "t": 161.5,
+     "b": 201.5,
+     "w": 244,
+     "h": 40
+    },
+    "font": "14px",
+    "h": 40
+   },
+   "trace": {
+    "rect": {
+     "l": 84,
+     "r": 328,
+     "t": 201.5,
+     "b": 375.5,
+     "w": 244,
+     "h": 174
+    },
+    "sw": 244,
+    "cw": 244,
+    "text": "Reading shikimate.csv:1-40\n3.0s\nSearching for chorismate\n2.0s\nRunning python\n12s\nRunning shikimate-figures.ipynb\nPython\n7.0s"
+   },
+   "root": {
+    "l": 84,
+    "r": 328,
+    "t": 161.5,
+    "b": 384.5,
+    "w": 244,
+    "h": 223
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv:1-40",
+     "titleAttr": "Reading shikimate.csv:1-40",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 205.5,
+      "b": 245.5,
+      "w": 244,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-file-text"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 218.5,
+      "b": 232.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 284,
+       "r": 308,
+       "t": 218.5,
+       "b": 232.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Searching for chorismate",
+     "titleAttr": "Searching for chorismate",
+     "rect": {
+      "l": 84,
+      "r": 314.6,
+      "t": 247.5,
+      "b": 287.5,
+      "w": 230.6,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-search"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 260.5,
+      "b": 274.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "2.0s",
+      "font": "10px",
+      "rect": {
+       "l": 270.6,
+       "r": 294.6,
+       "t": 260.5,
+       "b": 274.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running python",
+     "titleAttr": "Running python",
+     "rect": {
+      "l": 84,
+      "r": 249.9,
+      "t": 289.5,
+      "b": 329.5,
+      "w": 165.9,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-terminal"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 302.5,
+      "b": 316.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "12s",
+      "font": "10px",
+      "rect": {
+       "l": 211.9,
+       "r": 229.9,
+       "t": 302.5,
+       "b": 316.5,
+       "w": 18,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running shikimate-figures.ipynb",
+     "titleAttr": "Running shikimate-figures.ipynb",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 331.5,
+      "b": 371.5,
+      "w": 244,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-sigma"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 344.5,
+      "b": 358.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "7.0s",
+      "font": "10px",
+      "rect": {
+       "l": 284,
+       "r": 308,
+       "t": 344.5,
+       "b": 358.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv:1-40 | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 205.5,
+      "b": 245.5,
+      "w": 244,
+      "h": 40
+     }
+    },
+    {
+     "text": "Searching for chorismate | 2.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 247.5,
+      "b": 287.5,
+      "w": 244,
+      "h": 40
+     }
+    },
+    {
+     "text": "Running python | 12s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 289.5,
+      "b": 329.5,
+      "w": 244,
+      "h": 40
+     }
+    },
+    {
+     "text": "Running shikimate-figures.ipynb | Python | 7.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 328,
+      "t": 331.5,
+      "b": 371.5,
+      "w": 244,
+      "h": 40
+     }
+    }
+   ],
+   "shot": "after/360-expanded.png",
+   "clip": {
+    "x": 74,
+    "y": 152,
+    "width": 264,
+    "height": 243
+   }
+  },
+  "running-1440": {
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 1440,
+    "docCW": 1440,
+    "bodySW": 1440
+   },
+   "summary": null,
+   "trace": {
+    "rect": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 169.5,
+     "b": 251.5,
+     "w": 748.8,
+     "h": 82
+    },
+    "sw": 749,
+    "cw": 749,
+    "text": "Reading shikimate.csv:1-20\n3.0s\nRunning pip"
+   },
+   "root": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 169.5,
+    "b": 251.5,
+    "w": 748.8,
+    "h": 82
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv:1-20",
+     "titleAttr": "Reading shikimate.csv:1-20",
+     "rect": {
+      "l": 491.6,
+      "r": 736.4,
+      "t": 173.5,
+      "b": 209.5,
+      "w": 244.8,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-file-text"
+     },
+     "iconRect": {
+      "l": 491.6,
+      "r": 505.6,
+      "t": 184.5,
+      "b": 198.5,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 692.4,
+       "r": 716.4,
+       "t": 184.5,
+       "b": 198.5,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running pip",
+     "titleAttr": "Running pip",
+     "rect": {
+      "l": 491.6,
+      "r": 607.5,
+      "t": 211.5,
+      "b": 247.5,
+      "w": 115.9,
+      "h": 36
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 12,
+      "h": 12,
+      "cls": "lucide lucide-chevron-right _chevron_1xiwd_140 shrink-0 transition-transform"
+     },
+     "iconRect": {
+      "l": 595.5,
+      "r": 607.5,
+      "t": 223.5,
+      "b": 235.5,
+      "w": 12,
+      "h": 12
+     },
+     "duration": null,
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv:1-20 | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 173.5,
+      "b": 209.5,
+      "w": 748.8,
+      "h": 36
+     }
+    },
+    {
+     "text": "Running pip",
+     "running": "true",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 211.5,
+      "b": 247.5,
+      "w": 748.8,
+      "h": 36
+     }
+    }
+   ],
+   "shot": "after/1440-running.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 102
+   }
+  },
+  "running-390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "dpr": 2,
+   "scroll": {
+    "docSW": 390,
+    "docCW": 390,
+    "bodySW": 390
+   },
+   "summary": null,
+   "trace": {
+    "rect": {
+     "l": 84,
+     "r": 358,
+     "t": 215,
+     "b": 305,
+     "w": 274,
+     "h": 90
+    },
+    "sw": 274,
+    "cw": 274,
+    "text": "Reading shikimate.csv:1-20\n3.0s\nRunning pip"
+   },
+   "root": {
+    "l": 84,
+    "r": 358,
+    "t": 215,
+    "b": 305,
+    "w": 274,
+    "h": 90
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv:1-20",
+     "titleAttr": "Reading shikimate.csv:1-20",
+     "rect": {
+      "l": 84,
+      "r": 328.8,
+      "t": 219,
+      "b": 259,
+      "w": 244.8,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 14,
+      "h": 14,
+      "cls": "lucide lucide-file-text"
+     },
+     "iconRect": {
+      "l": 84,
+      "r": 98,
+      "t": 232,
+      "b": 246,
+      "w": 14,
+      "h": 14
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px",
+      "rect": {
+       "l": 284.8,
+       "r": 308.8,
+       "t": 232,
+       "b": 246,
+       "w": 24,
+       "h": 14
+      }
+     },
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    },
+    {
+     "title": "Running pip",
+     "titleAttr": "Running pip",
+     "rect": {
+      "l": 84,
+      "r": 199.9,
+      "t": 261,
+      "b": 301,
+      "w": 115.9,
+      "h": 40
+     },
+     "clickable": true,
+     "expanded": "false",
+     "icon": {
+      "w": 12,
+      "h": 12,
+      "cls": "lucide lucide-chevron-right _chevron_1xiwd_140 shrink-0 transition-transform"
+     },
+     "iconRect": {
+      "l": 187.9,
+      "r": 199.9,
+      "t": 275,
+      "b": 287,
+      "w": 12,
+      "h": 12
+     },
+     "duration": null,
+     "font": "13px",
+     "lineHeight": "18px",
+     "bg": "rgba(0, 0, 0, 0)",
+     "radius": "10px"
+    }
+   ],
+   "groupCaptions": [],
+   "live": [
+    {
+     "text": "Reading shikimate.csv:1-20 | 3.0s",
+     "running": "false",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 219,
+      "b": 259,
+      "w": 274,
+      "h": 40
+     }
+    },
+    {
+     "text": "Running pip",
+     "running": "true",
+     "rect": {
+      "l": 84,
+      "r": 358,
+      "t": 261,
+      "b": 301,
+      "w": 274,
+      "h": 40
+     }
+    }
+   ],
+   "shot": "after/390-running.png",
+   "clip": {
+    "x": 74,
+    "y": 205,
+    "width": 294,
+    "height": 110
+   }
+  },
+  "notebook-1440": {
+   "shot": "after/1440-notebook.png",
+   "clip": {
+    "x": 492,
+    "y": 320,
+    "width": 749,
+    "height": 44
+   },
+   "band": {
+    "clip": {
+     "x": 492,
+     "y": 320,
+     "width": 749,
+     "height": 44
+    },
+    "row": {
+     "h": 36,
+     "w": 323.8,
+     "l": 491.6
+    },
+    "title": "Running shikimate-figures.ipynb",
+    "titleAttr": "Running shikimate-figures.ipynb",
+    "textWidth": 201.9,
+    "icon": {
+     "w": 14,
+     "h": 14,
+     "cls": "lucide-sigma"
+    },
+    "duration": {
+     "text": "7.0s",
+     "font": "10px"
+    }
+   }
+  },
+  "hover-1440": {
+   "shot": "after/1440-hover.png",
+   "clip": {
+    "x": 482,
+    "y": 160,
+    "width": 769,
+    "height": 223
+   },
+   "rest": {
+    "color": "rgb(97, 102, 107)",
+    "chevronOpacity": "0",
+    "chevronVisible": true
+   },
+   "hovered": {
+    "color": "rgb(15, 17, 21)",
+    "chevronOpacity": "1",
+    "chevronVisible": true
+   },
+   "changed": true
+  },
+  "settled-360": {
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "scroll": {
+    "docSW": 360,
+    "docCW": 360
+   },
+   "summary": {
+    "text": "Completed \u00b7 1m05s",
+    "expanded": "false",
+    "rect": {
+     "l": 84,
+     "t": 260.5,
+     "w": 244,
+     "h": 40
+    }
+   },
+   "trace": null,
+   "root": {
+    "l": 84,
+    "t": 260.5,
+    "w": 244,
+    "h": 49
+   },
+   "rows": [],
+   "captions": [],
+   "clip": {
+    "x": 74,
+    "y": 251,
+    "width": 264,
+    "height": 69
+   },
+   "shot": "after/360-settled.png"
+  },
+  "running-360": {
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "scroll": {
+    "docSW": 360,
+    "docCW": 360
+   },
+   "summary": null,
+   "trace": {
+    "rect": {
+     "l": 84,
+     "t": 237.8,
+     "w": 244,
+     "h": 90
+    },
+    "sw": 244,
+    "cw": 244
+   },
+   "root": {
+    "l": 84,
+    "t": 237.8,
+    "w": 244,
+    "h": 90
+   },
+   "rows": [
+    {
+     "title": "Reading shikimate.csv:1-20",
+     "rect": {
+      "l": 84,
+      "t": 241.8,
+      "w": 244,
+      "h": 40
+     },
+     "icon": {
+      "glyph": "file-text",
+      "w": 14
+     },
+     "iconRect": {
+      "l": 84,
+      "t": 254.8,
+      "w": 14,
+      "h": 14
+     },
+     "titleRect": {
+      "l": 106,
+      "t": 252.8,
+      "w": 170,
+      "h": 18
+     },
+     "duration": {
+      "text": "3.0s",
+      "font": "10px"
+     }
+    },
+    {
+     "title": "Running pip",
+     "rect": {
+      "l": 84,
+      "t": 283.8,
+      "w": 115.9,
+      "h": 40
+     },
+     "icon": {
+      "glyph": "chevron-right",
+      "w": 12
+     },
+     "iconRect": {
+      "l": 187.9,
+      "t": 297.8,
+      "w": 12,
+      "h": 12
+     },
+     "titleRect": {
+      "l": 106,
+      "t": 294.8,
+      "w": 73.9,
+      "h": 18
+     },
+     "duration": null
+    }
+   ],
+   "captions": [],
+   "clip": {
+    "x": 74,
+    "y": 228,
+    "width": 264,
+    "height": 110
+   },
+   "shot": "after/360-running.png"
+  }
+ },
+ "meta": {
+  "before": "433f1f51cb72 (dev merge baseline)",
+  "after": "ec69c81d0e56d074801b3c7b95c691955ca2e9ec (PR head)",
+  "fixedNow": "2026-08-15T12:00:00.000Z",
+  "dpr": 2,
+  "locale": "en-US",
+  "timezone": "Asia/Shanghai",
+  "reducedMotion": "reduce",
+  "colorScheme": "light",
+  "note": "\u622a\u56fe\u6309\u5143\u7d20\u77e9\u5f62\u88c1\u526a\uff0c\u6545\u50cf\u7d20\u5bbd = CSS \u5bbd \u00d7 DPR\uff1b\u884c\u5bbd\u4e3a CSS px"
+ },
+ "shots": {
+  "before/1440-expanded.png": {
+   "px": "1538x442",
+   "dpr": 2,
+   "md5": "f731b3fb9c9e47ab31189fa2c5c553ed",
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "panelH": 201,
+   "traceH": 156,
+   "summaryH": 36,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [
+    32,
+    32,
+    32,
+    32
+   ],
+   "rowW": [
+    748.8,
+    748.8,
+    748.8,
+    748.8
+   ],
+   "rowLeft": [
+    491.6,
+    491.6,
+    491.6,
+    491.6
+   ],
+   "iconW": [
+    14,
+    14,
+    14,
+    14
+   ],
+   "iconGlyph": [
+    "check",
+    "check",
+    "check",
+    "check"
+   ],
+   "titles": [
+    "Reading shikimate.csv",
+    "Searching for chorismate",
+    "python analysis/aggregate.py --condition SAH",
+    "Running shikimate-figures.ipynb"
+   ],
+   "captions": [
+    "Explored \u00b7 2 operations"
+   ]
+  },
+  "before/1440-hover.png": {
+   "px": "1538x442",
+   "dpr": 2,
+   "md5": "1417515c5c102521fca9a7971c8a37c8",
+   "viewport": null,
+   "panelH": null,
+   "traceH": null,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": [],
+   "hover": {
+    "rest": {
+     "color": "rgb(97, 102, 107)",
+     "chevronOpacity": "0",
+     "chevronVisible": true
+    },
+    "hovered": {
+     "color": "rgb(15, 17, 21)",
+     "chevronOpacity": "1",
+     "chevronVisible": true
+    }
+   }
+  },
+  "before/1440-notebook.png": {
+   "px": "1498x80",
+   "dpr": 2,
+   "md5": "f22d4e1f4b756be8bda4f4454a35bfc3",
+   "viewport": null,
+   "panelH": null,
+   "traceH": null,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "before/1440-running.png": {
+   "px": "1538x188",
+   "dpr": 2,
+   "md5": "444eae021966da121c66df4ba033ff57",
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "panelH": 74,
+   "traceH": 74,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [
+    32,
+    32
+   ],
+   "rowW": [
+    748.8,
+    748.8
+   ],
+   "rowLeft": [
+    491.6,
+    491.6
+   ],
+   "iconW": [
+    14,
+    12
+   ],
+   "iconGlyph": [
+    "check",
+    "chevron-right"
+   ],
+   "titles": [
+    "Reading shikimate.csv",
+    "pip install --quiet pandas matplotlib seaborn statsmodels"
+   ],
+   "captions": []
+  },
+  "before/1440-settled.png": {
+   "px": "1538x130",
+   "dpr": 2,
+   "md5": "dbd71d2d28a085b3040d9526ccc317f0",
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "panelH": 45,
+   "traceH": null,
+   "summaryH": 36,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "before/360-expanded.png": {
+   "px": "528x482",
+   "dpr": 2,
+   "md5": "95656ad4233adf5249bdf24892d80469",
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "panelH": 221,
+   "traceH": 172,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [
+    36,
+    36,
+    36,
+    36
+   ],
+   "rowW": [
+    244,
+    244,
+    244,
+    244
+   ],
+   "rowLeft": [
+    84,
+    84,
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    14,
+    14,
+    14
+   ],
+   "iconGlyph": [
+    "check",
+    "check",
+    "check",
+    "check"
+   ],
+   "titles": [
+    "Reading shikimate.csv",
+    "Searching for chorismate",
+    "python analysis/aggregate.py --condition SAH",
+    "Running shikimate-figures.ipynb"
+   ],
+   "captions": [
+    "Explored \u00b7 2 operations"
+   ]
+  },
+  "before/360-running.png": {
+   "px": "528x204",
+   "dpr": 2,
+   "md5": "8921c2785d6741b007e2f5909f73d0bf",
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "panelH": 82,
+   "traceH": 82,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [
+    36,
+    36
+   ],
+   "rowW": [
+    244,
+    244
+   ],
+   "rowLeft": [
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    12
+   ],
+   "iconGlyph": [
+    "check",
+    "chevron-right"
+   ],
+   "titles": [
+    "Reading shikimate.csv",
+    "pip install --quiet pandas matplotlib seaborn statsmodels"
+   ],
+   "captions": []
+  },
+  "before/360-settled.png": {
+   "px": "528x138",
+   "dpr": 2,
+   "md5": "14026bb0b922b17ecc49e19bc044d1d5",
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "panelH": 49,
+   "traceH": null,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "before/390-expanded.png": {
+   "px": "588x482",
+   "dpr": 2,
+   "md5": "a9c625babd2e1c050e2f97131abe7b67",
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "panelH": 221,
+   "traceH": 172,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [
+    36,
+    36,
+    36,
+    36
+   ],
+   "rowW": [
+    274,
+    274,
+    274,
+    274
+   ],
+   "rowLeft": [
+    84,
+    84,
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    14,
+    14,
+    14
+   ],
+   "iconGlyph": [
+    "check",
+    "check",
+    "check",
+    "check"
+   ],
+   "titles": [
+    "Reading shikimate.csv",
+    "Searching for chorismate",
+    "python analysis/aggregate.py --condition SAH",
+    "Running shikimate-figures.ipynb"
+   ],
+   "captions": [
+    "Explored \u00b7 2 operations"
+   ]
+  },
+  "before/390-running.png": {
+   "px": "588x204",
+   "dpr": 2,
+   "md5": "2cd04d118b9255e86cab43260f9bd5ec",
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "panelH": 82,
+   "traceH": 82,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [
+    36,
+    36
+   ],
+   "rowW": [
+    274,
+    274
+   ],
+   "rowLeft": [
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    12
+   ],
+   "iconGlyph": [
+    "check",
+    "chevron-right"
+   ],
+   "titles": [
+    "Reading shikimate.csv",
+    "pip install --quiet pandas matplotlib seaborn statsmodels"
+   ],
+   "captions": []
+  },
+  "before/390-settled.png": {
+   "px": "588x138",
+   "dpr": 2,
+   "md5": "af6d7d4a5b7e33582b37198005393cb2",
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "panelH": 49,
+   "traceH": null,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "after/1440-expanded.png": {
+   "px": "1538x446",
+   "dpr": 2,
+   "md5": "68f33ab7c74dc4dac9808ec781817476",
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "panelH": 203,
+   "traceH": 158,
+   "summaryH": 36,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [
+    36,
+    36,
+    36,
+    36
+   ],
+   "rowW": [
+    245.8,
+    230.6,
+    165.9,
+    323.8
+   ],
+   "rowLeft": [
+    491.6,
+    491.6,
+    491.6,
+    491.6
+   ],
+   "iconW": [
+    14,
+    14,
+    14,
+    14
+   ],
+   "iconGlyph": [
+    "file-text",
+    "search",
+    "terminal",
+    "sigma"
+   ],
+   "titles": [
+    "Reading shikimate.csv:1-40",
+    "Searching for chorismate",
+    "Running python",
+    "Running shikimate-figures.ipynb"
+   ],
+   "captions": []
+  },
+  "after/1440-hover.png": {
+   "px": "1538x446",
+   "dpr": 2,
+   "md5": "cdeac07c0b2696215e8871992717985d",
+   "viewport": null,
+   "panelH": null,
+   "traceH": null,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": [],
+   "hover": {
+    "rest": {
+     "color": "rgb(97, 102, 107)",
+     "chevronOpacity": "0",
+     "chevronVisible": true
+    },
+    "hovered": {
+     "color": "rgb(15, 17, 21)",
+     "chevronOpacity": "1",
+     "chevronVisible": true
+    }
+   }
+  },
+  "after/1440-notebook.png": {
+   "px": "1498x88",
+   "dpr": 2,
+   "md5": "8c3a7568e8abff29e543d65a4d1aa589",
+   "viewport": null,
+   "panelH": null,
+   "traceH": null,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "after/1440-running.png": {
+   "px": "1538x204",
+   "dpr": 2,
+   "md5": "c91396a73fbf52e015da08e79e1ab0e7",
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "panelH": 82,
+   "traceH": 82,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [
+    36,
+    36
+   ],
+   "rowW": [
+    244.8,
+    115.9
+   ],
+   "rowLeft": [
+    491.6,
+    491.6
+   ],
+   "iconW": [
+    14,
+    12
+   ],
+   "iconGlyph": [
+    "file-text",
+    "chevron-right"
+   ],
+   "titles": [
+    "Reading shikimate.csv:1-20",
+    "Running pip"
+   ],
+   "captions": []
+  },
+  "after/1440-settled.png": {
+   "px": "1538x130",
+   "dpr": 2,
+   "md5": "dbbe254ca13036da3508001132635605",
+   "viewport": {
+    "w": 1440,
+    "h": 900
+   },
+   "panelH": 45,
+   "traceH": null,
+   "summaryH": 36,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "after/360-expanded.png": {
+   "px": "528x486",
+   "dpr": 2,
+   "md5": "7f9008c027f6b47220987df26c08a4c0",
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "panelH": 223,
+   "traceH": 174,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [
+    40,
+    40,
+    40,
+    40
+   ],
+   "rowW": [
+    244,
+    230.6,
+    165.9,
+    244
+   ],
+   "rowLeft": [
+    84,
+    84,
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    14,
+    14,
+    14
+   ],
+   "iconGlyph": [
+    "file-text",
+    "search",
+    "terminal",
+    "sigma"
+   ],
+   "titles": [
+    "Reading shikimate.csv:1-40",
+    "Searching for chorismate",
+    "Running python",
+    "Running shikimate-figures.ipynb"
+   ],
+   "captions": []
+  },
+  "after/360-running.png": {
+   "px": "528x220",
+   "dpr": 2,
+   "md5": "64e59fc130f21d79ec53fa207c3d30fd",
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "panelH": 90,
+   "traceH": 90,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [
+    40,
+    40
+   ],
+   "rowW": [
+    244,
+    115.9
+   ],
+   "rowLeft": [
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    12
+   ],
+   "iconGlyph": [
+    "file-text",
+    "chevron-right"
+   ],
+   "titles": [
+    "Reading shikimate.csv:1-20",
+    "Running pip"
+   ],
+   "captions": []
+  },
+  "after/360-settled.png": {
+   "px": "528x138",
+   "dpr": 2,
+   "md5": "7ad9681cc5f716d88287f16cfde96a15",
+   "viewport": {
+    "w": 360,
+    "h": 900
+   },
+   "panelH": 49,
+   "traceH": null,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  },
+  "after/390-expanded.png": {
+   "px": "588x486",
+   "dpr": 2,
+   "md5": "709307cb6f8f8da321903e44cfc27916",
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "panelH": 223,
+   "traceH": 174,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [
+    40,
+    40,
+    40,
+    40
+   ],
+   "rowW": [
+    245.8,
+    230.6,
+    165.9,
+    274
+   ],
+   "rowLeft": [
+    84,
+    84,
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    14,
+    14,
+    14
+   ],
+   "iconGlyph": [
+    "file-text",
+    "search",
+    "terminal",
+    "sigma"
+   ],
+   "titles": [
+    "Reading shikimate.csv:1-40",
+    "Searching for chorismate",
+    "Running python",
+    "Running shikimate-figures.ipynb"
+   ],
+   "captions": []
+  },
+  "after/390-running.png": {
+   "px": "588x220",
+   "dpr": 2,
+   "md5": "36f5642385f4423ff69df3d9046c2e35",
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "panelH": 90,
+   "traceH": 90,
+   "summaryH": null,
+   "summaryText": null,
+   "rowH": [
+    40,
+    40
+   ],
+   "rowW": [
+    244.8,
+    115.9
+   ],
+   "rowLeft": [
+    84,
+    84
+   ],
+   "iconW": [
+    14,
+    12
+   ],
+   "iconGlyph": [
+    "file-text",
+    "chevron-right"
+   ],
+   "titles": [
+    "Reading shikimate.csv:1-20",
+    "Running pip"
+   ],
+   "captions": []
+  },
+  "after/390-settled.png": {
+   "px": "588x138",
+   "dpr": 2,
+   "md5": "cd3e0db27bb9bf4f6d24162725455409",
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "panelH": 49,
+   "traceH": null,
+   "summaryH": 40,
+   "summaryText": "Completed \u00b7 1m05s",
+   "rowH": [],
+   "rowW": [],
+   "rowLeft": [],
+   "iconW": [],
+   "iconGlyph": [],
+   "titles": [],
+   "captions": []
+  }
+ }
+}
