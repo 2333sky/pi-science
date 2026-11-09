@@ -1,0 +1,59 @@
+{
+  "task": "pi-science#pr244-composer-states-evidence-1",
+  "pr": "2333sky/pi-science#244 (Steer / Queue / Composer)",
+  "before_sha": "b112251fac9e67dce4b1302ec5bd70de049e2e9b",
+  "after_sha": "ed1e025adf8f1d43ffe8132b704633269e3289e6",
+  "fixture": "frontend/tests/visual/fixtures/data.mjs (VISUAL_CWD=/tmp/visual-demo) + probe server adding one running session 'visual-running' (is_streaming: true, SSE keep-alive, no operation.settled)",
+  "fixed_now": "2026-08-15T12:00:00.000Z",
+  "capture": { "browser": "chromium 1248 (playwright-core 1.62.1)", "dpr": 2, "locale": "en-US", "timezone": "Asia/Shanghai", "reducedMotion": "reduce", "colorScheme": "light", "mouse_parked_at": [4, 4], "crop": "element rect of the composer column, DPR 2; touch crops span the full 390px viewport so screen-edge clipping is visible" },
+  "shots": [
+    { "file": "desktop-idle-before.png", "state": "idle", "version": "before", "px": [1592, 304] },
+    { "file": "desktop-idle-after.png", "state": "idle", "version": "after", "px": [1592, 304] },
+    { "file": "desktop-steer-before.png", "state": "running/steer", "version": "before", "px": [1592, 304] },
+    { "file": "desktop-steer-after.png", "state": "running/steer", "version": "after", "px": [1592, 304] },
+    { "file": "desktop-queue-before.png", "state": "running/queue", "version": "before", "px": [1592, 304] },
+    { "file": "desktop-queue-after.png", "state": "running/queue", "version": "after", "px": [1592, 304] },
+    { "file": "desktop-queued-before.png", "state": "queued-3-edit", "version": "before", "px": [1592, 304] },
+    { "file": "desktop-queued-after.png", "state": "queued-3-edit", "version": "after", "px": [1592, 628] },
+    { "file": "desktop-paused-before.png", "state": "queue-paused", "version": "before", "px": [1592, 304] },
+    { "file": "desktop-paused-after.png", "state": "queue-paused", "version": "after", "px": [1592, 548] },
+    { "file": "desktop-rejected-before.png", "state": "steer-rejected", "version": "before", "px": [1592, 304] },
+    { "file": "desktop-rejected-after.png", "state": "steer-rejected", "version": "after", "px": [1592, 388] },
+    { "file": "touch-steer-before.png", "state": "running/steer", "version": "before", "px": [780, 460] },
+    { "file": "touch-steer-after.png", "state": "running/steer", "version": "after", "px": [780, 460] },
+    { "file": "touch-queued-before.png", "state": "queued-3-edit", "version": "before", "px": [780, 460] },
+    { "file": "touch-queued-after.png", "state": "queued-3-edit", "version": "after", "px": [780, 848] },
+    { "file": "touch-paused-before.png", "state": "queue-paused", "version": "before", "px": [780, 460] },
+    { "file": "touch-paused-after.png", "state": "queue-paused", "version": "after", "px": [780, 800] }
+  ],
+  "measurements": {
+    "idle_identical": { "note": "desktop-idle-before.png and desktop-idle-after.png are byte-identical", "md5_both": "7ec4ded13b2c7a9a2e5ace763b54cec0" },
+    "composer_card_desktop": { "x": 480, "right": 1260, "width": 780, "css_px": true },
+    "composer_card_390": { "after": { "x": 74, "right": 374, "width": 300 }, "before": { "x": 74, "right": 374, "width": 300 } },
+    "running_control_row": {
+      "before": { "contents": "single round Stop at x1213–1247 (desktop), x327–361 (390)", "scrollWidth": null },
+      "after": { "scrollWidth_desktop": 778, "clientWidth_desktop": 778, "scrollWidth_390": 410, "clientWidth_390": 298, "group_390": { "left": 305, "right": 405 } }
+    },
+    "stop_button": {
+      "before": { "desktop": { "left": 1213, "right": 1247, "visible": true }, "p390": { "left": 327, "right": 361, "visible": true } },
+      "after": { "desktop": { "left": 1213, "right": 1247, "visible": true }, "p390": { "left": 451, "right": 485, "visible": false } }
+    },
+    "overflow_by_width_after": {
+      "360": { "card_w": 270, "row_scroll_w": 410, "row_client_w": 268, "stop": [451, 485], "stop_visible": false },
+      "390": { "card_w": 300, "row_scroll_w": 410, "row_client_w": 298, "stop": [451, 485], "stop_visible": false },
+      "430": { "card_w": 340, "row_scroll_w": 410, "row_client_w": 338, "stop": [451, 485], "stop_visible": false },
+      "768": { "card_w": 404, "row_scroll_w": 410, "row_client_w": 402, "stop": [709, 743], "stop_visible": true, "note": "stop extends 7px past the card edge (card right 736)" },
+      "1024": { "card_w": 660, "row_scroll_w": 658, "row_client_w": 658, "stop": [945, 979], "stop_visible": true },
+      "1440": { "card_w": 780, "row_scroll_w": 778, "row_client_w": 778, "stop": [1213, 1247], "stop_visible": true }
+    },
+    "send_behavior_after": {
+      "steer": { "posted": "{\"message\":…,\"client_message_id\":\"<uuid>\"} → POST /api/sessions/visual-running/steer", "draft_after_send": "", "new_transcript_bubble": 0 },
+      "queue": { "posted": "{\"message\":…,\"client_message_id\":\"<uuid>\"} → POST /api/sessions/visual-running/queue", "draft_after_send": "", "new_transcript_bubble": 0 }
+    }
+  },
+  "interception": {
+    "queue_json": ["queued-3-edit", "queue-paused"],
+    "steer_409_not_running": ["steer-rejected"],
+    "real_server": ["idle", "running/steer", "running/queue"]
+  }
+}
