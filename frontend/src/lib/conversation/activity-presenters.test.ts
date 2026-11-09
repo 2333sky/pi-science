@@ -18,13 +18,14 @@ describe("presentToolActivity", () => {
 });
 
 describe("toolActivityCategory", () => {
-  it("maps each kind of step to its glyph", () => {
-    expect(toolActivityCategory("read")).toBe("read");
-    expect(toolActivityCategory("Grep")).toBe("search");
-    expect(toolActivityCategory("glob")).toBe("list");
-    expect(toolActivityCategory("apply_patch")).toBe("write");
-    expect(toolActivityCategory("web_fetch")).toBe("web");
-    expect(toolActivityCategory("bash")).toBe("run");
-    expect(toolActivityCategory("plan")).toBe("other");
+  it.each([["read", "read"], ["Grep", "search"], ["glob", "browse"], ["apply_patch", "edit"], ["bash", "execute"], ["notebook_run", "compute"], ["web_fetch", "web"], ["pubmed", "literature"], ["image_gen", "generate"], ["task", "delegate"], ["plan", "other"]])("classifies %s", (name, category) => { expect(toolActivityCategory(block(name))).toBe(category); });
+  it("uses kind only for unknown tools and prioritizes child sessions", () => {
+    expect(toolActivityCategory({ ...block("extension"), presentation: { version: 1, kind: "fetch", title: "Fetch", importance: "micro", domain: "generic" } })).toBe("web");
+    expect(toolActivityCategory({ ...block("read"), childSessionId: "child" })).toBe("delegate");
   });
+});
+
+describe("safe fallbacks", () => {
+  it.each(["TOKEN=secret cmd", "env cmd", "cmd | other", "cmd 'secret'", "cmd\nother"])('rejects %s', (command) => { expect(presentToolActivity(block("bash", { command }))).toBe("Running bash"); });
+  it.each([[{ path: "a.ts", offset: 120, limit: 40 }, "Reading a.ts:120-159"], [{ path: "a.ts", offset: 120 }, "Reading a.ts:120"], [{ path: "a.ts" }, "Reading a.ts"], [{ path: "a.ts", offset: -1 }, "Reading a.ts"]])("formats read target", (input, expected) => { expect(presentToolActivity(block("read", input))).toBe(expected); });
 });

@@ -392,9 +392,9 @@ function TraceItem({ block, live }: { block: ToolCallBlock; live: boolean }) {
   const liveTail = running && block.partialOutput ? lastStreamLine(block.partialOutput) : compact.detail ?? null;
   return <div className={cn(styles.entry, styles.tool)} data-running={running}>
     <button type="button" disabled={!hasDetails} aria-expanded={hasDetails ? expanded : undefined} onClick={() => hasDetails && setExpanded((value) => !value)} className={cn(styles.toolButton, "flex min-h-primary max-w-full items-center gap-2 rounded-input py-2 text-left text-ui-label text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default sm:min-h-control")}>
-      {running ? <span aria-hidden className="mx-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : block.status === "error" ? <CircleX size={14} aria-hidden className="shrink-0 text-error-text" /> : <ActivityCategoryIcon tool={block.tool} className="text-muted" />}
+      {running ? <span aria-hidden className="mx-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : block.status === "error" ? <CircleX size={14} aria-hidden className="shrink-0 text-error-text" /> : <ActivityCategoryIcon block={block} className="text-muted" />}
       <span className="min-w-0 truncate" title={compact.title}>{compact.title}</span>
-      {block.outputTruncated && <span className="shrink-0 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] leading-none text-warn">{t("conversation.activity.outputTruncated")}</span>}
+      {block.outputTruncated && <span className="shrink-0 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-ui-micro leading-none text-warn">{t("conversation.activity.outputTruncated")}</span>}
       {liveTail && <span aria-hidden className="hidden min-w-0 flex-1 truncate text-right font-mono text-ui-micro text-muted sm:block">{liveTail}</span>}
       {duration && <span aria-hidden="true" className="shrink-0 font-mono text-ui-micro tabular-nums text-muted">{duration}</span>}
       {hasDetails && <ChevronRight size={12} aria-hidden className={cn(styles.chevron, "shrink-0 transition-transform", expanded && "rotate-90")} />}

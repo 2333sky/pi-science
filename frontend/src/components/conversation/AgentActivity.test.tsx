@@ -527,7 +527,7 @@ describe("Activity step glyphs and disclosure", () => {
   it("gives each kind of step its own glyph", () => {
     render(<AgentActivity blocks={[tool("r", "read"), tool("s", "grep"), tool("l", "glob"), tool("w", "edit"), tool("x", "bash"), tool("n", "web_search")]} />);
     const glyphs = [...document.querySelectorAll("[data-activity-category]")];
-    expect(glyphs.map((node) => node.getAttribute("data-activity-category"))).toEqual(["read", "search", "list", "write", "run", "web"]);
+    expect(glyphs.map((node) => node.getAttribute("data-activity-category"))).toEqual(["read", "search", "browse", "edit", "execute", "web"]);
     // The marker itself has to differ per category, not only carry the attribute.
     expect(new Set(glyphs.map((node) => node.innerHTML)).size).toBe(glyphs.length);
   });
@@ -564,5 +564,16 @@ describe("Activity step glyphs and disclosure", () => {
     const label = screen.getByText(`Reading ${name}`);
     expect(label).toHaveClass("truncate");
     expect(label).toHaveAttribute("title", `Reading ${name}`);
+  });
+});
+describe("activity category and read range", () => {
+  it.each([true, false])("renders the read range with server title present: %s", (withTitle) => {
+    const read = tool("read-range", "read", "done", { path: "a.ts", offset: 120, limit: 40 });
+    render(<AgentActivity blocks={[withTitle ? { ...read, presentation: { version: 1, kind: "read", title: "Reading a.ts:120-159", importance: "micro", domain: "code" } } : read]} />);
+    expect(screen.getByText("Reading a.ts:120-159")).toBeInTheDocument();
+  });
+  it.each([["read", "read"], ["grep", "search"], ["bash", "execute"], ["notebook_run", "compute"]])("marks %s as %s", (name, category) => {
+    const { container } = render(<AgentActivity blocks={[tool(name, name)]} />);
+    expect(container.querySelector(`[data-activity-category="${category}"]`)).toBeInTheDocument();
   });
 });

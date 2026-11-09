@@ -529,3 +529,49 @@ Projects prioritize recent work and a compact inline summary over decoration.
 Files use full-height row buttons, persistent actions, and explicit error states.
 Confirmation dialogs share the application modal, above other dialogs (z 140/141),
 with keyboard focus containment. No new palette or motion is introduced.
+
+### Pi-Science implementation note: activity categories
+
+Pi-Science proposal (`packages/contracts/src/tool-activity.ts`,
+`frontend/src/components/conversation/activity-renderers/ActivityCategoryIcon.tsx`).
+The step glyph describes the tool category, not its status, so a row cannot
+claim a category through colour and a finished step cannot claim a state through
+a checkmark. Every category shares one monochrome Lucide look at the existing
+14px marker slot: `text-muted`, Lucide's default 2px stroke, no per-category
+colour. Status keeps its own markers — the accent dot while running, `CircleX`
+on failure, no marker that pretends success for an unknown status. The glyph is
+`aria-hidden`; the row's text still carries the accessible name.
+
+| Category | Lucide glyph |
+|---|---|
+| read | FileText |
+| search | Search |
+| browse | FolderOpen |
+| edit | Pencil |
+| execute | Terminal |
+| compute | Sigma |
+| web | Globe |
+| literature | BookOpen |
+| generate | Sparkles |
+| delegate | Bot |
+| other | Wrench |
+
+Classification priority is child session, exact lowercased tool name,
+`presentation.kind` for tools the table does not name, then `other`. The kind
+fallback is how an unknown MCP or extension tool still gets a sensible category,
+and an exact name always wins over it so a precise mapping can refine the
+server's coarser semantic. This table is the single source: the presentation
+adapter reads its literature names from it instead of keeping a second copy.
+
+Row titles follow one safety rule, owned by the same module. A shell row shows
+the program basename only, and only when `command` is a single line of plain
+text: any assignment, quoting, escape, glob, redirection, pipe, substitution,
+shell keyword or wrapper (`env`, `export`, `sudo`, `xargs`, …) falls back to the
+tool's own neutral name, so `Running bash` is the floor, not `Running
+TOKEN=secret`. Arguments never reach the row, and `code` or `script` bodies are
+never read for a program name. A read row adds the 1-based `offset` and the
+requested window (`a.ts:120-159`). `limit` is what the call asked for; the tool
+clamps it to the file, so the row describes the request and not a promise about
+bytes returned. The server generates that title and the client repeats it only
+as a fallback for stored events that carry none, which keeps a live row and a
+replayed one identical.

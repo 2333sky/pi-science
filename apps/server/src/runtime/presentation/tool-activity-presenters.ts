@@ -1,4 +1,4 @@
-import type { ToolPresentation } from "@pi-science/contracts";
+import { activityProgramName, activityReadTarget, type ToolPresentation } from "@pi-science/contracts";
 
 const PLAN_TOOLS = new Set(["todo", "plan_update", "task_state", "internal_checkpoint"]);
 const INTERACTION_TOOLS = new Set(["ask_user_question", "permission_request", "request_permission", "confirmation", "authenticate"]);
@@ -36,12 +36,15 @@ export function toolActivityTitle(toolName: string, rawInput: unknown): string |
   if (!tool || PLAN_TOOLS.has(tool) || INTERACTION_TOOLS.has(tool)) return undefined;
   const input = record(rawInput);
   const description = text(input.description);
-  if (tool === "read" || tool === "read_file") return `Reading ${shortPath(text(input.path) || text(input.file_path) || "file")}`;
+  if (tool === "read" || tool === "read_file") return `Reading ${activityReadTarget(input)}`;
   if (["grep", "search", "search_files", "rg"].includes(tool)) return `Searching for ${trim(text(input.pattern) || text(input.query) || "matching code")}`;
   if (["find", "ls", "list_files"].includes(tool)) return `Listing ${shortPath(text(input.path) || text(input.directory) || "workspace files")}`;
   if (["edit", "write", "write_file", "apply_patch"].includes(tool)) return `Updating ${shortPath(text(input.path) || text(input.file_path) || "file")}`;
   if (["web_search", "tavily_search", "search_web"].includes(tool)) return `Searching the web for ${trim(text(input.query) || "sources")}`;
-  if (["bash", "python", "run_code", "execute"].includes(tool)) return description || undefined;
+  // The program name is the only shell text the row may repeat; the arguments,
+  // assignments and quoting stay out of the trace, and an unverifiable command
+  // falls back to the tool's own neutral name.
+  if (["bash", "python", "run_code", "execute"].includes(tool)) return description || `Running ${activityProgramName(input) ?? tool}`;
   return description || `Running ${toolName.replace(/[_-]+/g, " ").trim() || "tool"}`;
 }
 function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
