@@ -1,7 +1,7 @@
 /** Interpret questionnaire and interaction payloads without bypassing the event fold. */
 import { enqueueInteraction, resolveInteraction } from "../interaction-queue";
 import type { PiScienceEvent } from "../../client/pi-science-client";
-import { bumpConversationGeneration } from "../generations";
+import { bumpConversationGeneration, bumpTurnStateGeneration } from "../generations";
 import { runtimeStore } from "../store-access";
 import type { PendingInteraction, PendingQuestionnaire } from "../types";
 
@@ -46,6 +46,7 @@ export function applyInteractionEvent(event: PiScienceEvent): void {
     // position just the same: fold it instead of dropping it.
     if (questions.length > 0) {
       bumpConversationGeneration();
+      bumpTurnStateGeneration();
       runtimeStore.setState({
         working: true,
         turnLifecycle: "waiting",
@@ -65,6 +66,7 @@ export function applyInteractionEvent(event: PiScienceEvent): void {
     const questionnaireMatches = current.pendingQuestionnaire?.toolCallId === toolCallId;
     const interactionMatches = current.pendingInteraction?.questionnaire === true
       && current.pendingInteraction.toolCallId === toolCallId;
+    if (questionnaireMatches || interactionMatches) bumpTurnStateGeneration();
     runtimeStore.setState({
       ...(questionnaireMatches ? { pendingQuestionnaire: null } : {}),
       ...(interactionMatches ? resolveInteraction(current, current.pendingInteraction!.requestId) : {}),
@@ -81,6 +83,7 @@ export function applyInteractionEvent(event: PiScienceEvent): void {
     // still consumed, so it is folded below rather than dropped.
     if (interactionId) {
       bumpConversationGeneration();
+      bumpTurnStateGeneration();
       const method = String(event.method || payload.method || "input") as PendingInteraction["method"];
       const kind = interactionKind(event.kind) ?? interactionKind(payload.kind) ?? (method === "confirm" ? "confirmation" : "question");
       const rawGrant = event.mcpGrant ?? payload.mcpGrant;
@@ -116,6 +119,7 @@ export function applyInteractionEvent(event: PiScienceEvent): void {
     // separate state dimension and must not be hidden by process folding.
   } else if (event.type === "interaction.resolved") {
     bumpConversationGeneration();
+    bumpTurnStateGeneration();
     const interactionId = String(event.interactionId || event.requestId || payload.interactionId || payload.requestId || event.itemId || "");
     const current = runtimeStore.getState();
     const remaining = resolveInteraction(current, interactionId);
