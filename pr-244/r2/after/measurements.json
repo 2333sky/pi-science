@@ -1,0 +1,1553 @@
+{
+  "side": "after",
+  "widths": {
+    "320": {
+      "height": 844,
+      "states": {
+        "idle": {
+          "viewportWidth": 320,
+          "documentWidth": 320,
+          "card": {
+            "left": 68,
+            "right": 304,
+            "width": 236,
+            "height": 116
+          },
+          "row": null,
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 96,
+              "width": 15,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 104,
+              "right": 134,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 142,
+              "right": 171,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 160,
+              "right": 251,
+              "width": 91,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Send message",
+              "left": 257,
+              "right": 291,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "running": {
+          "viewportWidth": 320,
+          "documentWidth": 320,
+          "card": {
+            "left": 68,
+            "right": 304,
+            "width": 236,
+            "height": 152
+          },
+          "row": {
+            "clientWidth": 210,
+            "scrollWidth": 210,
+            "left": 81,
+            "right": 291,
+            "width": 210,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 109,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 117,
+              "right": 147,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 155,
+              "right": 184,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 81,
+              "right": 211,
+              "width": 130,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 217,
+              "right": 251,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 257,
+              "right": 291,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "queued": {
+          "viewportWidth": 320,
+          "documentWidth": 320,
+          "card": {
+            "left": 68,
+            "right": 304,
+            "width": 236,
+            "height": 152
+          },
+          "row": {
+            "clientWidth": 210,
+            "scrollWidth": 210,
+            "left": 81,
+            "right": 291,
+            "width": 210,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 109,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 117,
+              "right": 147,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 155,
+              "right": 184,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 81,
+              "right": 211,
+              "width": 130,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 217,
+              "right": 251,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 257,
+              "right": 291,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [
+            "Hide queued messages",
+            "Deliver now"
+          ],
+          "entries": [
+            {
+              "text": "QueuedAdd the fold change for the control arm.",
+              "actions": [
+                "Deliver now",
+                "Edit queued message",
+                "Remove from queue"
+              ],
+              "left": 68,
+              "right": 304,
+              "width": 236,
+              "height": 66
+            },
+            {
+              "text": "FailedCompare the shikimate and quinate branches.(worker_unavailable)",
+              "actions": [
+                "Retry queued message",
+                "Remove from queue"
+              ],
+              "left": 68,
+              "right": 304,
+              "width": 236,
+              "height": 66
+            },
+            {
+              "text": "DispatchingSummarise the enrichment table.",
+              "actions": [],
+              "left": 68,
+              "right": 304,
+              "width": 236,
+              "height": 50
+            }
+          ]
+        }
+      },
+      "hashes": {
+        "320-idle": "70040ee147294f6bdd125058af146cf2",
+        "320-running": "b4e7599e924e5a78be8f42aea53dc41f",
+        "320-queued": "720c5fdb7794253e2e5096695e9ca542"
+      },
+      "pageErrors": []
+    },
+    "375": {
+      "height": 844,
+      "states": {
+        "idle": {
+          "viewportWidth": 375,
+          "documentWidth": 375,
+          "card": {
+            "left": 68,
+            "right": 359,
+            "width": 291,
+            "height": 116
+          },
+          "row": null,
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 96,
+              "width": 15,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 104,
+              "right": 134,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 142,
+              "right": 171,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 179,
+              "right": 306,
+              "width": 127,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Send message",
+              "left": 312,
+              "right": 346,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "running": {
+          "viewportWidth": 375,
+          "documentWidth": 375,
+          "card": {
+            "left": 68,
+            "right": 359,
+            "width": 291,
+            "height": 152
+          },
+          "row": {
+            "clientWidth": 231,
+            "scrollWidth": 231,
+            "left": 115,
+            "right": 346,
+            "width": 231,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 109,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 117,
+              "right": 147,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 155,
+              "right": 184,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 115,
+              "right": 266,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 272,
+              "right": 306,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 312,
+              "right": 346,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "queued": {
+          "viewportWidth": 375,
+          "documentWidth": 375,
+          "card": {
+            "left": 68,
+            "right": 359,
+            "width": 291,
+            "height": 152
+          },
+          "row": {
+            "clientWidth": 231,
+            "scrollWidth": 231,
+            "left": 115,
+            "right": 346,
+            "width": 231,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 109,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 117,
+              "right": 147,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 155,
+              "right": 184,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 115,
+              "right": 266,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 272,
+              "right": 306,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 312,
+              "right": 346,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [
+            "Hide queued messages",
+            "Deliver now"
+          ],
+          "entries": [
+            {
+              "text": "QueuedAdd the fold change for the control arm.",
+              "actions": [
+                "Deliver now",
+                "Edit queued message",
+                "Remove from queue"
+              ],
+              "left": 68,
+              "right": 359,
+              "width": 291,
+              "height": 50
+            },
+            {
+              "text": "FailedCompare the shikimate and quinate branches.(worker_unavailable)",
+              "actions": [
+                "Retry queued message",
+                "Remove from queue"
+              ],
+              "left": 68,
+              "right": 359,
+              "width": 291,
+              "height": 66
+            },
+            {
+              "text": "DispatchingSummarise the enrichment table.",
+              "actions": [],
+              "left": 68,
+              "right": 359,
+              "width": 291,
+              "height": 34
+            }
+          ]
+        }
+      },
+      "hashes": {
+        "375-idle": "a51acab45b23ad9a38daac221164b7e0",
+        "375-running": "7fe2c4e8d38756273c1cf1e609ae13fc",
+        "375-queued": "d84cfeaa3ec18d8063f294096e4ad6c7"
+      },
+      "pageErrors": []
+    },
+    "390": {
+      "height": 844,
+      "states": {
+        "idle": {
+          "viewportWidth": 390,
+          "documentWidth": 390,
+          "card": {
+            "left": 68,
+            "right": 374,
+            "width": 306,
+            "height": 116
+          },
+          "row": null,
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 101,
+              "width": 20,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 109,
+              "right": 139,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 147,
+              "right": 176,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 184,
+              "right": 321,
+              "width": 137,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Send message",
+              "left": 327,
+              "right": 361,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "running": {
+          "viewportWidth": 390,
+          "documentWidth": 390,
+          "card": {
+            "left": 68,
+            "right": 374,
+            "width": 306,
+            "height": 152
+          },
+          "row": {
+            "clientWidth": 231,
+            "scrollWidth": 231,
+            "left": 130,
+            "right": 361,
+            "width": 231,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 109,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 117,
+              "right": 147,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 155,
+              "right": 184,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 130,
+              "right": 281,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 287,
+              "right": 321,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 327,
+              "right": 361,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "queued": {
+          "viewportWidth": 390,
+          "documentWidth": 390,
+          "card": {
+            "left": 68,
+            "right": 374,
+            "width": 306,
+            "height": 152
+          },
+          "row": {
+            "clientWidth": 231,
+            "scrollWidth": 231,
+            "left": 130,
+            "right": 361,
+            "width": 231,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 81,
+              "right": 109,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 117,
+              "right": 147,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 155,
+              "right": 184,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 130,
+              "right": 281,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 287,
+              "right": 321,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 327,
+              "right": 361,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [
+            "Hide queued messages",
+            "Deliver now"
+          ],
+          "entries": [
+            {
+              "text": "QueuedAdd the fold change for the control arm.",
+              "actions": [
+                "Deliver now",
+                "Edit queued message",
+                "Remove from queue"
+              ],
+              "left": 68,
+              "right": 374,
+              "width": 306,
+              "height": 50
+            },
+            {
+              "text": "FailedCompare the shikimate and quinate branches.(worker_unavailable)",
+              "actions": [
+                "Retry queued message",
+                "Remove from queue"
+              ],
+              "left": 68,
+              "right": 374,
+              "width": 306,
+              "height": 50
+            },
+            {
+              "text": "DispatchingSummarise the enrichment table.",
+              "actions": [],
+              "left": 68,
+              "right": 374,
+              "width": 306,
+              "height": 34
+            }
+          ]
+        }
+      },
+      "hashes": {
+        "390-idle": "9c9e409efb50ba5d799c9f1ee1b4b291",
+        "390-running": "512ea7e624fcdaaa7b31172e725bcb4f",
+        "390-queued": "ee9732c378686817a753842155108f4b"
+      },
+      "pageErrors": []
+    },
+    "768": {
+      "height": 1024,
+      "states": {
+        "idle": {
+          "viewportWidth": 768,
+          "documentWidth": 768,
+          "card": {
+            "left": 324,
+            "right": 736,
+            "width": 412,
+            "height": 92
+          },
+          "row": null,
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 337,
+              "right": 365,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 373,
+              "right": 403,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 411,
+              "right": 440,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 532,
+              "right": 683,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Send message",
+              "left": 689,
+              "right": 723,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "running": {
+          "viewportWidth": 768,
+          "documentWidth": 768,
+          "card": {
+            "left": 324,
+            "right": 736,
+            "width": 412,
+            "height": 92
+          },
+          "row": {
+            "clientWidth": 231,
+            "scrollWidth": 231,
+            "left": 492,
+            "right": 723,
+            "width": 231,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 337,
+              "right": 365,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 373,
+              "right": 403,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 411,
+              "right": 440,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 492,
+              "right": 643,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 649,
+              "right": 683,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 689,
+              "right": 723,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "queued": {
+          "viewportWidth": 768,
+          "documentWidth": 768,
+          "card": {
+            "left": 324,
+            "right": 736,
+            "width": 412,
+            "height": 92
+          },
+          "row": {
+            "clientWidth": 231,
+            "scrollWidth": 231,
+            "left": 492,
+            "right": 723,
+            "width": 231,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 337,
+              "right": 365,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 373,
+              "right": 403,
+              "width": 30,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 411,
+              "right": 440,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 492,
+              "right": 643,
+              "width": 151,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 649,
+              "right": 683,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 689,
+              "right": 723,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [
+            "Hide queued messages",
+            "Deliver now"
+          ],
+          "entries": [
+            {
+              "text": "QueuedAdd the fold change for the control arm.",
+              "actions": [
+                "Deliver now",
+                "Edit queued message",
+                "Remove from queue"
+              ],
+              "left": 324,
+              "right": 736,
+              "width": 412,
+              "height": 34
+            },
+            {
+              "text": "FailedCompare the shikimate and quinate branches.(worker_unavailable)",
+              "actions": [
+                "Retry queued message",
+                "Remove from queue"
+              ],
+              "left": 324,
+              "right": 736,
+              "width": 412,
+              "height": 50
+            },
+            {
+              "text": "DispatchingSummarise the enrichment table.",
+              "actions": [],
+              "left": 324,
+              "right": 736,
+              "width": 412,
+              "height": 34
+            }
+          ]
+        }
+      },
+      "hashes": {
+        "768-idle": "8e7261e2461463b4e63544fc0d342e0d",
+        "768-running": "ed82fd0641aeb1124f8d1e27540f3dbb",
+        "768-queued": "ebfed8fccd811775ced4b0e1af95bcb0"
+      },
+      "pageErrors": []
+    },
+    "1024": {
+      "height": 900,
+      "states": {
+        "idle": {
+          "viewportWidth": 1024,
+          "documentWidth": 1024,
+          "card": {
+            "left": 324,
+            "right": 992,
+            "width": 668,
+            "height": 92
+          },
+          "row": null,
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 337,
+              "right": 365,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 373,
+              "right": 501,
+              "width": 128,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 509,
+              "right": 538,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 735,
+              "right": 939,
+              "width": 204,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Send message",
+              "left": 945,
+              "right": 979,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "running": {
+          "viewportWidth": 1024,
+          "documentWidth": 1024,
+          "card": {
+            "left": 324,
+            "right": 992,
+            "width": 668,
+            "height": 92
+          },
+          "row": {
+            "clientWidth": 284,
+            "scrollWidth": 284,
+            "left": 695,
+            "right": 979,
+            "width": 284,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 337,
+              "right": 365,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 373,
+              "right": 501,
+              "width": 128,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 509,
+              "right": 538,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 695,
+              "right": 899,
+              "width": 204,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 905,
+              "right": 939,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 945,
+              "right": 979,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "queued": {
+          "viewportWidth": 1024,
+          "documentWidth": 1024,
+          "card": {
+            "left": 324,
+            "right": 992,
+            "width": 668,
+            "height": 92
+          },
+          "row": {
+            "clientWidth": 284,
+            "scrollWidth": 284,
+            "left": 695,
+            "right": 979,
+            "width": 284,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 337,
+              "right": 365,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 373,
+              "right": 501,
+              "width": 128,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 509,
+              "right": 538,
+              "width": 29,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 695,
+              "right": 899,
+              "width": 204,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 905,
+              "right": 939,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 945,
+              "right": 979,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [
+            "Hide queued messages",
+            "Deliver now"
+          ],
+          "entries": [
+            {
+              "text": "QueuedAdd the fold change for the control arm.",
+              "actions": [
+                "Deliver now",
+                "Edit queued message",
+                "Remove from queue"
+              ],
+              "left": 324,
+              "right": 992,
+              "width": 668,
+              "height": 34
+            },
+            {
+              "text": "FailedCompare the shikimate and quinate branches.(worker_unavailable)",
+              "actions": [
+                "Retry queued message",
+                "Remove from queue"
+              ],
+              "left": 324,
+              "right": 992,
+              "width": 668,
+              "height": 34
+            },
+            {
+              "text": "DispatchingSummarise the enrichment table.",
+              "actions": [],
+              "left": 324,
+              "right": 992,
+              "width": 668,
+              "height": 34
+            }
+          ]
+        }
+      },
+      "hashes": {
+        "1024-idle": "53006c17b383795c7895e693f8beac79",
+        "1024-running": "68f183098cfb504761d0b8576030a85d",
+        "1024-queued": "a6966f6791ee2cddff9d4ea5473c0439"
+      },
+      "pageErrors": []
+    },
+    "1440": {
+      "height": 900,
+      "states": {
+        "idle": {
+          "viewportWidth": 1440,
+          "documentWidth": 1440,
+          "card": {
+            "left": 492,
+            "right": 1240,
+            "width": 749,
+            "height": 92
+          },
+          "row": null,
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 505,
+              "right": 533,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 541,
+              "right": 668,
+              "width": 128,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 676,
+              "right": 801,
+              "width": 124,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 984,
+              "right": 1187,
+              "width": 204,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Send message",
+              "left": 1193,
+              "right": 1227,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "running": {
+          "viewportWidth": 1440,
+          "documentWidth": 1440,
+          "card": {
+            "left": 492,
+            "right": 1240,
+            "width": 749,
+            "height": 92
+          },
+          "row": {
+            "clientWidth": 284,
+            "scrollWidth": 284,
+            "left": 944,
+            "right": 1227,
+            "width": 284,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 505,
+              "right": 533,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 541,
+              "right": 668,
+              "width": 128,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 676,
+              "right": 801,
+              "width": 124,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 944,
+              "right": 1147,
+              "width": 204,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 1153,
+              "right": 1187,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 1193,
+              "right": 1227,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [],
+          "entries": []
+        },
+        "queued": {
+          "viewportWidth": 1440,
+          "documentWidth": 1440,
+          "card": {
+            "left": 492,
+            "right": 1240,
+            "width": 749,
+            "height": 92
+          },
+          "row": {
+            "clientWidth": 284,
+            "scrollWidth": 284,
+            "left": 944,
+            "right": 1227,
+            "width": 284,
+            "height": 34
+          },
+          "controls": [
+            {
+              "label": "Attach files",
+              "left": 505,
+              "right": 533,
+              "width": 28,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Approval mode",
+              "left": 541,
+              "right": 668,
+              "width": 128,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Extract memory",
+              "left": 676,
+              "right": 801,
+              "width": 124,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Select model and thinking level and view context",
+              "left": 944,
+              "right": 1147,
+              "width": 204,
+              "height": 28,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Add to the follow-up queue",
+              "left": 1153,
+              "right": 1187,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            },
+            {
+              "label": "Stop generation",
+              "left": 1193,
+              "right": 1227,
+              "width": 34,
+              "height": 34,
+              "insideCard": true,
+              "insideViewport": true
+            }
+          ],
+          "panelHeader": [
+            "Hide queued messages",
+            "Deliver now"
+          ],
+          "entries": [
+            {
+              "text": "QueuedAdd the fold change for the control arm.",
+              "actions": [
+                "Deliver now",
+                "Edit queued message",
+                "Remove from queue"
+              ],
+              "left": 492,
+              "right": 1240,
+              "width": 749,
+              "height": 34
+            },
+            {
+              "text": "FailedCompare the shikimate and quinate branches.(worker_unavailable)",
+              "actions": [
+                "Retry queued message",
+                "Remove from queue"
+              ],
+              "left": 492,
+              "right": 1240,
+              "width": 749,
+              "height": 34
+            },
+            {
+              "text": "DispatchingSummarise the enrichment table.",
+              "actions": [],
+              "left": 492,
+              "right": 1240,
+              "width": 749,
+              "height": 34
+            }
+          ]
+        }
+      },
+      "hashes": {
+        "1440-idle": "b06e03408a79da8cac174a9885a28d10",
+        "1440-running": "45368805c6c0abec768c67bdea5c0fe1",
+        "1440-queued": "13e52727b977c936812d2d41001bc5fd"
+      },
+      "pageErrors": []
+    }
+  }
+}
