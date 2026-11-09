@@ -68,22 +68,31 @@ function activityDescription(block: ToolCallBlock): string | undefined {
 export function activityTarget(block: ToolCallBlock): string {
   if (isMcpTool(block.tool)) return "";
   const input = block.input ?? {};
+  // A query names what was searched for; a scope path only bounds it. Prefer
+  // the query so `grep {pattern, path}` does not collapse to a basename.
+  for (const key of TARGET_KEYS) {
+    const value = text(input[key]);
+    if (value) return activityQueryText(value);
+  }
   for (const key of PATH_KEYS) {
     const value = text(input[key]);
     if (value) return activityFileLabel(value);
   }
   const url = text(input.url);
   if (url) return activityUrlLabel(url);
-  for (const key of TARGET_KEYS) {
-    const value = text(input[key]);
-    if (value) return activityQueryText(value);
-  }
   return "";
 }
 
 export function presentToolActivity(block: ToolCallBlock, translate: ActivityTranslator = defaultTranslate): string {
   const tool = activityToolName(block.tool);
   if (isMcpToolName(tool)) return mcpActivityLabel(block.tool);
+  // The server writes a title for non-shell tools from the call's own kind and
+  // redacts it. That title already prefers a query over its scope path, so the
+  // client must not re-derive a weaker target from the raw input. Shell rows
+  // are excluded on purpose: their stored titles can be whole-command previews
+  // from older events, which RUNNING_TITLE below is what filters out.
+  const serverTitle = text(block.presentation?.title);
+  if (serverTitle && !SHELL_TOOLS.has(tool)) return scrubActivityText(serverTitle);
   const input = block.input ?? {};
   const target = activityTarget(block);
   const append = (label: string, value: string = target) => value ? `${label} · ${value}` : label;
@@ -98,8 +107,11 @@ export function presentToolActivity(block: ToolCallBlock, translate: ActivityTra
   if (WEB_SEARCH_TOOLS.has(tool)) return translate("conversation.activity.webSearch", { target: target || "sources" });
   if (FETCH_TOOLS.has(tool)) return translate("conversation.activity.fetch", { target: target || "web page" });
 
-  // A shell row names the program it starts. Arguments, assignments and quoting
-  // never reach the trace; the full command is a deliberate expansion.
+  // A shell row names, in order: the purpose the model wrote, a stored
+  // `Running …` title, then the program it starts. Arguments, assignments and
+  // quoting never reach the trace; the full command is a deliberate expansion.
+  // A stored title is trusted here only when RUNNING_TITLE accepts it, because
+  // older events can carry an entire command preview as the title.
   if (SHELL_TOOLS.has(tool)) return activityDescription(block) ?? runningTitle(block, tool) ?? translate("conversation.activity.run", { target: programTarget(input, tool) });
 
   if (tool === "search_memory") return append(translate("conversation.activity.memory.search"));

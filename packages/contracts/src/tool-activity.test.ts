@@ -173,4 +173,20 @@ describe("display text", () => {
     expect(activityUrlLabel("https://example.com")).toBe("https://example.com");
     expect(activityUrlLabel("not a url")).toBe("not a url");
   });
+  it("truncates on code points so a surrogate pair is never split", () => {
+    const clipped = activityQueryText("😀".repeat(5), 4);
+    expect(clipped.endsWith("…")).toBe(true);
+    expect(Array.from(clipped)).toHaveLength(4);
+    for (let index = 0; index < clipped.length; index++) {
+      const unit = clipped.charCodeAt(index);
+      if (unit >= 0xd800 && unit <= 0xdbff) {
+        const next = clipped.charCodeAt(index + 1);
+        expect(next >= 0xdc00 && next <= 0xdfff).toBe(true);
+        index += 1;
+      } else {
+        expect(unit >= 0xdc00 && unit <= 0xdfff).toBe(false);
+      }
+    }
+    expect(activityQueryText("a".repeat(4), 4)).toBe("aaaa");
+  });
 });

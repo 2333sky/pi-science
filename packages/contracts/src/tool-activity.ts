@@ -109,7 +109,10 @@ export function activityCategory(input: {
   return Object.hasOwn(KINDS, kind) ? KINDS[kind]! : "other";
 }
 function trim(value: string, max: number): string {
-  return value.length <= max ? value : `${value.slice(0, max - 1)}…`;
+  // Count code points, not UTF-16 units: slicing by units can cut a surrogate
+  // pair in half and leave an unpaired surrogate in the rendered label.
+  const characters = Array.from(value);
+  return characters.length <= max ? value : `${characters.slice(0, max - 1).join("")}…`;
 }
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";

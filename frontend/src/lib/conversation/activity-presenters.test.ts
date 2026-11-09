@@ -6,6 +6,25 @@ const block = (tool: string, input?: Record<string, unknown>, title?: string): T
 describe("presentToolActivity", () => {
   it("prefers the server title", () => { expect(presentToolActivity(block("bash", {}, "Running tests"))).toBe("Running tests"); });
   it("presents file and search actions", () => { expect(presentToolActivity(block("read", { path: "src/file.ts" }))).toBe("Reading file.ts"); expect(presentToolActivity(block("grep", { pattern: "tool.updated" }))).toBe("Searching for tool.updated"); });
+  it("trusts a server title that says more than the raw pattern", () => {
+    const titled: ToolCallBlock = { ...block("grep", { pattern: "needle", path: "src/deep/file.ts" }), presentation: { version: 1, kind: "search", title: "Searching for needle in src/", importance: "micro", domain: "code" } };
+    expect(presentToolActivity(titled)).toBe("Searching for needle in src/");
+  });
+  it("prefers the server title for a search row over the raw input", () => {
+    const titled: ToolCallBlock = { ...block("grep", { pattern: "needle", path: "src/deep/file.ts" }), presentation: { version: 1, kind: "search", title: "Searching for needle", importance: "micro", domain: "code" } };
+    expect(presentToolActivity(titled)).toBe("Searching for needle");
+  });
+  it("keeps the query when a search call also carries a scope path", () => {
+    const grep = presentToolActivity(block("grep", { pattern: "needle", path: "src/deep/file.ts" }));
+    expect(grep).toContain("needle");
+    expect(grep).not.toContain("file.ts");
+    expect(presentToolActivity(block("glob", { pattern: "**/*.ts", path: "frontend" }))).toContain("**/*.ts");
+  });
+  it("does not promote a stored command preview from a shell presentation title", () => {
+    const title = presentToolActivity({ ...block("bash", { command: "python analysis/aggregate.py --condition SAH" }), presentation: { version: 1, kind: "execute", title: "python analysis/aggregate.py --condition SAH", importance: "micro", domain: "code" } });
+    expect(title).toBe("Running python");
+    expect(title).not.toContain("aggregate.py");
+  });
   it("names the program that runs, never its arguments", () => {
     expect(presentToolActivity(block("bash", { command: "pnpm test", description: "Running tests" }))).toBe("Running tests");
     expect(presentToolActivity(block("bash", { command: "/usr/bin/pnpm --filter web test" }))).toBe("Running pnpm");
