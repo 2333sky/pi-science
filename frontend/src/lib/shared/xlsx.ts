@@ -1,6 +1,8 @@
 export interface SheetHtml {
   name: string;
   html: string;
+  /** Rows actually rendered after the MAX_ROWS clamp. */
+  rows: number;
   truncated: boolean;
 }
 
@@ -24,9 +26,23 @@ function cellPosition(value: string): { row: number; column: number } | null {
   return { row: Number(match[2]), column };
 }
 
+/** One formatter per locale: a large date-heavy sheet otherwise builds an
+ *  Intl.DateTimeFormat for every cell, which dominates the parse time. */
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function dateFormatter(locale?: string): Intl.DateTimeFormat {
+  const key = locale ?? "";
+  let formatter = dateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale);
+    dateFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
 function cellValue(value: unknown, locale?: string): string {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return new Intl.DateTimeFormat(locale).format(value);
+  if (value instanceof Date) return dateFormatter(locale).format(value);
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (Array.isArray(record.richText)) {
@@ -110,6 +126,7 @@ function renderSheet(worksheet: any, locale?: string): SheetHtml {
   return {
     name: String(worksheet.name || `Sheet${worksheet.id}`),
     html: html.join(""),
+    rows,
     truncated: (worksheet.rowCount || 0) > MAX_ROWS || (worksheet.columnCount || 0) > MAX_COLUMNS,
   };
 }

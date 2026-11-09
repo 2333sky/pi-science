@@ -159,6 +159,8 @@ describe("i18n plural resources", () => {
     expect(i18n.t("provenance.packageCount", { count: 3 })).toBe("3 packages");
     expect(i18n.t("office.truncatedPrefix", { count: 1 })).toBe("Showing first 1 row");
     expect(i18n.t("office.truncatedPrefix", { count: 2 })).toBe("Showing first 2 rows");
+    expect(i18n.t("knowledge.reviewCreated", { count: 1 })).toBe("1 new proposal created");
+    expect(i18n.t("knowledge.reviewCreated", { count: 2 })).toBe("2 new proposals created");
   });
 
   it("no longer relies on the deprecated _plural suffix", () => {

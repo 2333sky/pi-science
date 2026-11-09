@@ -152,9 +152,22 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
   const [sheets, setSheets] = useState<SheetHtml[] | null>(null);
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // The tab name survives a re-parse (the language change re-runs the effect);
+  // a new document resets it below.
+  const activeNameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const current = sheets?.[Math.min(active, sheets.length - 1)];
+    if (current) activeNameRef.current = current.name;
+  }, [sheets, active]);
+
+  useEffect(() => {
+    activeNameRef.current = null;
+  }, [bytes]);
 
   useEffect(() => {
     let cancelled = false;
+    const previousName = activeNameRef.current;
     (async () => {
       try {
         // Dynamic import keeps ExcelJS in a lazy chunk, out of the main bundle.
@@ -162,7 +175,8 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
         const parsed = await workbookSheets(bytes, i18n.resolvedLanguage);
         if (cancelled) return;
         setSheets(parsed);
-        setActive(0);
+        const restored = previousName === null ? -1 : parsed.findIndex((candidate) => candidate.name === previousName);
+        setActive(restored >= 0 ? restored : 0);
       } catch (e) {
         if (!cancelled) setError(t("office.xlsxReadError", { message: message(e) }));
       }
@@ -207,7 +221,7 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
         <div ref={hostRef} />
       </div>
       <div className="border-t border-border px-4 py-1.5 text-xs text-muted">
-        {sheet?.truncated ? t("office.truncatedPrefix") : ""}{t("office.embeddedChartsNote")}
+        {sheet?.truncated ? t("office.truncatedPrefix", { count: sheet.rows }) : ""}{t("office.embeddedChartsNote")}
       </div>
     </div>
   );
