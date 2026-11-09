@@ -1,0 +1,711 @@
+{
+ "task": "pi-science#pr244-paging-visual-1",
+ "meta": {
+  "before": "3c7cfa4a (Radix submenu, narrow)",
+  "after": "3d1dc77f (in-menu paging, narrow < 640px)",
+  "fixedNow": "2026-08-15T12:00:00.000Z",
+  "dpr": 2,
+  "locale": "en-US",
+  "timezone": "Asia/Shanghai",
+  "reducedMotion": "reduce",
+  "colorScheme": "light",
+  "fixture": "frontend/tests/visual/fixtures mock server + FIXTURES.history/session (session visual-session-1, idle composer)",
+  "fixtureDir": "VISUAL_CWD=/tmp/visual-demo",
+  "interception": [
+   "/api/model-selection/catalog route-fulfilled with 8 models across 4 providers (deepseek/openai/anthropic/google), thinking_levels [off,low,medium,high]",
+   "for the 390 'selected' frame only: PUT+GET /api/sessions/visual-session-1/model-selection fulfilled locally so the choice persists (fixture mock server has no PUT handler)"
+  ],
+  "chromium": "chromium-1248 headless",
+  "caption": "PNG 是 composer+菜单区域裁剪，DPR 2（像素 = CSS × 2）"
+ },
+ "widths": {
+  "360": {
+   "before": {
+    "open": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 127.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 337.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 360,
+      "docCW": 360
+     }
+    },
+    "model": {
+     "menuCount": 2,
+     "submenuCount": 1,
+     "menus": [
+      {
+       "l": 127.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 337.5,
+       "b": 762
+      },
+      {
+       "l": 109.5,
+       "t": 457,
+       "w": 221,
+       "h": 379,
+       "r": 330.5,
+       "b": 836
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": true,
+     "search": {
+      "l": 142.5,
+      "t": 472,
+      "w": 173,
+      "h": 16
+     },
+     "back": null,
+     "groups": [
+      "deepseek",
+      "openai",
+      "anthropic",
+      "google"
+     ],
+     "radioCount": 8,
+     "list": {
+      "h": 320,
+      "scrollH": 400,
+      "clientH": 320
+     },
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 360,
+      "docCW": 360
+     }
+    }
+   },
+   "after": {
+    "open": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 127.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 337.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 360,
+      "docCW": 360
+     }
+    },
+    "model": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 122,
+       "t": 347,
+       "w": 221,
+       "h": 415,
+       "r": 343,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": {
+      "l": 155,
+      "t": 398,
+      "w": 173,
+      "h": 16
+     },
+     "back": {
+      "l": 129,
+      "t": 354,
+      "w": 207,
+      "h": 36
+     },
+     "groups": [
+      "deepseek",
+      "openai",
+      "anthropic",
+      "google"
+     ],
+     "radioCount": 8,
+     "list": {
+      "h": 320,
+      "scrollH": 400,
+      "clientH": 320
+     },
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 360,
+      "docCW": 360
+     }
+    },
+    "back": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 127.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 337.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 360,
+      "docCW": 360
+     }
+    },
+    "effort": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 127.5,
+       "t": 568,
+       "w": 210,
+       "h": 194,
+       "r": 337.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": {
+      "l": 134.5,
+      "t": 575,
+      "w": 196,
+      "h": 36
+     },
+     "groups": [],
+     "radioCount": 4,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 360,
+      "docCW": 360
+     }
+    }
+   }
+  },
+  "375": {
+   "before": {
+    "open": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 137.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 347.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 375,
+      "docCW": 375
+     }
+    },
+    "model": {
+     "menuCount": 2,
+     "submenuCount": 1,
+     "menus": [
+      {
+       "l": 137.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 347.5,
+       "b": 762
+      },
+      {
+       "l": 144.5,
+       "t": 457,
+       "w": 221,
+       "h": 379,
+       "r": 365.5,
+       "b": 836
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": true,
+     "search": {
+      "l": 177.5,
+      "t": 472,
+      "w": 173,
+      "h": 16
+     },
+     "back": null,
+     "groups": [
+      "deepseek",
+      "openai",
+      "anthropic",
+      "google"
+     ],
+     "radioCount": 8,
+     "list": {
+      "h": 320,
+      "scrollH": 400,
+      "clientH": 320
+     },
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 375,
+      "docCW": 375
+     }
+    }
+   },
+   "after": {
+    "open": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 137.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 347.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 375,
+      "docCW": 375
+     }
+    },
+    "model": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 132,
+       "t": 347,
+       "w": 221,
+       "h": 415,
+       "r": 353,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": {
+      "l": 165,
+      "t": 398,
+      "w": 173,
+      "h": 16
+     },
+     "back": {
+      "l": 139,
+      "t": 354,
+      "w": 207,
+      "h": 36
+     },
+     "groups": [
+      "deepseek",
+      "openai",
+      "anthropic",
+      "google"
+     ],
+     "radioCount": 8,
+     "list": {
+      "h": 320,
+      "scrollH": 400,
+      "clientH": 320
+     },
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 375,
+      "docCW": 375
+     }
+    },
+    "back": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 137.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 347.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 375,
+      "docCW": 375
+     }
+    },
+    "effort": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 137.5,
+       "t": 568,
+       "w": 210,
+       "h": 194,
+       "r": 347.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": {
+      "l": 144.5,
+      "t": 575,
+      "w": 196,
+      "h": 36
+     },
+     "groups": [],
+     "radioCount": 4,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 375,
+      "docCW": 375
+     }
+    }
+   }
+  },
+  "390": {
+   "before": {
+    "open": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 147.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 357.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    },
+    "model": {
+     "menuCount": 2,
+     "submenuCount": 1,
+     "menus": [
+      {
+       "l": 147.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 357.5,
+       "b": 762
+      },
+      {
+       "l": 154.5,
+       "t": 457,
+       "w": 221,
+       "h": 379,
+       "r": 375.5,
+       "b": 836
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": true,
+     "search": {
+      "l": 187.5,
+      "t": 472,
+      "w": 173,
+      "h": 16
+     },
+     "back": null,
+     "groups": [
+      "deepseek",
+      "openai",
+      "anthropic",
+      "google"
+     ],
+     "radioCount": 8,
+     "list": {
+      "h": 320,
+      "scrollH": 400,
+      "clientH": 320
+     },
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    }
+   },
+   "after": {
+    "open": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 147.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 357.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    },
+    "model": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 142,
+       "t": 347,
+       "w": 221,
+       "h": 415,
+       "r": 363,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": {
+      "l": 175,
+      "t": 398,
+      "w": 173,
+      "h": 16
+     },
+     "back": {
+      "l": 149,
+      "t": 354,
+      "w": 207,
+      "h": 36
+     },
+     "groups": [
+      "deepseek",
+      "openai",
+      "anthropic",
+      "google"
+     ],
+     "radioCount": 8,
+     "list": {
+      "h": 320,
+      "scrollH": 400,
+      "clientH": 320
+     },
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    },
+    "back": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 147.5,
+       "t": 676,
+       "w": 210,
+       "h": 86,
+       "r": 357.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    },
+    "effort": {
+     "menuCount": 1,
+     "submenuCount": 0,
+     "menus": [
+      {
+       "l": 147.5,
+       "t": 568,
+       "w": 210,
+       "h": 194,
+       "r": 357.5,
+       "b": 762
+      }
+     ],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": {
+      "l": 154.5,
+      "t": 575,
+      "w": 196,
+      "h": 36
+     },
+     "groups": [],
+     "radioCount": 4,
+     "list": null,
+     "triggerLabel": "deepseek-chat",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    },
+    "selected": {
+     "menuCount": 0,
+     "submenuCount": 0,
+     "menus": [],
+     "offscreen": [],
+     "overlappingParent": null,
+     "search": null,
+     "back": null,
+     "groups": [],
+     "radioCount": 0,
+     "list": null,
+     "triggerLabel": "deepseek-reasoner",
+     "docScroll": {
+      "docSW": 390,
+      "docCW": 390
+     }
+    },
+    "radioNames": [
+     "deepseek-chat",
+     "deepseek-reasoner",
+     "deepseek-v3",
+     "gpt-5",
+     "gpt-5-mini",
+     "claude-sonnet",
+     "claude-opus",
+     "gemini-pro"
+    ]
+   }
+  }
+ },
+ "extra": {
+  "w320": {
+   "before": {
+    "menus": [
+     {
+      "l": 100.5,
+      "t": 676,
+      "w": 210,
+      "h": 86,
+      "r": 310.5,
+      "b": 762
+     },
+     {
+      "l": 82.5,
+      "t": 677,
+      "w": 221,
+      "h": 123,
+      "r": 303.5,
+      "b": 800
+     }
+    ]
+   },
+   "after": {
+    "menus": [
+     {
+      "l": 91,
+      "t": 603,
+      "w": 221,
+      "h": 159,
+      "r": 312,
+      "b": 762
+     }
+    ]
+   },
+   "note": "额外探针（未出图）：320 宽下 before 子菜单仅 123px 高（列表被压到 1 行多），after 单页 159px；两者都在视口内。"
+  }
+ }
+}
