@@ -1,0 +1,150 @@
+{
+  "meta": {
+    "pr": 248,
+    "before_commit": "b82276509e86f79549cef56e701d8c6597e9442e",
+    "after_commit": "8b7d9439a40d781eb8db5c0aa6176a0f2c3441ef",
+    "viewport": "1440x1000",
+    "dpr": 2,
+    "locale": "en",
+    "theme": [
+      "light",
+      "dark"
+    ],
+    "column_width_css_px": 748.796875,
+    "fixed_now_ms": 1760000000000,
+    "elapsed_shown": "5.0s",
+    "fixture": "one running bash row; input.description -> conversation.activity.narrative.verify.code; outputTruncated=true; originalOutputBytes=131072",
+    "harness": "temporary, untracked, removed after shots",
+    "image_size_px": "1564x232 (DPR 2)"
+  },
+  "before": {
+    "short_light": {
+      "badge": true,
+      "text": "Working\nVerifying the changes against the stored transcript\n5.0s",
+      "rowWidth": 748.796875,
+      "rowRight": 1094.390625,
+      "detailTextRight": 754.953125,
+      "detailBoxRight": 1062.390625,
+      "detailScrollWidth": 628,
+      "detailClientWidth": 628,
+      "clockLeft": 1070.390625,
+      "clockRight": 1094.390625,
+      "clockText": "5.0s",
+      "gapClockToText": 315.4375,
+      "whitespaceAfterClock": 0,
+      "whitespaceRatio": 0,
+      "dpr": 2,
+      "viewport": {
+        "w": 1440,
+        "h": 1000
+      }
+    },
+    "short_dark": {
+      "badge": true,
+      "text": "Working\nVerifying the changes against the stored transcript\n5.0s",
+      "rowWidth": 748.796875,
+      "rowRight": 1094.390625,
+      "detailTextRight": 754.953125,
+      "detailBoxRight": 1062.390625,
+      "detailScrollWidth": 628,
+      "detailClientWidth": 628,
+      "clockLeft": 1070.390625,
+      "clockRight": 1094.390625,
+      "clockText": "5.0s",
+      "gapClockToText": 315.4375,
+      "whitespaceAfterClock": 0,
+      "whitespaceRatio": 0,
+      "dpr": 2,
+      "viewport": {
+        "w": 1440,
+        "h": 1000
+      }
+    },
+    "long_light": {
+      "badge": true,
+      "text": "Working\nVerifying the changes against the stored transcript, the failing expectations and the worker checkpoints before the turn settles\n5.0s",
+      "rowWidth": 748.796875,
+      "rowRight": 1094.390625,
+      "detailTextRight": 1218.84375,
+      "detailBoxRight": 1062.390625,
+      "detailScrollWidth": 784,
+      "detailClientWidth": 628,
+      "clockLeft": 1070.390625,
+      "clockRight": 1094.390625,
+      "clockText": "5.0s",
+      "gapClockToText": -148.453125,
+      "whitespaceAfterClock": 0,
+      "whitespaceRatio": 0,
+      "dpr": 2,
+      "viewport": {
+        "w": 1440,
+        "h": 1000
+      }
+    }
+  },
+  "after": {
+    "short_light": {
+      "badge": false,
+      "text": "Working\nVerifying the changes against the stored transcript\n5.0s",
+      "rowWidth": 748.796875,
+      "rowRight": 1094.390625,
+      "detailTextRight": 754.953125,
+      "detailBoxRight": 754.953125,
+      "detailScrollWidth": 321,
+      "detailClientWidth": 321,
+      "clockLeft": 762.953125,
+      "clockRight": 786.953125,
+      "clockText": "5.0s",
+      "gapClockToText": 8,
+      "whitespaceAfterClock": 307.4375,
+      "whitespaceRatio": 0.41057529787367236,
+      "dpr": 2,
+      "viewport": {
+        "w": 1440,
+        "h": 1000
+      }
+    },
+    "short_dark": {
+      "badge": false,
+      "text": "Working\nVerifying the changes against the stored transcript\n5.0s",
+      "rowWidth": 748.796875,
+      "rowRight": 1094.390625,
+      "detailTextRight": 754.953125,
+      "detailBoxRight": 754.953125,
+      "detailScrollWidth": 321,
+      "detailClientWidth": 321,
+      "clockLeft": 762.953125,
+      "clockRight": 786.953125,
+      "clockText": "5.0s",
+      "gapClockToText": 8,
+      "whitespaceAfterClock": 307.4375,
+      "whitespaceRatio": 0.41057529787367236,
+      "dpr": 2,
+      "viewport": {
+        "w": 1440,
+        "h": 1000
+      }
+    },
+    "long_light": {
+      "badge": false,
+      "text": "Working\nVerifying the changes against the stored transcript, the failing expectations and the worker checkpoints before the turn settles\n5.0s",
+      "rowWidth": 748.796875,
+      "rowRight": 1094.390625,
+      "detailTextRight": 1218.84375,
+      "detailBoxRight": 1062.390625,
+      "detailScrollWidth": 784,
+      "detailClientWidth": 628,
+      "clockLeft": 1070.390625,
+      "clockRight": 1094.390625,
+      "clockText": "5.0s",
+      "gapClockToText": -148.453125,
+      "whitespaceAfterClock": 0,
+      "whitespaceRatio": 0,
+      "dpr": 2,
+      "viewport": {
+        "w": 1440,
+        "h": 1000
+      }
+    }
+  }
+}
