@@ -3,7 +3,12 @@ export interface SheetHtml {
   html: string;
   /** Rows actually rendered after the MAX_ROWS clamp. */
   rows: number;
-  truncated: boolean;
+  /** Columns actually rendered after the MAX_COLUMNS clamp. */
+  columns: number;
+  /** True when the sheet has more rows than MAX_ROWS renders. */
+  truncatedRows: boolean;
+  /** True when the sheet has more columns than MAX_COLUMNS renders. */
+  truncatedColumns: boolean;
 }
 
 const MAX_ROWS = 600;
@@ -98,8 +103,10 @@ function mergeMap(worksheet: any): Map<string, { rowspan: number; colspan: numbe
 }
 
 function renderSheet(worksheet: any, locale?: string): SheetHtml {
-  const rows = Math.min(Math.max(worksheet.rowCount || 1, 1), MAX_ROWS);
-  const columns = Math.min(Math.max(worksheet.columnCount || 1, 1), MAX_COLUMNS);
+  const sourceRows = Math.max(worksheet.rowCount || 0, 0);
+  const sourceColumns = Math.max(worksheet.columnCount || 0, 0);
+  const rows = Math.min(Math.max(sourceRows || 1, 1), MAX_ROWS);
+  const columns = Math.min(Math.max(sourceColumns || 1, 1), MAX_COLUMNS);
   const merges = mergeMap(worksheet);
   const html: string[] = ["<table><colgroup>"];
   for (let column = 1; column <= columns; column++) {
@@ -127,7 +134,9 @@ function renderSheet(worksheet: any, locale?: string): SheetHtml {
     name: String(worksheet.name || `Sheet${worksheet.id}`),
     html: html.join(""),
     rows,
-    truncated: (worksheet.rowCount || 0) > MAX_ROWS || (worksheet.columnCount || 0) > MAX_COLUMNS,
+    columns,
+    truncatedRows: sourceRows > MAX_ROWS,
+    truncatedColumns: sourceColumns > MAX_COLUMNS,
   };
 }
 

@@ -190,6 +190,17 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
   }, [bytes, i18n.resolvedLanguage]);
 
   const sheet = sheets?.[Math.min(active, sheets.length - 1)];
+  // The two clamps are independent: a wide, short sheet loses columns, not
+  // rows, so the notice must name the dimension that was actually truncated.
+  const truncationNotice = !sheet
+    ? ""
+    : sheet.truncatedRows && sheet.truncatedColumns
+      ? t("office.truncatedRowsAndColumns", { count: sheet.rows, columns: sheet.columns })
+      : sheet.truncatedColumns
+        ? t("office.truncatedColumns", { count: sheet.columns })
+        : sheet.truncatedRows
+          ? t("office.truncatedPrefix", { count: sheet.rows })
+          : "";
   // Layout effect (in this hook order): the sheet HTML must be in the DOM
   // before the scroll restore below runs, or the offset would clamp to 0.
   useLayoutEffect(() => {
@@ -221,7 +232,7 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
         <div ref={hostRef} />
       </div>
       <div className="border-t border-border px-4 py-1.5 text-xs text-muted">
-        {sheet?.truncated ? t("office.truncatedPrefix", { count: sheet.rows }) : ""}{t("office.embeddedChartsNote")}
+        {truncationNotice}{t("office.embeddedChartsNote")}
       </div>
     </div>
   );
