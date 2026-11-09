@@ -1,0 +1,200 @@
+{
+ "receipts390": {
+  "doc": {
+   "sw": 390,
+   "cw": 390
+  },
+  "header": {
+   "text": "0 queued",
+   "textContent": "0 queued",
+   "ariaExpanded": "true",
+   "ariaLabel": "Hide queued messages",
+   "rect": {
+    "l": 68,
+    "r": 374,
+    "t": 611.6,
+    "b": 627.6,
+    "w": 306,
+    "h": 16
+   },
+   "cw": 306,
+   "sw": 306,
+   "clipped": false
+  },
+  "rows": [
+   "Failed | Recheck the TRP row before you summarize.(policy_violation)",
+   "Sent | Sent, unconfirmed | Add a note about the assay temperature in the methods."
+  ],
+  "section": {
+   "l": 68,
+   "r": 374,
+   "t": 611.6,
+   "b": 742,
+   "w": 306,
+   "h": 130.4
+  },
+  "textarea": {
+   "l": 69,
+   "r": 373,
+   "t": 751,
+   "b": 823,
+   "w": 304,
+   "h": 72
+  },
+  "textareaFullyVisible": true,
+  "row": {
+   "sw": 304,
+   "cw": 304,
+   "h": 42
+  },
+  "clip": {
+   "x": 0,
+   "y": 604,
+   "width": 390,
+   "height": 296
+  },
+  "shot": "390-receipts-before.png"
+ },
+ "receipts1440": {
+  "doc": {
+   "sw": 1440,
+   "cw": 1440
+  },
+  "header": {
+   "text": "0 queued",
+   "textContent": "0 queued",
+   "ariaExpanded": "true",
+   "ariaLabel": "Hide queued messages",
+   "rect": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 674,
+    "b": 690,
+    "w": 748.8,
+    "h": 16
+   },
+   "cw": 749,
+   "sw": 749,
+   "clipped": false
+  },
+  "rows": [
+   "Failed | Recheck the TRP row before you summarize.(policy_violation)",
+   "Sent | Sent, unconfirmed | Add a note about the assay temperature in the methods."
+  ],
+  "section": {
+   "l": 491.6,
+   "r": 1240.4,
+   "t": 674,
+   "b": 766,
+   "w": 748.8,
+   "h": 92
+  },
+  "textarea": {
+   "l": 492.6,
+   "r": 1239.4,
+   "t": 775,
+   "b": 823,
+   "w": 746.8,
+   "h": 48
+  },
+  "textareaFullyVisible": true,
+  "row": {
+   "sw": 747,
+   "cw": 747,
+   "h": 42
+  },
+  "clip": {
+   "x": 0,
+   "y": 666,
+   "width": 1440,
+   "height": 234
+  },
+  "shot": "1440-receipts-before.png"
+ },
+ "running390": {
+  "doc": {
+   "sw": 390,
+   "cw": 390
+  },
+  "header": {
+   "text": "2 queued",
+   "textContent": "2 queued",
+   "ariaExpanded": "true",
+   "ariaLabel": "Hide queued messages",
+   "rect": {
+    "l": 68,
+    "r": 374,
+    "t": 582,
+    "b": 598,
+    "w": 306,
+    "h": 16
+   },
+   "cw": 306,
+   "sw": 306,
+   "clipped": false
+  },
+  "rows": [
+   "Queued | Also report the control condition for comparison.",
+   "Queued | Add a note about the assay temperature in the methods."
+  ],
+  "section": {
+   "l": 68,
+   "r": 374,
+   "t": 582,
+   "b": 706,
+   "w": 306,
+   "h": 124
+  },
+  "textarea": {
+   "l": 69,
+   "r": 373,
+   "t": 715,
+   "b": 787,
+   "w": 304,
+   "h": 72
+  },
+  "textareaFullyVisible": true,
+  "row": {
+   "sw": 304,
+   "cw": 304,
+   "h": 78
+  },
+  "clip": {
+   "x": 0,
+   "y": 574,
+   "width": 390,
+   "height": 326
+  },
+  "shot": "390-running-before.png"
+ },
+ "idle768": {
+  "doc": {
+   "sw": 768,
+   "cw": 768
+  },
+  "header": null,
+  "rows": [],
+  "section": null,
+  "textarea": {
+   "l": 325,
+   "r": 735,
+   "t": 775,
+   "b": 823,
+   "w": 410,
+   "h": 48
+  },
+  "textareaFullyVisible": true,
+  "row": {
+   "sw": 410,
+   "cw": 410,
+   "h": 42
+  },
+  "clip": {
+   "x": 0,
+   "y": 766,
+   "width": 768,
+   "height": 134
+  },
+  "shot": "768-idle-before.png"
+ }
+}
