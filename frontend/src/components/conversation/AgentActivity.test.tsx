@@ -558,9 +558,13 @@ it("renders discovery matches as escaped plain text with truncation status", () 
 });
 
 describe("truncated tool output", () => {
-  it("marks a tool whose output the server kept only the tail of", () => {
+  it("renders a tail-only tool row without a truncation badge", () => {
     render(<AgentActivity blocks={[{ ...tool("bash", "bash"), output: "tail only", outputTruncated: true, originalOutputBytes: 123_456 }]} />);
-    expect(screen.getByText("Truncated (tail shown)")).toBeInTheDocument();
+    // The row still renders normally, with its own tool name and output.
+    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    // The badge is gone: neither the literal nor the translated key may appear.
+    expect(screen.queryByText("Truncated (tail shown)")).toBeNull();
+    expect(screen.queryByText(i18n.t("conversation.activity.outputTruncated"))).toBeNull();
   });
 
   it("leaves a complete output unmarked", () => {
