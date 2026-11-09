@@ -14,6 +14,11 @@ describe("presentToolActivity", () => {
     expect(destructive).not.toContain("-rf");
     expect(presentToolActivity(block("bash", { command: 'echo "第 1 次调用"; date; hostname' }))).toBe("Running bash");
   });
+  it("names the document a kernel tool opens", () => {
+    expect(presentToolActivity(block("notebook_run", { path: "/repo/work/analysis.ipynb" }))).toBe("Running analysis.ipynb");
+    expect(presentToolActivity(block("notebook_run", {}))).toBe("Running notebook");
+    expect(presentToolActivity(block("r", { code: "x <- 1" }))).toBe("Running r");
+  });
   it("drops a description that repeats the command", () => {
     const title = presentToolActivity(block("bash", { command: "TOKEN=secret_value pnpm test", description: "Run TOKEN=secret_value pnpm test" }));
     // An assignment makes the command unverifiable, so the row falls back to the

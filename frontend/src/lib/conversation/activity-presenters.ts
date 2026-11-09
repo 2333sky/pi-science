@@ -100,7 +100,7 @@ export function presentToolActivity(block: ToolCallBlock, translate: ActivityTra
 
   // A shell row names the program it starts. Arguments, assignments and quoting
   // never reach the trace; the full command is a deliberate expansion.
-  if (SHELL_TOOLS.has(tool)) return activityDescription(block) ?? runningTitle(block, tool) ?? translate("conversation.activity.run", { target: activityProgramName(input) ?? tool });
+  if (SHELL_TOOLS.has(tool)) return activityDescription(block) ?? runningTitle(block, tool) ?? translate("conversation.activity.run", { target: programTarget(input, tool) });
 
   if (tool === "search_memory") return append(translate("conversation.activity.memory.search"));
   if (tool === "read_memory") return append(translate("conversation.activity.memory.read"), trim(text(input.id), 8));
@@ -133,6 +133,16 @@ export function toolActivityCategory(block: ToolCallBlock): ActivityCategory {
   return activityCategory({ tool: block.tool, presentationKind: block.presentation?.kind, childSessionId: block.childSessionId });
 }
 
+/** What the row calls the thing that runs: the program, or the document a
+ *  kernel tool opens. */
+function programTarget(input: Record<string, unknown>, tool: string): string {
+  const program = activityProgramName(input);
+  if (program) return program;
+  const path = text(input.path);
+  if (KERNEL_DOCUMENTS.has(tool)) return path ? activityFileLabel(path) : "notebook";
+  return tool;
+}
+const KERNEL_DOCUMENTS = new Set(["notebook_run", "run_cell", "execute_code", "jupyter"]);
 /** A title a row may repeat for a shell call. Only the shapes the server emits
  *  pass: `Running git`, `Terminal`, or the localised equivalents. A stored
  *  command preview from an older event does not, and the program name replaces
