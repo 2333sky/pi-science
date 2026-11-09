@@ -86,13 +86,6 @@ export function activityTarget(block: ToolCallBlock): string {
 export function presentToolActivity(block: ToolCallBlock, translate: ActivityTranslator = defaultTranslate): string {
   const tool = activityToolName(block.tool);
   if (isMcpToolName(tool)) return mcpActivityLabel(block.tool);
-  // The server writes a title for non-shell tools from the call's own kind and
-  // redacts it. That title already prefers a query over its scope path, so the
-  // client must not re-derive a weaker target from the raw input. Shell rows
-  // are excluded on purpose: their stored titles can be whole-command previews
-  // from older events, which RUNNING_TITLE below is what filters out.
-  const serverTitle = text(block.presentation?.title);
-  if (serverTitle && !SHELL_TOOLS.has(tool)) return scrubActivityText(serverTitle);
   const input = block.input ?? {};
   const target = activityTarget(block);
   const append = (label: string, value: string = target) => value ? `${label} · ${value}` : label;

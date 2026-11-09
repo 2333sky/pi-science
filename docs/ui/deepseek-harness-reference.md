@@ -563,13 +563,14 @@ and an exact name always wins over it so a precise mapping can refine the
 server's coarser semantic. This table is the single source: the presentation
 adapter reads its literature names from it instead of keeping a second copy.
 
-Row titles follow one safety rule, owned by the same module. The server writes
-a title for every non-shell call and redacts it, so the client shows that title
-instead of re-deriving a target from the raw input. A shell row names, in
-order, the purpose the model wrote, a stored `Running …` title, then the
-program it starts; a stored title is trusted only when it already matches the
-`Running …` shape, because older events can carry a whole command preview as
-the title. The program basename appears only when `command` is a single line of
+Row titles follow one safety rule, owned by the same module. A title the server
+stored is a fallback for events without structured data, never a replacement
+for it: the client rebuilds the row from the call's own kind and the active
+locale, so a search row reads 搜索 … in Chinese rather than the server's
+English `Searching for …`. A shell row names, in order, the purpose the model
+wrote, a stored `Running …` title, then the program it starts; a stored title
+is trusted only when it already matches the `Running …` shape, because older
+events can carry a whole command preview as the title. The program basename appears only when `command` is a single line of
 plain text: any assignment, quoting, escape, glob, redirection, pipe,
 substitution, shell keyword or wrapper (`env`, `export`, `sudo`, `xargs`, …)
 falls back to the tool's own neutral name, so `Running bash` is the floor, not

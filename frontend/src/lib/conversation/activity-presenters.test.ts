@@ -6,19 +6,22 @@ const block = (tool: string, input?: Record<string, unknown>, title?: string): T
 describe("presentToolActivity", () => {
   it("prefers the server title", () => { expect(presentToolActivity(block("bash", {}, "Running tests"))).toBe("Running tests"); });
   it("presents file and search actions", () => { expect(presentToolActivity(block("read", { path: "src/file.ts" }))).toBe("Reading file.ts"); expect(presentToolActivity(block("grep", { pattern: "tool.updated" }))).toBe("Searching for tool.updated"); });
-  it("trusts a server title that says more than the raw pattern", () => {
-    const titled: ToolCallBlock = { ...block("grep", { pattern: "needle", path: "src/deep/file.ts" }), presentation: { version: 1, kind: "search", title: "Searching for needle in src/", importance: "micro", domain: "code" } };
-    expect(presentToolActivity(titled)).toBe("Searching for needle in src/");
-  });
-  it("prefers the server title for a search row over the raw input", () => {
-    const titled: ToolCallBlock = { ...block("grep", { pattern: "needle", path: "src/deep/file.ts" }), presentation: { version: 1, kind: "search", title: "Searching for needle", importance: "micro", domain: "code" } };
-    expect(presentToolActivity(titled)).toBe("Searching for needle");
-  });
   it("keeps the query when a search call also carries a scope path", () => {
     const grep = presentToolActivity(block("grep", { pattern: "needle", path: "src/deep/file.ts" }));
     expect(grep).toContain("needle");
     expect(grep).not.toContain("file.ts");
     expect(presentToolActivity(block("glob", { pattern: "**/*.ts", path: "frontend" }))).toContain("**/*.ts");
+  });
+  it("names the url a fetch opens instead of the server's placeholder", () => {
+    expect(presentToolActivity(block("web_fetch", { url: "https://example.com/a" }))).toBe("Fetching https://example.com/a");
+  });
+  it("rebuilds a read row in the active locale", () => {
+    const labels: Record<string, string> = { "conversation.activity.read": "读取 {{target}}" };
+    const zh = (key: string, values?: Record<string, unknown>) => (labels[key] ?? key).replace("{{target}}", String(values?.target ?? ""));
+    const row = presentToolActivity(block("read", { path: "a.ts", offset: 120, limit: 40 }), zh);
+    expect(row).toContain("读取");
+    expect(row).not.toContain("Reading");
+    expect(row).toContain("a.ts:120-159");
   });
   it("does not promote a stored command preview from a shell presentation title", () => {
     const title = presentToolActivity({ ...block("bash", { command: "python analysis/aggregate.py --condition SAH" }), presentation: { version: 1, kind: "execute", title: "python analysis/aggregate.py --condition SAH", importance: "micro", domain: "code" } });
