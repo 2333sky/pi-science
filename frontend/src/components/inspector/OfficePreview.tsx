@@ -146,7 +146,7 @@ const SHEET_CSS = `
 `;
 
 export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { hostRef, page } = useShadowPage(SHEET_CSS);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sheets, setSheets] = useState<SheetHtml[] | null>(null);
@@ -159,7 +159,7 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
       try {
         // Dynamic import keeps ExcelJS in a lazy chunk, out of the main bundle.
         const { workbookSheets } = await import("@/lib/shared/xlsx");
-        const parsed = await workbookSheets(bytes);
+        const parsed = await workbookSheets(bytes, i18n.resolvedLanguage);
         if (cancelled) return;
         setSheets(parsed);
         setActive(0);
@@ -170,9 +170,10 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
     return () => {
       cancelled = true;
     };
-    // `t` intentionally excluded, same reasoning as DocxView above.
+    // `t` intentionally excluded, same reasoning as DocxView above; the active
+    // language is a parse input now because date cells are formatted with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bytes]);
+  }, [bytes, i18n.resolvedLanguage]);
 
   const sheet = sheets?.[Math.min(active, sheets.length - 1)];
   // Layout effect (in this hook order): the sheet HTML must be in the DOM

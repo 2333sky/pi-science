@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 import { memoryButton } from "./memory-ui";
+import { formatDateTime } from "../../i18n/format";
 export type MemoryRun = {
   id: string;
   kind: string;
@@ -94,7 +95,7 @@ export function MemoryRunCard({
             </span>
           </span>
           <time className="text-ui-caption text-muted">
-            {new Date(r.startedAt ?? r.createdAt).toLocaleString()}
+            {formatDateTime(r.startedAt ?? r.createdAt)}
           </time>
           <span className="text-ui-caption text-muted">
             {duration === undefined
@@ -177,7 +178,7 @@ export function MemoryRunCard({
               })}
               {" · "}
               {t("memory.retryAt")}:{" "}
-              {new Date(r.diagnostic.nextScanAt).toLocaleString()}
+              {formatDateTime(r.diagnostic.nextScanAt)}
             </p>
           )}
           <p>

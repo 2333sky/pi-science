@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import type { ModelOAuthSessionView } from "@pi-science/contracts";
 import { apiRequest, ApiError } from "../../../lib/client/api";
+import { formatDateTime } from "../../../i18n/format";
 import { button, field, primary, send, type CatalogProvider } from "./native-model-api";
 
 type Props = { provider: CatalogProvider; revision: number; onSaved: (result?: { runtime?: string }) => Promise<void>; onFailure: (error: unknown) => Promise<void>; onDirty?: (dirty: boolean) => void; onBusy?: (busy: boolean) => void };
@@ -51,7 +52,7 @@ export function SubscriptionAuthorization({ provider, revision, onSaved, onFailu
   const prompt = session?.prompt;
   return <div className="space-y-4 text-ui-caption text-text">
     <div><h3 className="text-ui-label font-medium">{provider.subscription_name ?? provider.name}</h3><p className="mt-1 text-muted">{t("settings.oauth.account")}: {provider.authentication.oauth?.account ?? t("settings.native.unknown")} · {t("settings.oauth.plan")}: {provider.authentication.oauth?.plan ?? t("settings.native.unknown")}</p>
-      {provider.authentication.oauth?.expires_at && <p className="mt-1 text-muted">{t("settings.oauth.expires")}: {new Date(provider.authentication.oauth.expires_at).toLocaleString()}</p>}
+      {provider.authentication.oauth?.expires_at && <p className="mt-1 text-muted">{t("settings.oauth.expires")}: {formatDateTime(provider.authentication.oauth.expires_at)}</p>}
       <p className="mt-1 text-muted">{t(subscription ? `settings.oauth.grant.${provider.authentication.oauth?.status ?? "invalid"}` : "settings.oauth.notConnected")}</p>
     </div>
     {!active && <div className="space-y-3">

@@ -3,6 +3,7 @@ import { Edit3, KeyRound, Loader2, PlugZap, RefreshCw, Shield, Trash2 } from "lu
 import type { McpConnector, McpCredentialStatus, McpToolSummary } from "@pi-science/contracts";
 import { useTranslation } from "react-i18next";
 import { settingsApi } from "../../lib/settings";
+import { formatDateTime } from "../../i18n/format";
 
 type Backend = "managed" | "environment";
 type Delivery = "environment" | "header" | "bearer";
@@ -102,7 +103,7 @@ export function McpConnectorDetails({ connector, tools, toolsCachedAt, workspace
           <h4 className="flex items-center gap-1.5 text-xs font-semibold text-text"><Shield size={13} />{t("settings.mcpPage.security")}</h4>
           <div className="mt-3 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
             <Info label={t("settings.mcpPage.dataEgress")} value={t(connector.endpoint_url ? "settings.mcpPage.dataEgress.remote" : "settings.mcpPage.dataEgress.local")} />
-            <Info label={t("settings.mcpPage.lastProbe")} value={toolsCachedAt ? new Date(toolsCachedAt).toLocaleString() : t("settings.mcpPage.never")} />
+            <Info label={t("settings.mcpPage.lastProbe")} value={toolsCachedAt ? formatDateTime(toolsCachedAt) : t("settings.mcpPage.never")} />
             <InfoLink label={t("settings.mcpPage.terms")} href={connector.runtime_config.terms_url} />
             <InfoLink label={t("settings.mcpPage.privacy")} href={connector.runtime_config.privacy_url} />
           </div>

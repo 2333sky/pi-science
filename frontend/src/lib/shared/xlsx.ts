@@ -24,9 +24,9 @@ function cellPosition(value: string): { row: number; column: number } | null {
   return { row: Number(match[2]), column };
 }
 
-function cellValue(value: unknown): string {
+function cellValue(value: unknown, locale?: string): string {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toLocaleString();
+  if (value instanceof Date) return new Intl.DateTimeFormat(locale).format(value);
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (Array.isArray(record.richText)) {
@@ -81,7 +81,7 @@ function mergeMap(worksheet: any): Map<string, { rowspan: number; colspan: numbe
   return result;
 }
 
-function renderSheet(worksheet: any): SheetHtml {
+function renderSheet(worksheet: any, locale?: string): SheetHtml {
   const rows = Math.min(Math.max(worksheet.rowCount || 1, 1), MAX_ROWS);
   const columns = Math.min(Math.max(worksheet.columnCount || 1, 1), MAX_COLUMNS);
   const merges = mergeMap(worksheet);
@@ -102,7 +102,7 @@ function renderSheet(worksheet: any): SheetHtml {
         merge && merge.rowspan > 1 ? ` rowspan="${merge.rowspan}"` : "",
         merge && merge.colspan > 1 ? ` colspan="${merge.colspan}"` : "",
       ].join("");
-      html.push(`<td${attrs}>${escapeHtml(cellValue(cell.value))}</td>`);
+      html.push(`<td${attrs}>${escapeHtml(cellValue(cell.value, locale))}</td>`);
     }
     html.push("</tr>");
   }
@@ -114,10 +114,11 @@ function renderSheet(worksheet: any): SheetHtml {
   };
 }
 
-/** Parse an XLSX workbook into lightweight, style-aware HTML sheets. */
-export async function workbookSheets(bytes: ArrayBuffer): Promise<SheetHtml[]> {
+/** Parse an XLSX workbook into lightweight, style-aware HTML sheets. `locale`
+ *  formats date cells; callers pass the active app language, not the OS locale. */
+export async function workbookSheets(bytes: ArrayBuffer, locale?: string): Promise<SheetHtml[]> {
   const { Workbook } = await import("exceljs");
   const workbook = new Workbook();
   await workbook.xlsx.load(bytes);
-  return workbook.worksheets.map((worksheet) => renderSheet(worksheet));
+  return workbook.worksheets.map((worksheet) => renderSheet(worksheet, locale));
 }
