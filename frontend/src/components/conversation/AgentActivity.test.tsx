@@ -106,7 +106,7 @@ describe("AgentActivity live stream", () => {
     ]} />);
     expect(screen.getByText("Python")).toBeInTheDocument();
     expect(screen.getByText("2 outputs")).toBeInTheDocument();
-    expect(screen.getByText("PubMed")).toBeInTheDocument();
+    expect(screen.getByText("PubMed · kinetics")).toBeInTheDocument();
     expect(screen.getByText("3 results · 1 retained")).toBeInTheDocument();
   });
 
@@ -126,17 +126,17 @@ describe("AgentActivity live stream", () => {
   it("updates the running tool line immediately when consecutive tools share the same phase", () => {
     const read = tool("read", "read", "running", { path: "a.ts", description: "Find why the second reply stops following" });
     const { rerender } = render(<AgentActivity blocks={[read]} />);
-    expect(screen.getByText("Reading a.ts")).toBeInTheDocument();
+    expect(screen.getByText("Find why the second reply stops following")).toBeInTheDocument();
     rerender(<AgentActivity blocks={[{ ...read, status: "done" }, tool("next", "read", "running", { path: "b.ts", description: "Check how virtual list measurements update" })]} />);
     expect(screen.getByText("Working")).toBeInTheDocument();
     // Completed steps stay in the feed; the new running step appears below.
-    expect(screen.getByText("Reading a.ts")).toBeInTheDocument();
-    expect(screen.getByText("Reading b.ts")).toBeInTheDocument();
+    expect(screen.getByText("Find why the second reply stops following")).toBeInTheDocument();
+    expect(screen.getByText("Check how virtual list measurements update")).toBeInTheDocument();
   });
 
   it("names a running tool that carries no task description", () => {
     render(<AgentActivity blocks={[tool("bash-1", "bash", "running")]} />);
-    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    expect(screen.getByText("Terminal")).toBeInTheDocument();
     expect(screen.queryByText("Understanding your request and deciding what to do next")).not.toBeInTheDocument();
   });
 
@@ -252,9 +252,9 @@ describe("AgentActivity live stream", () => {
     expect(document.querySelector('[data-orb-variant="B3"]')).toBeInTheDocument();
   });
 
-  it("uses the thinking pattern when a tool has no semantics", () => {
+  it("shows the shell action without replacing the turn's working indicator", () => {
     render(<AgentActivity blocks={[tool("bash", "bash", "running", { command: "git status" })]} />);
-    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    expect(screen.getByText("git status")).toBeInTheDocument();
     expect(screen.getByText("Working")).toBeInTheDocument();
   });
 
@@ -395,6 +395,49 @@ describe("AgentActivity live stream", () => {
     expect(screen.getByText("1.9s")).toBeInTheDocument();
   });
 
+  it("shows compact terminal summaries and keeps full commands in expanded details", () => {
+    render(<AgentActivity blocks={[
+      tool("first", "bash", "done", { command: 'echo "第 1 次调用"; date; hostname' }),
+      { ...tool("second", "bash", "done", { description: "Check Python", command: "python3 -V" }), title: "Running bash" },
+    ]} />);
+    expect(screen.getByText('echo "第 1 次调用"; date; hostname')).toBeInTheDocument();
+    expect(screen.getByText("Check Python")).toBeInTheDocument();
+    expect(screen.queryByText("python3 -V")).not.toBeInTheDocument();
+    expect(screen.queryByText("Terminal")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Check Python/ }));
+    expect(screen.getByText("Command").parentElement).toHaveTextContent("python3 -V");
+    fireEvent.click(screen.getByRole("button", { name: "Check Python", expanded: true }));
+    fireEvent.click(screen.getByRole("button", { name: /echo/ }));
+    expect(screen.getByText("Command").parentElement).toHaveTextContent('echo "第 1 次调用"; date; hostname');
+  });
+
+  it("renders a shell command, exit code and output in the expanded tool row", () => {
+    render(<AgentActivity blocks={[{
+      ...tool("bash", "bash", "done", { command: "pnpm test --filter ui" }),
+      details: { exit_code: 0 },
+      output: "7 passed",
+    }]} />);
+    expect(screen.getByText("pnpm test --filter ui")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /pnpm test/ }));
+    expect(screen.getByText("Command").parentElement).toHaveTextContent("pnpm test --filter ui");
+    expect(screen.getByText("Exit code").parentElement).toHaveTextContent("0");
+    expect(screen.getByText("Output").parentElement).toHaveTextContent("7 passed");
+  });
+
+  it("shows the read path and contents and highlights a structured edit diff", () => {
+    render(<AgentActivity blocks={[
+      { ...tool("read", "read", "done", { path: "src/main.ts", offset: 2 }), output: "const value = 1;" },
+      { ...tool("edit", "edit", "done", { path: "src/main.ts" }), details: { diff: "-2 const value = 1;\n+2 const value = 2;" } },
+    ]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Reading main.ts" }));
+    expect(screen.getByText("File path").parentElement).toHaveTextContent("src/main.ts");
+    expect(screen.getByText("File contents").parentElement).toHaveTextContent("const value = 1;");
+    fireEvent.click(screen.getByRole("button", { name: "Updating main.ts" }));
+    const diff = within(screen.getByText("Diff").parentElement!);
+    expect(diff.getByText("-2 const value = 1;")).toHaveClass("text-error-text");
+    expect(diff.getByText("+2 const value = 2;")).toHaveClass("text-ok-text");
+  });
+
   it("shows interaction, failure, and abort lifecycle copy", () => {
     const { rerender } = render(<AgentActivity lifecycle="waiting" blocks={[tool("read", "read"), tool("ask", "ask_user_question", "waiting-approval")]} />);
     expect(screen.getByText("Needs your input")).toBeInTheDocument();
@@ -430,13 +473,13 @@ describe("AgentActivity settled display", () => {
     expect(screen.queryByText("Step notes: the CSV has 4 columns.")).not.toBeInTheDocument();
     expect(screen.queryByText("The final answer.")).not.toBeInTheDocument();
     expect(screen.queryByText("Reading one.ts")).not.toBeInTheDocument();
-    expect(screen.queryByText("Running bash")).not.toBeInTheDocument();
+    expect(screen.queryByText("Terminal")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Execution trace")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByText(/Complete|Encountered a problem|Stopped|Working/));
     expect(screen.getByText("Step notes: the CSV has 4 columns.")).toBeInTheDocument();
     expect(screen.getByText("Reading one.ts")).toBeInTheDocument();
-    expect(screen.getByText("Running bash")).toBeInTheDocument();
+    expect(screen.getByText("Terminal")).toBeInTheDocument();
     expect(screen.queryByText("The final answer.")).not.toBeInTheDocument();
   });
 
@@ -467,7 +510,7 @@ describe("AgentActivity settled display", () => {
   it("exposes structured tool details even when there is no text output", () => {
     render(<AgentActivity lifecycle="settled" blocks={[{ ...tool("structured", "compute"), output: undefined, details: { rows: 3 } }]} />);
     fireEvent.click(screen.getByText(/Complete|Encountered a problem|Stopped|Working/));
-    fireEvent.click(screen.getByText("Running compute"));
+    fireEvent.click(screen.getByText("compute"));
     expect(screen.getByText("Details")).toBeInTheDocument();
     expect(screen.getByText(/"rows": 3/)).toBeInTheDocument();
   });

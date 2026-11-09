@@ -13,6 +13,7 @@ import { ProgressVisual, useProgressAppearance } from "../progress/ProgressVisua
 import type { ProgressActivityState } from "../progress/progress-activity-map";
 import { cn } from "../../lib/ui";
 import { MarkdownViewer } from "../markdown-viewer/MarkdownViewer";
+import { DiffView } from "../code-viewer/DiffView";
 import { parseSuggestions } from "../../lib/conversation";
 import { activityRendererRegistry } from "./activity-renderers/registry";
 import styles from "./AgentActivity.module.css";
@@ -204,7 +205,7 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
   return <div id={`thread-block-${block.id}`} data-running={running} className={cn(styles.entry, styles.thinking, "min-w-0")}>
     <button type="button" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)} className={cn(styles.toolButton, "flex min-h-primary max-w-full items-center gap-2 rounded-input py-1.5 text-left text-ui-label text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent sm:min-h-control")}>
       {running ? <span aria-hidden className="mx-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : <Check size={14} aria-hidden className="shrink-0 text-muted" />}
-      <span className="min-w-0 truncate">{t("conversation.activity.thinking")}</span>
+      <span className="min-w-0 truncate">{t(running ? "conversation.activity.thinking" : "conversation.activity.reasoning")}</span>
       {liveTail && <span aria-hidden className="hidden min-w-0 flex-1 truncate text-right font-mono text-[10px] text-muted sm:block">{liveTail}</span>}
       {duration && <span aria-hidden="true" className="shrink-0 font-mono text-[10px] tabular-nums text-muted">{duration}</span>}
       {running && <LiveStepElapsed since={block.startedAt} />}
@@ -387,20 +388,21 @@ function TraceItem({ block, live }: { block: ToolCallBlock; live: boolean }) {
   // While the operation streams, its freshest output line fills the right
   // edge of the row and the chevron sits at the far right; once the step
   // completes the tail makes way for the duration chip.
-  const liveTail = running && block.partialOutput ? lastStreamLine(block.partialOutput) : compact.detail ?? null;
+  const liveTail = running && block.partialOutput ? lastStreamLine(block.partialOutput) : null;
+  const secondary = liveTail ?? compact.detail;
   return <div className={cn(styles.entry, styles.tool)} data-running={running}>
-    <button type="button" disabled={!hasDetails} aria-expanded={hasDetails ? expanded : undefined} onClick={() => hasDetails && setExpanded((value) => !value)} className={cn(styles.toolButton, "flex min-h-primary max-w-full items-center gap-2 rounded-input py-1.5 text-left text-ui-label text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default sm:min-h-control")}>
+    <button type="button" disabled={!hasDetails} aria-expanded={hasDetails ? expanded : undefined} onClick={() => hasDetails && setExpanded((value) => !value)} className={cn(styles.toolButton, "flex min-h-9 w-full items-center gap-2 rounded-input py-1 text-left text-ui-label text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default sm:min-h-8")}>
       {running ? <span aria-hidden className="mx-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : block.status === "error" ? <CircleX size={14} aria-hidden className="shrink-0 text-error-text" /> : <Check size={14} aria-hidden className="shrink-0 text-muted" />}
-      <span className="min-w-0 truncate">{compact.title}</span>
+      <span className="min-w-0 flex-1"><span className="block max-w-[52ch] truncate" title={compact.title}>{compact.title}</span></span>
       {block.outputTruncated && <span className="shrink-0 rounded-full border border-border bg-surface-2 px-1.5 py-0.5 text-[10px] leading-none text-warn">{t("conversation.activity.outputTruncated")}</span>}
-      {liveTail && <span aria-hidden className="hidden min-w-0 flex-1 truncate text-right font-mono text-[10px] text-muted sm:block">{liveTail}</span>}
+      {secondary && <span className={cn("min-w-0 max-w-[40%] truncate text-right text-muted", liveTail ? "hidden flex-1 font-mono text-[10px] sm:block" : "text-xs font-normal")}>{secondary}</span>}
       {duration && <span aria-hidden="true" className="shrink-0 font-mono text-[10px] tabular-nums text-muted">{duration}</span>}
       {hasDetails && <ChevronRight size={12} aria-hidden className={cn(styles.chevron, "shrink-0 transition-transform", expanded && "rotate-90")} />}
     </button>
     {expanded && hasDetails && details && <div className={cn(styles.details, "space-y-2 pb-2 pl-6 text-xs")}>
       {details.map((detail, index) => detail.pre || detail.plain
         ? <Detail key={`${detail.label}:${index}`} label={detail.label} value={detail.value} pre={detail.pre} />
-        : <OutputDetail key={`${detail.label}:${index}`} label={detail.label} value={detail.value} fullValue={detail.fullValue} partial={detail.partial} t={t} />)}
+        : <OutputDetail key={`${detail.label}:${index}`} label={detail.label} value={detail.value} fullValue={detail.fullValue} partial={detail.partial} diff={detail.diff} t={t} />)}
     </div>}
   </div>;
 }
@@ -422,12 +424,14 @@ function OutputDetail({
   value,
   fullValue,
   partial = false,
+  diff = false,
   t,
 }: {
   label: string;
   value: string;
   fullValue?: string;
   partial?: boolean;
+  diff?: boolean;
   t: (key: string, options?: Record<string, unknown>) => string;
 }) {
   const [showFull, setShowFull] = useState(false);
@@ -436,7 +440,9 @@ function OutputDetail({
   const rendered = showFull && canShowFull ? fullValue! : value.slice(0, DETAIL_PREVIEW_LIMIT);
   return <div>
     <div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted">{label}</div>
-    <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded-input bg-surface px-2 py-1.5 font-mono text-xs leading-5 text-text">{rendered}</pre>
+    {diff
+      ? <DiffView diff={rendered} className="max-h-48 overflow-auto break-all rounded-input bg-surface px-2 py-1.5 leading-5" />
+      : <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded-input bg-surface px-2 py-1.5 font-mono text-xs leading-5 text-text">{rendered}</pre>}
     {truncated && <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-muted">
       <span>{t("conversation.activity.previewTruncated", { count: DETAIL_PREVIEW_LIMIT })}</span>
       {canShowFull
@@ -446,4 +452,4 @@ function OutputDetail({
     {partial && !truncated && <div className="mt-1 text-[10px] text-muted">{t("conversation.activity.fullOutputUnavailable")}</div>}
   </div>;
 }
-function Detail({ label, value, pre = false }: { label: string; value: string; pre?: boolean }) { return <div><div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted">{label}</div>{pre ? <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded-input bg-surface px-2 py-1.5 font-mono text-xs leading-5 text-text">{value}</pre> : <div className="font-mono text-xs text-text">{value}</div>}</div>; }
+function Detail({ label, value, pre = false }: { label: string; value: string; pre?: boolean }) { return <div><div className="mb-1 text-[10px] font-medium uppercase tracking-wider text-muted">{label}</div>{pre ? <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-all rounded-input bg-surface px-2 py-1.5 font-mono text-xs leading-5 text-text">{value}</pre> : <div className="break-all font-mono text-xs text-text">{value}</div>}</div>; }

@@ -162,6 +162,7 @@ describe("agent-core product tools", () => {
               args:
                 surface === "bash"
                   ? {
+                      description: "Fetch approved network endpoint",
                       command: `curl --noproxy '' --silent --show-error --fail --max-time 15 ${url}`,
                     }
                   : {},
@@ -282,6 +283,7 @@ describe("agent-core product tools", () => {
           return {
             name: "bash",
             args: {
+              description: "Append decision and rebuild research index",
               command: `${shellQuote(process.execPath)} helpers/research-journal.mjs append study event.json && ${shellQuote(process.execPath)} helpers/research-journal.mjs rebuild study`,
             },
           };
@@ -366,6 +368,7 @@ describe("agent-core product tools", () => {
             return {
               name: "bash",
               args: {
+                description: "Create draft within approved workspace",
                 command:
                   "cat ../input/approved.txt > output.txt; test ! -r ../../../evaluator/private.txt; test ! -r ../../../.pi-science/protected; ! (printf tamper > ../../../research-events.jsonl); echo draft-isolated",
               },
@@ -584,13 +587,20 @@ describe("agent-core product tools", () => {
             : {
                 name: "bash",
                 args: {
+                  description: "Run authorized child command",
                   command:
                     "printf child > child.txt; ! cat .pi-science/protected; echo child-isolated",
                 },
               };
         const tools = body.messages.filter((message) => message.role === "tool");
         if (!tools.length)
-          return { name: "bash", args: { command: "printf main > main.txt; echo main-isolated" } };
+          return {
+            name: "bash",
+            args: {
+              description: "Run main workspace command",
+              command: "printf main > main.txt; echo main-isolated",
+            },
+          };
         if (tools.length === 1)
           return {
             name: "subagent",
@@ -654,7 +664,10 @@ describe("agent-core product tools", () => {
             repairs++;
             return {
               name: "bash",
-              args: { command: "python3 -I -c \"raise ValueError('repair-me')\"" },
+              args: {
+                description: "Reproduce candidate failure",
+                command: "python3 -I -c \"raise ValueError('repair-me')\"",
+              },
             };
           }
           if (results.length === 1) {
@@ -663,6 +676,7 @@ describe("agent-core product tools", () => {
             return {
               name: "bash",
               args: {
+                description: "Repair candidate prediction",
                 command:
                   "python3 -I -c \"import json,pathlib; pathlib.Path('output.json').write_text(json.dumps({'prediction': 42})); print('repaired')\"",
               },
@@ -678,6 +692,7 @@ describe("agent-core product tools", () => {
           return {
             name: "bash",
             args: {
+              description: "Evaluate baseline prediction",
               command:
                 "python3 -I research/universal-study/evaluator.py research/universal-study/baseline-input.json research/universal-study/baseline.json",
             },
@@ -697,6 +712,7 @@ describe("agent-core product tools", () => {
           return {
             name: "bash",
             args: {
+              description: "Evaluate repaired candidate",
               command:
                 "python3 -I research/universal-study/evaluator.py research/universal-study/candidates/one/work/output.json research/universal-study/result.json",
             },
@@ -1380,7 +1396,11 @@ fs.writeFileSync('research/quant/result.json', JSON.stringify(result)); console.
       if (completed === 2)
         return {
           name: "bash",
-          args: { command: "node research/quant/evaluator.cjs", timeout: 10 },
+          args: {
+            description: "Evaluate numerical research candidate",
+            command: "node research/quant/evaluator.cjs",
+            timeout: 10,
+          },
         };
       if (completed === 3)
         return {
