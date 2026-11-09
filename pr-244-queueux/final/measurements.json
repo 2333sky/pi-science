@@ -1,0 +1,5527 @@
+{
+ "before": {
+  "idle": {
+   "360": {
+    "viewport": {
+     "w": 360,
+     "h": 900
+    },
+    "doc": {
+     "sw": 360,
+     "cw": 360
+    },
+    "card": {
+     "l": 68,
+     "r": 344,
+     "t": 672,
+     "b": 896,
+     "w": 276,
+     "h": 224
+    },
+    "row": {
+     "l": 69,
+     "r": 343,
+     "t": 745,
+     "b": 865,
+     "w": 274,
+     "h": 120,
+     "sw": 274,
+     "cw": 274
+    },
+    "cluster": {
+     "l": 89,
+     "r": 332.5,
+     "t": 784,
+     "b": 818,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 81,
+     "t": 745,
+     "b": 857,
+     "w": 0,
+     "h": 112,
+     "sw": 84,
+     "cw": 0
+    },
+    "approval": {
+     "l": 81,
+     "r": 164.7,
+     "t": 781,
+     "b": 821,
+     "w": 83.7,
+     "h": 40
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 101.3,
+     "r": 156.7,
+     "t": 785,
+     "b": 817,
+     "w": 55.5,
+     "h": 32,
+     "sw": 55,
+     "cw": 55,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 89,
+     "r": 292.5,
+     "t": 787,
+     "b": 815,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 99,
+     "r": 185.2,
+     "t": 793,
+     "b": 809,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 298.5,
+     "r": 332.5,
+     "t": 784,
+     "b": 818,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 745,
+      "approval": 781,
+      "model": 787,
+      "send": 784
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 69,
+     "r": 343,
+     "t": 673,
+     "b": 745,
+     "w": 274,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 664,
+     "width": 360,
+     "height": 236
+    }
+   },
+   "390": {
+    "viewport": {
+     "w": 390,
+     "h": 900
+    },
+    "doc": {
+     "sw": 390,
+     "cw": 390
+    },
+    "card": {
+     "l": 68,
+     "r": 374,
+     "t": 672,
+     "b": 896,
+     "w": 306,
+     "h": 224
+    },
+    "row": {
+     "l": 69,
+     "r": 373,
+     "t": 745,
+     "b": 865,
+     "w": 304,
+     "h": 120,
+     "sw": 304,
+     "cw": 304
+    },
+    "cluster": {
+     "l": 117.5,
+     "r": 361,
+     "t": 784,
+     "b": 818,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 109.5,
+     "t": 745,
+     "b": 857,
+     "w": 28.5,
+     "h": 112,
+     "sw": 84,
+     "cw": 28
+    },
+    "approval": {
+     "l": 81,
+     "r": 164.7,
+     "t": 781,
+     "b": 821,
+     "w": 83.7,
+     "h": 40
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 101.3,
+     "r": 156.7,
+     "t": 785,
+     "b": 817,
+     "w": 55.5,
+     "h": 32,
+     "sw": 55,
+     "cw": 55,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 117.5,
+     "r": 321,
+     "t": 787,
+     "b": 815,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 127.5,
+     "r": 213.7,
+     "t": 793,
+     "b": 809,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 327,
+     "r": 361,
+     "t": 784,
+     "b": 818,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 745,
+      "approval": 781,
+      "model": 787,
+      "send": 784
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 69,
+     "r": 373,
+     "t": 673,
+     "b": 745,
+     "w": 304,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 664,
+     "width": 390,
+     "height": 236
+    }
+   },
+   "430": {
+    "viewport": {
+     "w": 430,
+     "h": 900
+    },
+    "doc": {
+     "sw": 430,
+     "cw": 430
+    },
+    "card": {
+     "l": 68,
+     "r": 414,
+     "t": 696,
+     "b": 896,
+     "w": 346,
+     "h": 200
+    },
+    "row": {
+     "l": 69,
+     "r": 413,
+     "t": 745,
+     "b": 865,
+     "w": 344,
+     "h": 120,
+     "sw": 344,
+     "cw": 344
+    },
+    "cluster": {
+     "l": 157.5,
+     "r": 401,
+     "t": 784,
+     "b": 818,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 149.5,
+     "t": 745,
+     "b": 857,
+     "w": 68.5,
+     "h": 112,
+     "sw": 84,
+     "cw": 68
+    },
+    "approval": {
+     "l": 81,
+     "r": 164.7,
+     "t": 781,
+     "b": 821,
+     "w": 83.7,
+     "h": 40
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 101.3,
+     "r": 156.7,
+     "t": 785,
+     "b": 817,
+     "w": 55.5,
+     "h": 32,
+     "sw": 55,
+     "cw": 55,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 157.5,
+     "r": 361,
+     "t": 787,
+     "b": 815,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 167.5,
+     "r": 253.7,
+     "t": 793,
+     "b": 809,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 367,
+     "r": 401,
+     "t": 784,
+     "b": 818,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 745,
+      "approval": 781,
+      "model": 787,
+      "send": 784
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 69,
+     "r": 413,
+     "t": 697,
+     "b": 745,
+     "w": 344,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 688,
+     "width": 430,
+     "height": 212
+    }
+   },
+   "768": {
+    "viewport": {
+     "w": 768,
+     "h": 900
+    },
+    "doc": {
+     "sw": 768,
+     "cw": 768
+    },
+    "card": {
+     "l": 324,
+     "r": 736,
+     "t": 708,
+     "b": 896,
+     "w": 412,
+     "h": 188
+    },
+    "row": {
+     "l": 325,
+     "r": 735,
+     "t": 757,
+     "b": 865,
+     "w": 410,
+     "h": 108,
+     "sw": 410,
+     "cw": 410
+    },
+    "cluster": {
+     "l": 479.5,
+     "r": 723,
+     "t": 790,
+     "b": 824,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 471.5,
+     "t": 757,
+     "b": 857,
+     "w": 134.5,
+     "h": 100,
+     "sw": 134,
+     "cw": 134
+    },
+    "approval": {
+     "l": 337,
+     "r": 464.9,
+     "t": 793,
+     "b": 821,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 363,
+     "r": 456.9,
+     "t": 799,
+     "b": 815,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 479.5,
+     "r": 683,
+     "t": 793,
+     "b": 821,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 489.5,
+     "r": 575.7,
+     "t": 799,
+     "b": 815,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 689,
+     "r": 723,
+     "t": 790,
+     "b": 824,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 757,
+      "approval": 793,
+      "model": 793,
+      "send": 790
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 325,
+     "r": 735,
+     "t": 709,
+     "b": 757,
+     "w": 410,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 700,
+     "width": 768,
+     "height": 200
+    }
+   },
+   "1024": {
+    "viewport": {
+     "w": 1024,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1024,
+     "cw": 1024
+    },
+    "card": {
+     "l": 324,
+     "r": 992,
+     "t": 774,
+     "b": 896,
+     "w": 668,
+     "h": 122
+    },
+    "row": {
+     "l": 325,
+     "r": 991,
+     "t": 823,
+     "b": 865,
+     "w": 666,
+     "h": 42,
+     "sw": 666,
+     "cw": 666
+    },
+    "cluster": {
+     "l": 735.5,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 537.9,
+     "t": 826,
+     "b": 854,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 373,
+     "r": 500.9,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 399,
+     "r": 492.9,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 735.5,
+     "r": 939,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 745.5,
+     "r": 831.7,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 945,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 325,
+     "r": 991,
+     "t": 775,
+     "b": 823,
+     "w": 666,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 766,
+     "width": 1024,
+     "height": 134
+    }
+   },
+   "1440": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1440,
+     "cw": 1440
+    },
+    "card": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 774,
+     "b": 896,
+     "w": 748.8,
+     "h": 122
+    },
+    "row": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 823,
+     "b": 865,
+     "w": 746.8,
+     "h": 42,
+     "sw": 747,
+     "cw": 747
+    },
+    "cluster": {
+     "l": 983.9,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 504.6,
+     "r": 800.7,
+     "t": 826,
+     "b": 854,
+     "w": 296.1,
+     "h": 28,
+     "sw": 296,
+     "cw": 296
+    },
+    "approval": {
+     "l": 540.6,
+     "r": 668.5,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 566.6,
+     "r": 660.5,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 983.9,
+     "r": 1187.4,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 993.9,
+     "r": 1080.1,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 1193.4,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 775,
+     "b": 823,
+     "w": 746.8,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 766,
+     "width": 1440,
+     "height": 134
+    }
+   }
+  },
+  "running": {
+   "360": {
+    "viewport": {
+     "w": 360,
+     "h": 900
+    },
+    "doc": {
+     "sw": 360,
+     "cw": 360
+    },
+    "card": {
+     "l": 68,
+     "r": 344,
+     "t": 568,
+     "b": 896,
+     "w": 276,
+     "h": 328
+    },
+    "row": {
+     "l": 69,
+     "r": 343,
+     "t": 753,
+     "b": 865,
+     "w": 274,
+     "h": 112,
+     "sw": 274,
+     "cw": 274
+    },
+    "cluster": {
+     "l": 81,
+     "r": 331,
+     "t": 789,
+     "b": 857,
+     "w": 250,
+     "h": 68,
+     "sw": 250,
+     "cw": 250
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 281.9,
+     "t": 753,
+     "b": 781,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 117,
+     "r": 244.9,
+     "t": 753,
+     "b": 781,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 143,
+     "r": 236.9,
+     "t": 759,
+     "b": 775,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 127.5,
+     "r": 331,
+     "t": 789,
+     "b": 817,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 137.5,
+     "r": 223.7,
+     "t": 795,
+     "b": 811,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": null,
+    "sendLabel": null,
+    "stop": {
+     "l": 297,
+     "r": 331,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 753,
+      "approval": 753,
+      "model": 789,
+      "stop": 823
+     },
+     "lines": 3,
+     "stopLine": 3,
+     "sendLine": null,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 68,
+        "r": 344,
+        "t": 568,
+        "b": 618,
+        "w": 276,
+        "h": 50
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 68,
+        "r": 344,
+        "t": 622,
+        "b": 672,
+        "w": 276,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 68,
+      "r": 344,
+      "t": 568,
+      "b": 672,
+      "w": 276,
+      "h": 104
+     },
+     "headText": null,
+     "ariaExpanded": null,
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 68,
+      "r": 344,
+      "t": 568,
+      "b": 672,
+      "w": 276,
+      "h": 104,
+      "sw": 276,
+      "cw": 276,
+      "sh": 104,
+      "ch": 104,
+      "maxH": "none",
+      "overflowY": "visible"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 69,
+     "r": 343,
+     "t": 681,
+     "b": 753,
+     "w": 274,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 560,
+     "width": 360,
+     "height": 340
+    }
+   },
+   "390": {
+    "viewport": {
+     "w": 390,
+     "h": 900
+    },
+    "doc": {
+     "sw": 390,
+     "cw": 390
+    },
+    "card": {
+     "l": 68,
+     "r": 374,
+     "t": 568,
+     "b": 896,
+     "w": 306,
+     "h": 328
+    },
+    "row": {
+     "l": 69,
+     "r": 373,
+     "t": 753,
+     "b": 865,
+     "w": 304,
+     "h": 112,
+     "sw": 304,
+     "cw": 304
+    },
+    "cluster": {
+     "l": 81,
+     "r": 361,
+     "t": 789,
+     "b": 857,
+     "w": 280,
+     "h": 68,
+     "sw": 280,
+     "cw": 280
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 281.9,
+     "t": 753,
+     "b": 781,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 117,
+     "r": 244.9,
+     "t": 753,
+     "b": 781,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 143,
+     "r": 236.9,
+     "t": 759,
+     "b": 775,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 157.5,
+     "r": 361,
+     "t": 789,
+     "b": 817,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 167.5,
+     "r": 253.7,
+     "t": 795,
+     "b": 811,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": null,
+    "sendLabel": null,
+    "stop": {
+     "l": 327,
+     "r": 361,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 753,
+      "approval": 753,
+      "model": 789,
+      "stop": 823
+     },
+     "lines": 3,
+     "stopLine": 3,
+     "sendLine": null,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 68,
+        "r": 374,
+        "t": 568,
+        "b": 618,
+        "w": 306,
+        "h": 50
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 68,
+        "r": 374,
+        "t": 622,
+        "b": 672,
+        "w": 306,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 68,
+      "r": 374,
+      "t": 568,
+      "b": 672,
+      "w": 306,
+      "h": 104
+     },
+     "headText": null,
+     "ariaExpanded": null,
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 68,
+      "r": 374,
+      "t": 568,
+      "b": 672,
+      "w": 306,
+      "h": 104,
+      "sw": 306,
+      "cw": 306,
+      "sh": 104,
+      "ch": 104,
+      "maxH": "none",
+      "overflowY": "visible"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 69,
+     "r": 373,
+     "t": 681,
+     "b": 753,
+     "w": 304,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 560,
+     "width": 390,
+     "height": 340
+    }
+   },
+   "430": {
+    "viewport": {
+     "w": 430,
+     "h": 900
+    },
+    "doc": {
+     "sw": 430,
+     "cw": 430
+    },
+    "card": {
+     "l": 68,
+     "r": 414,
+     "t": 592,
+     "b": 896,
+     "w": 346,
+     "h": 304
+    },
+    "row": {
+     "l": 69,
+     "r": 413,
+     "t": 753,
+     "b": 865,
+     "w": 344,
+     "h": 112,
+     "sw": 344,
+     "cw": 344
+    },
+    "cluster": {
+     "l": 81,
+     "r": 401,
+     "t": 789,
+     "b": 857,
+     "w": 320,
+     "h": 68,
+     "sw": 320,
+     "cw": 320
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 281.9,
+     "t": 753,
+     "b": 781,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 117,
+     "r": 244.9,
+     "t": 753,
+     "b": 781,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 143,
+     "r": 236.9,
+     "t": 759,
+     "b": 775,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 90.9,
+     "r": 294.5,
+     "t": 789,
+     "b": 817,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 100.9,
+     "r": 187.1,
+     "t": 795,
+     "b": 811,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": null,
+    "sendLabel": null,
+    "stop": {
+     "l": 367,
+     "r": 401,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 753,
+      "approval": 753,
+      "model": 789,
+      "stop": 823
+     },
+     "lines": 3,
+     "stopLine": 3,
+     "sendLine": null,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 68,
+        "r": 414,
+        "t": 592,
+        "b": 642,
+        "w": 346,
+        "h": 50
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 68,
+        "r": 414,
+        "t": 646,
+        "b": 696,
+        "w": 346,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 68,
+      "r": 414,
+      "t": 592,
+      "b": 696,
+      "w": 346,
+      "h": 104
+     },
+     "headText": null,
+     "ariaExpanded": null,
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 68,
+      "r": 414,
+      "t": 592,
+      "b": 696,
+      "w": 346,
+      "h": 104,
+      "sw": 346,
+      "cw": 346,
+      "sh": 104,
+      "ch": 104,
+      "maxH": "none",
+      "overflowY": "visible"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 69,
+     "r": 413,
+     "t": 705,
+     "b": 753,
+     "w": 344,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 584,
+     "width": 430,
+     "height": 316
+    }
+   },
+   "768": {
+    "viewport": {
+     "w": 768,
+     "h": 900
+    },
+    "doc": {
+     "sw": 768,
+     "cw": 768
+    },
+    "card": {
+     "l": 324,
+     "r": 736,
+     "t": 642,
+     "b": 896,
+     "w": 412,
+     "h": 254
+    },
+    "row": {
+     "l": 325,
+     "r": 735,
+     "t": 787,
+     "b": 865,
+     "w": 410,
+     "h": 78,
+     "sw": 410,
+     "cw": 410
+    },
+    "cluster": {
+     "l": 337,
+     "r": 723,
+     "t": 823,
+     "b": 857,
+     "w": 386,
+     "h": 34,
+     "sw": 386,
+     "cw": 386
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 537.9,
+     "t": 787,
+     "b": 815,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 373,
+     "r": 500.9,
+     "t": 787,
+     "b": 815,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 399,
+     "r": 492.9,
+     "t": 793,
+     "b": 809,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 337,
+     "r": 536.5,
+     "t": 826,
+     "b": 854,
+     "w": 199.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 347,
+     "r": 429.1,
+     "t": 832,
+     "b": 848,
+     "w": 82.1,
+     "h": 16,
+     "sw": 86,
+     "cw": 82,
+     "text": "deepseek-chat",
+     "clipped": true
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": null,
+    "sendLabel": null,
+    "stop": {
+     "l": 689,
+     "r": 723,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 787,
+      "approval": 787,
+      "model": 826,
+      "stop": 823
+     },
+     "lines": 2,
+     "stopLine": 2,
+     "sendLine": null,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 324,
+        "r": 736,
+        "t": 642,
+        "b": 676,
+        "w": 412,
+        "h": 34
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 324,
+        "r": 736,
+        "t": 680,
+        "b": 730,
+        "w": 412,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 324,
+      "r": 736,
+      "t": 642,
+      "b": 730,
+      "w": 412,
+      "h": 88
+     },
+     "headText": null,
+     "ariaExpanded": null,
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 324,
+      "r": 736,
+      "t": 642,
+      "b": 730,
+      "w": 412,
+      "h": 88,
+      "sw": 412,
+      "cw": 412,
+      "sh": 88,
+      "ch": 88,
+      "maxH": "none",
+      "overflowY": "visible"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 325,
+     "r": 735,
+     "t": 739,
+     "b": 787,
+     "w": 410,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 634,
+     "width": 768,
+     "height": 266
+    }
+   },
+   "1024": {
+    "viewport": {
+     "w": 1024,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1024,
+     "cw": 1024
+    },
+    "card": {
+     "l": 324,
+     "r": 992,
+     "t": 694,
+     "b": 896,
+     "w": 668,
+     "h": 202
+    },
+    "row": {
+     "l": 325,
+     "r": 991,
+     "t": 823,
+     "b": 865,
+     "w": 666,
+     "h": 42,
+     "sw": 666,
+     "cw": 666
+    },
+    "cluster": {
+     "l": 588.9,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 390.1,
+     "h": 34,
+     "sw": 390,
+     "cw": 390
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 537.9,
+     "t": 826,
+     "b": 854,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 373,
+     "r": 500.9,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 399,
+     "r": 492.9,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 588.9,
+     "r": 792.5,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 598.9,
+     "r": 685.1,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": null,
+    "sendLabel": null,
+    "stop": {
+     "l": 945,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "stop": 823
+     },
+     "lines": 1,
+     "stopLine": 1,
+     "sendLine": null,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 324,
+        "r": 992,
+        "t": 694,
+        "b": 728,
+        "w": 668,
+        "h": 34
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 324,
+        "r": 992,
+        "t": 732,
+        "b": 766,
+        "w": 668,
+        "h": 34
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 324,
+      "r": 992,
+      "t": 694,
+      "b": 766,
+      "w": 668,
+      "h": 72
+     },
+     "headText": null,
+     "ariaExpanded": null,
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 324,
+      "r": 992,
+      "t": 694,
+      "b": 766,
+      "w": 668,
+      "h": 72,
+      "sw": 668,
+      "cw": 668,
+      "sh": 72,
+      "ch": 72,
+      "maxH": "none",
+      "overflowY": "visible"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 325,
+     "r": 991,
+     "t": 775,
+     "b": 823,
+     "w": 666,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 686,
+     "width": 1024,
+     "height": 214
+    }
+   },
+   "1440": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1440,
+     "cw": 1440
+    },
+    "card": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 694,
+     "b": 896,
+     "w": 748.8,
+     "h": 202
+    },
+    "row": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 823,
+     "b": 865,
+     "w": 746.8,
+     "h": 42,
+     "sw": 747,
+     "cw": 747
+    },
+    "cluster": {
+     "l": 837.3,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 390.1,
+     "h": 34,
+     "sw": 390,
+     "cw": 390
+    },
+    "leftGroup": {
+     "l": 504.6,
+     "r": 800.7,
+     "t": 826,
+     "b": 854,
+     "w": 296.1,
+     "h": 28,
+     "sw": 296,
+     "cw": 296
+    },
+    "approval": {
+     "l": 540.6,
+     "r": 668.5,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": null,
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 566.6,
+     "r": 660.5,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 837.3,
+     "r": 1040.8,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 847.3,
+     "r": 933.5,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": null,
+    "sendLabel": null,
+    "stop": {
+     "l": 1193.4,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "stop": 823
+     },
+     "lines": 1,
+     "stopLine": 1,
+     "sendLine": null,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 491.6,
+        "r": 1240.4,
+        "t": 694,
+        "b": 728,
+        "w": 748.8,
+        "h": 34
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 491.6,
+        "r": 1240.4,
+        "t": 732,
+        "b": 766,
+        "w": 748.8,
+        "h": 34
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 694,
+      "b": 766,
+      "w": 748.8,
+      "h": 72
+     },
+     "headText": null,
+     "ariaExpanded": null,
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 694,
+      "b": 766,
+      "w": 748.8,
+      "h": 72,
+      "sw": 749,
+      "cw": 749,
+      "sh": 72,
+      "ch": 72,
+      "maxH": "none",
+      "overflowY": "visible"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 775,
+     "b": 823,
+     "w": 746.8,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 686,
+     "width": 1440,
+     "height": 214
+    }
+   }
+  }
+ },
+ "after": {
+  "idle": {
+   "360": {
+    "viewport": {
+     "w": 360,
+     "h": 900
+    },
+    "doc": {
+     "sw": 360,
+     "cw": 360
+    },
+    "card": {
+     "l": 68,
+     "r": 344,
+     "t": 750,
+     "b": 896,
+     "w": 276,
+     "h": 146
+    },
+    "row": {
+     "l": 69,
+     "r": 343,
+     "t": 823,
+     "b": 865,
+     "w": 274,
+     "h": 42,
+     "sw": 274,
+     "cw": 274
+    },
+    "cluster": {
+     "l": 173.7,
+     "r": 331,
+     "t": 823,
+     "b": 857,
+     "w": 157.3,
+     "h": 34,
+     "sw": 157,
+     "cw": 157
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 165.7,
+     "t": 826,
+     "b": 854,
+     "w": 84.7,
+     "h": 28,
+     "sw": 90,
+     "cw": 85
+    },
+    "approval": {
+     "l": 104,
+     "r": 134,
+     "t": 826,
+     "b": 854,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 173.7,
+     "r": 291,
+     "t": 826,
+     "b": 854,
+     "w": 117.3,
+     "h": 28
+    },
+    "modelName": {
+     "l": 183.7,
+     "r": 247.7,
+     "t": 832,
+     "b": 848,
+     "w": 64,
+     "h": 16,
+     "sw": 86,
+     "cw": 64,
+     "text": "deepseek-chat",
+     "clipped": true
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 297,
+     "r": 331,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 69,
+     "r": 343,
+     "t": 751,
+     "b": 823,
+     "w": 274,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 742,
+     "width": 360,
+     "height": 158
+    }
+   },
+   "390": {
+    "viewport": {
+     "w": 390,
+     "h": 900
+    },
+    "doc": {
+     "sw": 390,
+     "cw": 390
+    },
+    "card": {
+     "l": 68,
+     "r": 374,
+     "t": 750,
+     "b": 896,
+     "w": 306,
+     "h": 146
+    },
+    "row": {
+     "l": 69,
+     "r": 373,
+     "t": 823,
+     "b": 865,
+     "w": 304,
+     "h": 42,
+     "sw": 304,
+     "cw": 304
+    },
+    "cluster": {
+     "l": 184.2,
+     "r": 361,
+     "t": 823,
+     "b": 857,
+     "w": 176.8,
+     "h": 34,
+     "sw": 177,
+     "cw": 177
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 176.2,
+     "t": 826,
+     "b": 854,
+     "w": 95.2,
+     "h": 28,
+     "sw": 95,
+     "cw": 95
+    },
+    "approval": {
+     "l": 109.2,
+     "r": 139.2,
+     "t": 826,
+     "b": 854,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 184.2,
+     "r": 321,
+     "t": 826,
+     "b": 854,
+     "w": 136.8,
+     "h": 28
+    },
+    "modelName": {
+     "l": 194.2,
+     "r": 266,
+     "t": 832,
+     "b": 848,
+     "w": 71.8,
+     "h": 16,
+     "sw": 86,
+     "cw": 72,
+     "text": "deepseek-chat",
+     "clipped": true
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 327,
+     "r": 361,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 69,
+     "r": 373,
+     "t": 751,
+     "b": 823,
+     "w": 304,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 742,
+     "width": 390,
+     "height": 158
+    }
+   },
+   "430": {
+    "viewport": {
+     "w": 430,
+     "h": 900
+    },
+    "doc": {
+     "sw": 430,
+     "cw": 430
+    },
+    "card": {
+     "l": 68,
+     "r": 414,
+     "t": 774,
+     "b": 896,
+     "w": 346,
+     "h": 122
+    },
+    "row": {
+     "l": 69,
+     "r": 413,
+     "t": 823,
+     "b": 865,
+     "w": 344,
+     "h": 42,
+     "sw": 344,
+     "cw": 344
+    },
+    "cluster": {
+     "l": 209.8,
+     "r": 401,
+     "t": 823,
+     "b": 857,
+     "w": 191.2,
+     "h": 34,
+     "sw": 191,
+     "cw": 191
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 184,
+     "t": 826,
+     "b": 854,
+     "w": 103,
+     "h": 28,
+     "sw": 103,
+     "cw": 103
+    },
+    "approval": {
+     "l": 117,
+     "r": 147,
+     "t": 826,
+     "b": 854,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 209.8,
+     "r": 361,
+     "t": 826,
+     "b": 854,
+     "w": 151.2,
+     "h": 28
+    },
+    "modelName": {
+     "l": 219.8,
+     "r": 306,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 367,
+     "r": 401,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 69,
+     "r": 413,
+     "t": 775,
+     "b": 823,
+     "w": 344,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 766,
+     "width": 430,
+     "height": 134
+    }
+   },
+   "768": {
+    "viewport": {
+     "w": 768,
+     "h": 900
+    },
+    "doc": {
+     "sw": 768,
+     "cw": 768
+    },
+    "card": {
+     "l": 324,
+     "r": 736,
+     "t": 774,
+     "b": 896,
+     "w": 412,
+     "h": 122
+    },
+    "row": {
+     "l": 325,
+     "r": 735,
+     "t": 823,
+     "b": 865,
+     "w": 410,
+     "h": 42,
+     "sw": 410,
+     "cw": 410
+    },
+    "cluster": {
+     "l": 531.8,
+     "r": 723,
+     "t": 823,
+     "b": 857,
+     "w": 191.2,
+     "h": 34,
+     "sw": 191,
+     "cw": 191
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 440,
+     "t": 826,
+     "b": 854,
+     "w": 103,
+     "h": 28,
+     "sw": 103,
+     "cw": 103
+    },
+    "approval": {
+     "l": 373,
+     "r": 403,
+     "t": 826,
+     "b": 854,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 531.8,
+     "r": 683,
+     "t": 826,
+     "b": 854,
+     "w": 151.2,
+     "h": 28
+    },
+    "modelName": {
+     "l": 541.8,
+     "r": 628,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 689,
+     "r": 723,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 325,
+     "r": 735,
+     "t": 775,
+     "b": 823,
+     "w": 410,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 766,
+     "width": 768,
+     "height": 134
+    }
+   },
+   "1024": {
+    "viewport": {
+     "w": 1024,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1024,
+     "cw": 1024
+    },
+    "card": {
+     "l": 324,
+     "r": 992,
+     "t": 774,
+     "b": 896,
+     "w": 668,
+     "h": 122
+    },
+    "row": {
+     "l": 325,
+     "r": 991,
+     "t": 823,
+     "b": 865,
+     "w": 666,
+     "h": 42,
+     "sw": 666,
+     "cw": 666
+    },
+    "cluster": {
+     "l": 735.5,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 537.9,
+     "t": 826,
+     "b": 854,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 373,
+     "r": 500.9,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 399,
+     "r": 492.9,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 735.5,
+     "r": 939,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 745.5,
+     "r": 831.7,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 945,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 325,
+     "r": 991,
+     "t": 775,
+     "b": 823,
+     "w": 666,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 766,
+     "width": 1024,
+     "height": 134
+    }
+   },
+   "1440": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1440,
+     "cw": 1440
+    },
+    "card": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 774,
+     "b": 896,
+     "w": 748.8,
+     "h": 122
+    },
+    "row": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 823,
+     "b": 865,
+     "w": 746.8,
+     "h": 42,
+     "sw": 747,
+     "cw": 747
+    },
+    "cluster": {
+     "l": 983.9,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 243.5,
+     "h": 34,
+     "sw": 244,
+     "cw": 244
+    },
+    "leftGroup": {
+     "l": 504.6,
+     "r": 800.7,
+     "t": 826,
+     "b": 854,
+     "w": 296.1,
+     "h": 28,
+     "sw": 296,
+     "cw": 296
+    },
+    "approval": {
+     "l": 540.6,
+     "r": 668.5,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 566.6,
+     "r": 660.5,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 983.9,
+     "r": 1187.4,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 993.9,
+     "r": 1080.1,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 1193.4,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Send message",
+    "stop": null,
+    "stopVisible": null,
+    "stopInsideCard": null,
+    "hitIsStop": null,
+    "hitLabel": null,
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823
+     },
+     "lines": 1,
+     "stopLine": null,
+     "sendLine": 1,
+     "stopWithSend": false
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": null,
+    "textarea": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 775,
+     "b": 823,
+     "w": 746.8,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 766,
+     "width": 1440,
+     "height": 134
+    }
+   }
+  },
+  "running": {
+   "360": {
+    "viewport": {
+     "w": 360,
+     "h": 900
+    },
+    "doc": {
+     "sw": 360,
+     "cw": 360
+    },
+    "card": {
+     "l": 68,
+     "r": 344,
+     "t": 575.6,
+     "b": 896,
+     "w": 276,
+     "h": 320.4
+    },
+    "row": {
+     "l": 69,
+     "r": 343,
+     "t": 787,
+     "b": 865,
+     "w": 274,
+     "h": 78,
+     "sw": 274,
+     "cw": 274
+    },
+    "cluster": {
+     "l": 99.8,
+     "r": 331,
+     "t": 823,
+     "b": 857,
+     "w": 231.2,
+     "h": 34,
+     "sw": 231,
+     "cw": 231
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 184,
+     "t": 787,
+     "b": 815,
+     "w": 103,
+     "h": 28,
+     "sw": 103,
+     "cw": 103
+    },
+    "approval": {
+     "l": 117,
+     "r": 147,
+     "t": 787,
+     "b": 815,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 99.8,
+     "r": 251,
+     "t": 826,
+     "b": 854,
+     "w": 151.2,
+     "h": 28
+    },
+    "modelName": {
+     "l": 109.8,
+     "r": 196,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 257,
+     "r": 291,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Add to the follow-up queue",
+    "stop": {
+     "l": 297,
+     "r": 331,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 787,
+      "approval": 787,
+      "model": 826,
+      "send": 823,
+      "stop": 823
+     },
+     "lines": 2,
+     "stopLine": 2,
+     "sendLine": 2,
+     "stopWithSend": true
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 68,
+        "r": 344,
+        "t": 595.6,
+        "b": 645.6,
+        "w": 276,
+        "h": 50
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 68,
+        "r": 344,
+        "t": 649.6,
+        "b": 715.6,
+        "w": 276,
+        "h": 66
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 68,
+      "r": 344,
+      "t": 575.6,
+      "b": 706,
+      "w": 276,
+      "h": 130.4
+     },
+     "headText": "2 queued",
+     "ariaExpanded": "true",
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 68,
+      "r": 344,
+      "t": 595.6,
+      "b": 706,
+      "w": 276,
+      "h": 110.4,
+      "sw": 276,
+      "cw": 276,
+      "sh": 120,
+      "ch": 110,
+      "maxH": "110.4px",
+      "overflowY": "auto"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 69,
+     "r": 343,
+     "t": 715,
+     "b": 787,
+     "w": 274,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 568,
+     "width": 360,
+     "height": 332
+    }
+   },
+   "390": {
+    "viewport": {
+     "w": 390,
+     "h": 900
+    },
+    "doc": {
+     "sw": 390,
+     "cw": 390
+    },
+    "card": {
+     "l": 68,
+     "r": 374,
+     "t": 582,
+     "b": 896,
+     "w": 306,
+     "h": 314
+    },
+    "row": {
+     "l": 69,
+     "r": 373,
+     "t": 787,
+     "b": 865,
+     "w": 304,
+     "h": 78,
+     "sw": 304,
+     "cw": 304
+    },
+    "cluster": {
+     "l": 129.8,
+     "r": 361,
+     "t": 823,
+     "b": 857,
+     "w": 231.2,
+     "h": 34,
+     "sw": 231,
+     "cw": 231
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 184,
+     "t": 787,
+     "b": 815,
+     "w": 103,
+     "h": 28,
+     "sw": 103,
+     "cw": 103
+    },
+    "approval": {
+     "l": 117,
+     "r": 147,
+     "t": 787,
+     "b": 815,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 129.8,
+     "r": 281,
+     "t": 826,
+     "b": 854,
+     "w": 151.2,
+     "h": 28
+    },
+    "modelName": {
+     "l": 139.8,
+     "r": 226,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 287,
+     "r": 321,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Add to the follow-up queue",
+    "stop": {
+     "l": 327,
+     "r": 361,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 787,
+      "approval": 787,
+      "model": 826,
+      "send": 823,
+      "stop": 823
+     },
+     "lines": 2,
+     "stopLine": 2,
+     "sendLine": 2,
+     "stopWithSend": true
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 68,
+        "r": 374,
+        "t": 602,
+        "b": 652,
+        "w": 306,
+        "h": 50
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 68,
+        "r": 374,
+        "t": 656,
+        "b": 706,
+        "w": 306,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 68,
+      "r": 374,
+      "t": 582,
+      "b": 706,
+      "w": 306,
+      "h": 124
+     },
+     "headText": "2 queued",
+     "ariaExpanded": "true",
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 68,
+      "r": 374,
+      "t": 602,
+      "b": 706,
+      "w": 306,
+      "h": 104,
+      "sw": 306,
+      "cw": 306,
+      "sh": 104,
+      "ch": 104,
+      "maxH": "110.4px",
+      "overflowY": "auto"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 69,
+     "r": 373,
+     "t": 715,
+     "b": 787,
+     "w": 304,
+     "h": 72
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 574,
+     "width": 390,
+     "height": 326
+    }
+   },
+   "430": {
+    "viewport": {
+     "w": 430,
+     "h": 900
+    },
+    "doc": {
+     "sw": 430,
+     "cw": 430
+    },
+    "card": {
+     "l": 68,
+     "r": 414,
+     "t": 606,
+     "b": 896,
+     "w": 346,
+     "h": 290
+    },
+    "row": {
+     "l": 69,
+     "r": 413,
+     "t": 787,
+     "b": 865,
+     "w": 344,
+     "h": 78,
+     "sw": 344,
+     "cw": 344
+    },
+    "cluster": {
+     "l": 169.8,
+     "r": 401,
+     "t": 823,
+     "b": 857,
+     "w": 231.2,
+     "h": 34,
+     "sw": 231,
+     "cw": 231
+    },
+    "leftGroup": {
+     "l": 81,
+     "r": 184,
+     "t": 787,
+     "b": 815,
+     "w": 103,
+     "h": 28,
+     "sw": 103,
+     "cw": 103
+    },
+    "approval": {
+     "l": 117,
+     "r": 147,
+     "t": 787,
+     "b": 815,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 169.8,
+     "r": 321,
+     "t": 826,
+     "b": 854,
+     "w": 151.2,
+     "h": 28
+    },
+    "modelName": {
+     "l": 179.8,
+     "r": 266,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 327,
+     "r": 361,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Add to the follow-up queue",
+    "stop": {
+     "l": 367,
+     "r": 401,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 787,
+      "approval": 787,
+      "model": 826,
+      "send": 823,
+      "stop": 823
+     },
+     "lines": 2,
+     "stopLine": 2,
+     "sendLine": 2,
+     "stopWithSend": true
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 68,
+        "r": 414,
+        "t": 626,
+        "b": 676,
+        "w": 346,
+        "h": 50
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 68,
+        "r": 414,
+        "t": 680,
+        "b": 730,
+        "w": 346,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 68,
+      "r": 414,
+      "t": 606,
+      "b": 730,
+      "w": 346,
+      "h": 124
+     },
+     "headText": "2 queued",
+     "ariaExpanded": "true",
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 68,
+      "r": 414,
+      "t": 626,
+      "b": 730,
+      "w": 346,
+      "h": 104,
+      "sw": 346,
+      "cw": 346,
+      "sh": 104,
+      "ch": 104,
+      "maxH": "110.4px",
+      "overflowY": "auto"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 69,
+     "r": 413,
+     "t": 739,
+     "b": 787,
+     "w": 344,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 598,
+     "width": 430,
+     "height": 302
+    }
+   },
+   "768": {
+    "viewport": {
+     "w": 768,
+     "h": 900
+    },
+    "doc": {
+     "sw": 768,
+     "cw": 768
+    },
+    "card": {
+     "l": 324,
+     "r": 736,
+     "t": 658,
+     "b": 896,
+     "w": 412,
+     "h": 238
+    },
+    "row": {
+     "l": 325,
+     "r": 735,
+     "t": 823,
+     "b": 865,
+     "w": 410,
+     "h": 42,
+     "sw": 410,
+     "cw": 410
+    },
+    "cluster": {
+     "l": 491.8,
+     "r": 723,
+     "t": 823,
+     "b": 857,
+     "w": 231.2,
+     "h": 34,
+     "sw": 231,
+     "cw": 231
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 440,
+     "t": 826,
+     "b": 854,
+     "w": 103,
+     "h": 28,
+     "sw": 103,
+     "cw": 103
+    },
+    "approval": {
+     "l": 373,
+     "r": 403,
+     "t": 826,
+     "b": 854,
+     "w": 30,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 0,
+     "r": 0,
+     "t": 0,
+     "b": 0,
+     "w": 0,
+     "h": 0,
+     "sw": 0,
+     "cw": 0,
+     "rendered": false,
+     "display": "none",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 491.8,
+     "r": 643,
+     "t": 826,
+     "b": 854,
+     "w": 151.2,
+     "h": 28
+    },
+    "modelName": {
+     "l": 501.8,
+     "r": 588,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": false,
+     "display": "none"
+    },
+    "send": {
+     "l": 649,
+     "r": 683,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Add to the follow-up queue",
+    "stop": {
+     "l": 689,
+     "r": 723,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823,
+      "stop": 823
+     },
+     "lines": 1,
+     "stopLine": 1,
+     "sendLine": 1,
+     "stopWithSend": true
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 324,
+        "r": 736,
+        "t": 678,
+        "b": 712,
+        "w": 412,
+        "h": 34
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 324,
+        "r": 736,
+        "t": 716,
+        "b": 766,
+        "w": 412,
+        "h": 50
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 324,
+      "r": 736,
+      "t": 658,
+      "b": 766,
+      "w": 412,
+      "h": 108
+     },
+     "headText": "2 queued",
+     "ariaExpanded": "true",
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 324,
+      "r": 736,
+      "t": 678,
+      "b": 766,
+      "w": 412,
+      "h": 88,
+      "sw": 412,
+      "cw": 412,
+      "sh": 88,
+      "ch": 88,
+      "maxH": "110.4px",
+      "overflowY": "auto"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 325,
+     "r": 735,
+     "t": 775,
+     "b": 823,
+     "w": 410,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 650,
+     "width": 768,
+     "height": 250
+    }
+   },
+   "1024": {
+    "viewport": {
+     "w": 1024,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1024,
+     "cw": 1024
+    },
+    "card": {
+     "l": 324,
+     "r": 992,
+     "t": 674,
+     "b": 896,
+     "w": 668,
+     "h": 222
+    },
+    "row": {
+     "l": 325,
+     "r": 991,
+     "t": 823,
+     "b": 865,
+     "w": 666,
+     "h": 42,
+     "sw": 666,
+     "cw": 666
+    },
+    "cluster": {
+     "l": 695.5,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 283.5,
+     "h": 34,
+     "sw": 284,
+     "cw": 284
+    },
+    "leftGroup": {
+     "l": 337,
+     "r": 537.9,
+     "t": 826,
+     "b": 854,
+     "w": 200.9,
+     "h": 28,
+     "sw": 201,
+     "cw": 201
+    },
+    "approval": {
+     "l": 373,
+     "r": 500.9,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 399,
+     "r": 492.9,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 695.5,
+     "r": 899,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 705.5,
+     "r": 791.7,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 905,
+     "r": 939,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Add to the follow-up queue",
+    "stop": {
+     "l": 945,
+     "r": 979,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823,
+      "stop": 823
+     },
+     "lines": 1,
+     "stopLine": 1,
+     "sendLine": 1,
+     "stopWithSend": true
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 324,
+        "r": 992,
+        "t": 694,
+        "b": 728,
+        "w": 668,
+        "h": 34
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 324,
+        "r": 992,
+        "t": 732,
+        "b": 766,
+        "w": 668,
+        "h": 34
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 324,
+      "r": 992,
+      "t": 674,
+      "b": 766,
+      "w": 668,
+      "h": 92
+     },
+     "headText": "2 queued",
+     "ariaExpanded": "true",
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 324,
+      "r": 992,
+      "t": 694,
+      "b": 766,
+      "w": 668,
+      "h": 72,
+      "sw": 668,
+      "cw": 668,
+      "sh": 72,
+      "ch": 72,
+      "maxH": "110.4px",
+      "overflowY": "auto"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 325,
+     "r": 991,
+     "t": 775,
+     "b": 823,
+     "w": 666,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 666,
+     "width": 1024,
+     "height": 234
+    }
+   },
+   "1440": {
+    "viewport": {
+     "w": 1440,
+     "h": 900
+    },
+    "doc": {
+     "sw": 1440,
+     "cw": 1440
+    },
+    "card": {
+     "l": 491.6,
+     "r": 1240.4,
+     "t": 674,
+     "b": 896,
+     "w": 748.8,
+     "h": 222
+    },
+    "row": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 823,
+     "b": 865,
+     "w": 746.8,
+     "h": 42,
+     "sw": 747,
+     "cw": 747
+    },
+    "cluster": {
+     "l": 943.9,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 283.5,
+     "h": 34,
+     "sw": 284,
+     "cw": 284
+    },
+    "leftGroup": {
+     "l": 504.6,
+     "r": 800.7,
+     "t": 826,
+     "b": 854,
+     "w": 296.1,
+     "h": 28,
+     "sw": 296,
+     "cw": 296
+    },
+    "approval": {
+     "l": 540.6,
+     "r": 668.5,
+     "t": 826,
+     "b": 854,
+     "w": 127.9,
+     "h": 28
+    },
+    "approvalLabel": "Approval mode",
+    "approvalTitle": "Approval mode: Ask for approval",
+    "approvalInnerText": "Ask for approval",
+    "approvalTextContent": "Ask for approval",
+    "approvalSpan": {
+     "l": 566.6,
+     "r": 660.5,
+     "t": 832,
+     "b": 848,
+     "w": 93.9,
+     "h": 16,
+     "sw": 94,
+     "cw": 94,
+     "rendered": true,
+     "display": "block",
+     "text": "Ask for approval"
+    },
+    "model": {
+     "l": 943.9,
+     "r": 1147.4,
+     "t": 826,
+     "b": 854,
+     "w": 203.5,
+     "h": 28
+    },
+    "modelName": {
+     "l": 953.9,
+     "r": 1040.1,
+     "t": 832,
+     "b": 848,
+     "w": 86.2,
+     "h": 16,
+     "sw": 86,
+     "cw": 86,
+     "text": "deepseek-chat",
+     "clipped": false
+    },
+    "thinking": {
+     "text": "Medium",
+     "rendered": true,
+     "display": "block"
+    },
+    "send": {
+     "l": 1153.4,
+     "r": 1187.4,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "sendLabel": "Add to the follow-up queue",
+    "stop": {
+     "l": 1193.4,
+     "r": 1227.4,
+     "t": 823,
+     "b": 857,
+     "w": 34,
+     "h": 34
+    },
+    "stopVisible": true,
+    "stopInsideCard": true,
+    "hitIsStop": true,
+    "hitLabel": "Stop generation",
+    "toolbar": {
+     "tops": {
+      "left": 826,
+      "approval": 826,
+      "model": 826,
+      "send": 823,
+      "stop": 823
+     },
+     "lines": 1,
+     "stopLine": 1,
+     "sendLine": 1,
+     "stopWithSend": true
+    },
+    "receipts": {
+     "retry": null,
+     "unconfirmed": null,
+     "rows": [
+      {
+       "text": "Queued | Also report the control condition for comparison.",
+       "rect": {
+        "l": 491.6,
+        "r": 1240.4,
+        "t": 694,
+        "b": 728,
+        "w": 748.8,
+        "h": 34
+       }
+      },
+      {
+       "text": "Queued | Add a note about the assay temperature in the methods.",
+       "rect": {
+        "l": 491.6,
+        "r": 1240.4,
+        "t": 732,
+        "b": 766,
+        "w": 748.8,
+        "h": 34
+       }
+      }
+     ],
+     "toast": null,
+     "bodyHasToastText": false
+    },
+    "queue": {
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 674,
+      "b": 766,
+      "w": 748.8,
+      "h": 92
+     },
+     "headText": "2 queued",
+     "ariaExpanded": "true",
+     "listPresent": true,
+     "listVisible": true,
+     "list": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 694,
+      "b": 766,
+      "w": 748.8,
+      "h": 72,
+      "sw": 749,
+      "cw": 749,
+      "sh": 72,
+      "ch": 72,
+      "maxH": "110.4px",
+      "overflowY": "auto"
+     },
+     "items": 2
+    },
+    "textarea": {
+     "l": 492.6,
+     "r": 1239.4,
+     "t": 775,
+     "b": 823,
+     "w": 746.8,
+     "h": 48
+    },
+    "textareaFullyVisible": true,
+    "clip": {
+     "x": 0,
+     "y": 666,
+     "width": 1440,
+     "height": 234
+    }
+   }
+  },
+  "collapsed390": {
+   "rect": {
+    "l": 68,
+    "r": 374,
+    "t": 690,
+    "b": 706,
+    "w": 306,
+    "h": 16
+   },
+   "headText": "2 queued",
+   "ariaExpanded": "false",
+   "headLabel": "Show queued messages",
+   "listPresent": false,
+   "listVisible": false,
+   "items": 0,
+   "textarea": {
+    "l": 69,
+    "r": 373,
+    "t": 715,
+    "b": 787,
+    "w": 304,
+    "h": 72
+   },
+   "textareaFullyVisible": true,
+   "doc": {
+    "sw": 390,
+    "cw": 390
+   },
+   "clip": {
+    "x": 0,
+    "y": 682,
+    "width": 390,
+    "height": 218
+   },
+   "shot": "390-collapsed-after.png"
+  },
+  "scroll390": {
+   "viewport": {
+    "w": 390,
+    "h": 900
+   },
+   "doc": {
+    "sw": 390,
+    "cw": 390
+   },
+   "card": {
+    "l": 68,
+    "r": 374,
+    "t": 575.6,
+    "b": 896,
+    "w": 306,
+    "h": 320.4
+   },
+   "row": {
+    "l": 69,
+    "r": 373,
+    "t": 787,
+    "b": 865,
+    "w": 304,
+    "h": 78,
+    "sw": 304,
+    "cw": 304
+   },
+   "cluster": {
+    "l": 129.8,
+    "r": 361,
+    "t": 823,
+    "b": 857,
+    "w": 231.2,
+    "h": 34,
+    "sw": 231,
+    "cw": 231
+   },
+   "leftGroup": {
+    "l": 81,
+    "r": 184,
+    "t": 787,
+    "b": 815,
+    "w": 103,
+    "h": 28,
+    "sw": 103,
+    "cw": 103
+   },
+   "approval": {
+    "l": 117,
+    "r": 147,
+    "t": 787,
+    "b": 815,
+    "w": 30,
+    "h": 28
+   },
+   "approvalLabel": "Approval mode",
+   "approvalTitle": "Approval mode: Ask for approval",
+   "approvalInnerText": "",
+   "approvalTextContent": "Ask for approval",
+   "approvalSpan": {
+    "l": 0,
+    "r": 0,
+    "t": 0,
+    "b": 0,
+    "w": 0,
+    "h": 0,
+    "sw": 0,
+    "cw": 0,
+    "rendered": false,
+    "display": "none",
+    "text": "Ask for approval"
+   },
+   "model": {
+    "l": 129.8,
+    "r": 281,
+    "t": 826,
+    "b": 854,
+    "w": 151.2,
+    "h": 28
+   },
+   "modelName": {
+    "l": 139.8,
+    "r": 226,
+    "t": 832,
+    "b": 848,
+    "w": 86.2,
+    "h": 16,
+    "sw": 86,
+    "cw": 86,
+    "text": "deepseek-chat",
+    "clipped": false
+   },
+   "thinking": {
+    "text": "Medium",
+    "rendered": false,
+    "display": "none"
+   },
+   "send": {
+    "l": 287,
+    "r": 321,
+    "t": 823,
+    "b": 857,
+    "w": 34,
+    "h": 34
+   },
+   "sendLabel": "Add to the follow-up queue",
+   "stop": {
+    "l": 327,
+    "r": 361,
+    "t": 823,
+    "b": 857,
+    "w": 34,
+    "h": 34
+   },
+   "stopVisible": true,
+   "stopInsideCard": true,
+   "hitIsStop": true,
+   "hitLabel": "Stop generation",
+   "toolbar": {
+    "tops": {
+     "left": 787,
+     "approval": 787,
+     "model": 826,
+     "send": 823,
+     "stop": 823
+    },
+    "lines": 2,
+    "stopLine": 2,
+    "sendLine": 2,
+    "stopWithSend": true
+   },
+   "receipts": {
+    "retry": null,
+    "unconfirmed": null,
+    "rows": [
+     {
+      "text": "Queued | Also report the control condition for comparison.",
+      "rect": {
+       "l": 68,
+       "r": 374,
+       "t": 595.6,
+       "b": 645.6,
+       "w": 306,
+       "h": 50
+      }
+     },
+     {
+      "text": "Queued | Add a note about the assay temperature in the methods.",
+      "rect": {
+       "l": 68,
+       "r": 374,
+       "t": 649.6,
+       "b": 699.6,
+       "w": 306,
+       "h": 50
+      }
+     },
+     {
+      "text": "Queued | Recheck the TRP row before you summarize.",
+      "rect": {
+       "l": 68,
+       "r": 374,
+       "t": 703.6,
+       "b": 753.6,
+       "w": 306,
+       "h": 50
+      }
+     },
+     {
+      "text": "Queued | Include the raw fold-change table in the appendix.",
+      "rect": {
+       "l": 68,
+       "r": 374,
+       "t": 757.6,
+       "b": 807.6,
+       "w": 306,
+       "h": 50
+      }
+     }
+    ],
+    "toast": null,
+    "bodyHasToastText": false
+   },
+   "queue": {
+    "rect": {
+     "l": 68,
+     "r": 374,
+     "t": 575.6,
+     "b": 706,
+     "w": 306,
+     "h": 130.4
+    },
+    "headText": "4 queued",
+    "ariaExpanded": "true",
+    "listPresent": true,
+    "listVisible": true,
+    "list": {
+     "l": 68,
+     "r": 374,
+     "t": 595.6,
+     "b": 706,
+     "w": 306,
+     "h": 110.4,
+     "sw": 306,
+     "cw": 306,
+     "sh": 212,
+     "ch": 110,
+     "maxH": "110.4px",
+     "overflowY": "auto"
+    },
+    "items": 4
+   },
+   "textarea": {
+    "l": 69,
+    "r": 373,
+    "t": 715,
+    "b": 787,
+    "w": 304,
+    "h": 72
+   },
+   "textareaFullyVisible": true,
+   "clip": {
+    "x": 0,
+    "y": 568,
+    "width": 390,
+    "height": 332
+   },
+   "shot": "390-scroll-after.png"
+  }
+ },
+ "shots": {
+  "360-idle-after": {
+   "shot": "360-idle-after.png",
+   "doc": {
+    "sw": 360,
+    "cw": 360
+   },
+   "row": {
+    "l": 69,
+    "r": 343,
+    "t": 823,
+    "b": 865,
+    "w": 274,
+    "h": 42,
+    "sw": 274,
+    "cw": 274
+   },
+   "approval": {
+    "l": 104,
+    "r": 134,
+    "t": 826,
+    "b": 854,
+    "w": 30,
+    "h": 28
+   },
+   "approvalSpan": {
+    "l": 0,
+    "r": 0,
+    "t": 0,
+    "b": 0,
+    "w": 0,
+    "h": 0,
+    "sw": 0,
+    "cw": 0,
+    "rendered": false,
+    "display": "none",
+    "text": "Ask for approval"
+   },
+   "modelName": {
+    "l": 183.7,
+    "r": 247.7,
+    "t": 832,
+    "b": 848,
+    "w": 64,
+    "h": 16,
+    "sw": 86,
+    "cw": 64,
+    "text": "deepseek-chat",
+    "clipped": true
+   },
+   "toolbar": {
+    "tops": {
+     "left": 826,
+     "approval": 826,
+     "model": 826,
+     "send": 823
+    },
+    "lines": 1,
+    "stopLine": null,
+    "sendLine": 1,
+    "stopWithSend": false
+   },
+   "stop": null,
+   "stopVisible": null,
+   "stopInsideCard": null,
+   "hitIsStop": null
+  },
+  "430-idle-after": {
+   "shot": "430-idle-after.png",
+   "doc": {
+    "sw": 430,
+    "cw": 430
+   },
+   "row": {
+    "l": 69,
+    "r": 413,
+    "t": 823,
+    "b": 865,
+    "w": 344,
+    "h": 42,
+    "sw": 344,
+    "cw": 344
+   },
+   "approval": {
+    "l": 117,
+    "r": 147,
+    "t": 826,
+    "b": 854,
+    "w": 30,
+    "h": 28
+   },
+   "approvalSpan": {
+    "l": 0,
+    "r": 0,
+    "t": 0,
+    "b": 0,
+    "w": 0,
+    "h": 0,
+    "sw": 0,
+    "cw": 0,
+    "rendered": false,
+    "display": "none",
+    "text": "Ask for approval"
+   },
+   "modelName": {
+    "l": 219.8,
+    "r": 306,
+    "t": 832,
+    "b": 848,
+    "w": 86.2,
+    "h": 16,
+    "sw": 86,
+    "cw": 86,
+    "text": "deepseek-chat",
+    "clipped": false
+   },
+   "toolbar": {
+    "tops": {
+     "left": 826,
+     "approval": 826,
+     "model": 826,
+     "send": 823
+    },
+    "lines": 1,
+    "stopLine": null,
+    "sendLine": 1,
+    "stopWithSend": false
+   },
+   "stop": null,
+   "stopVisible": null,
+   "stopInsideCard": null,
+   "hitIsStop": null
+  },
+  "768-idle-after": {
+   "shot": "768-idle-after.png",
+   "doc": {
+    "sw": 768,
+    "cw": 768
+   },
+   "row": {
+    "l": 325,
+    "r": 735,
+    "t": 823,
+    "b": 865,
+    "w": 410,
+    "h": 42,
+    "sw": 410,
+    "cw": 410
+   },
+   "approval": {
+    "l": 373,
+    "r": 403,
+    "t": 826,
+    "b": 854,
+    "w": 30,
+    "h": 28
+   },
+   "approvalSpan": {
+    "l": 0,
+    "r": 0,
+    "t": 0,
+    "b": 0,
+    "w": 0,
+    "h": 0,
+    "sw": 0,
+    "cw": 0,
+    "rendered": false,
+    "display": "none",
+    "text": "Ask for approval"
+   },
+   "modelName": {
+    "l": 541.8,
+    "r": 628,
+    "t": 832,
+    "b": 848,
+    "w": 86.2,
+    "h": 16,
+    "sw": 86,
+    "cw": 86,
+    "text": "deepseek-chat",
+    "clipped": false
+   },
+   "toolbar": {
+    "tops": {
+     "left": 826,
+     "approval": 826,
+     "model": 826,
+     "send": 823
+    },
+    "lines": 1,
+    "stopLine": null,
+    "sendLine": 1,
+    "stopWithSend": false
+   },
+   "stop": null,
+   "stopVisible": null,
+   "stopInsideCard": null,
+   "hitIsStop": null
+  },
+  "768-idle-before": {
+   "shot": "768-idle-before.png",
+   "doc": {
+    "sw": 768,
+    "cw": 768
+   },
+   "row": {
+    "l": 325,
+    "r": 735,
+    "t": 757,
+    "b": 865,
+    "w": 410,
+    "h": 108,
+    "sw": 410,
+    "cw": 410
+   },
+   "approval": {
+    "l": 337,
+    "r": 464.9,
+    "t": 793,
+    "b": 821,
+    "w": 127.9,
+    "h": 28
+   },
+   "approvalSpan": {
+    "l": 363,
+    "r": 456.9,
+    "t": 799,
+    "b": 815,
+    "w": 93.9,
+    "h": 16,
+    "sw": 94,
+    "cw": 94,
+    "rendered": true,
+    "display": "block",
+    "text": "Ask for approval"
+   },
+   "modelName": {
+    "l": 489.5,
+    "r": 575.7,
+    "t": 799,
+    "b": 815,
+    "w": 86.2,
+    "h": 16,
+    "sw": 86,
+    "cw": 86,
+    "text": "deepseek-chat",
+    "clipped": false
+   },
+   "toolbar": {
+    "tops": {
+     "left": 757,
+     "approval": 793,
+     "model": 793,
+     "send": 790
+    },
+    "lines": 1,
+    "stopLine": null,
+    "sendLine": 1,
+    "stopWithSend": false
+   },
+   "stop": null,
+   "stopVisible": null,
+   "stopInsideCard": null,
+   "hitIsStop": null
+  },
+  "768-running-after": {
+   "shot": "768-running-after.png",
+   "doc": {
+    "sw": 768,
+    "cw": 768
+   },
+   "row": {
+    "l": 325,
+    "r": 735,
+    "t": 823,
+    "b": 865,
+    "w": 410,
+    "h": 42,
+    "sw": 410,
+    "cw": 410
+   },
+   "approval": {
+    "l": 373,
+    "r": 403,
+    "t": 826,
+    "b": 854,
+    "w": 30,
+    "h": 28
+   },
+   "approvalSpan": {
+    "l": 0,
+    "r": 0,
+    "t": 0,
+    "b": 0,
+    "w": 0,
+    "h": 0,
+    "sw": 0,
+    "cw": 0,
+    "rendered": false,
+    "display": "none",
+    "text": "Ask for approval"
+   },
+   "modelName": {
+    "l": 501.8,
+    "r": 588,
+    "t": 832,
+    "b": 848,
+    "w": 86.2,
+    "h": 16,
+    "sw": 86,
+    "cw": 86,
+    "text": "deepseek-chat",
+    "clipped": false
+   },
+   "toolbar": {
+    "tops": {
+     "left": 826,
+     "approval": 826,
+     "model": 826,
+     "send": 823,
+     "stop": 823
+    },
+    "lines": 1,
+    "stopLine": 1,
+    "sendLine": 1,
+    "stopWithSend": true
+   },
+   "stop": {
+    "l": 689,
+    "r": 723,
+    "t": 823,
+    "b": 857,
+    "w": 34,
+    "h": 34
+   },
+   "stopVisible": true,
+   "stopInsideCard": true,
+   "hitIsStop": true
+  },
+  "1440-running-after": {
+   "shot": "1440-running-after.png",
+   "doc": {
+    "sw": 1440,
+    "cw": 1440
+   },
+   "row": {
+    "l": 492.6,
+    "r": 1239.4,
+    "t": 823,
+    "b": 865,
+    "w": 746.8,
+    "h": 42,
+    "sw": 747,
+    "cw": 747
+   },
+   "approval": {
+    "l": 540.6,
+    "r": 668.5,
+    "t": 826,
+    "b": 854,
+    "w": 127.9,
+    "h": 28
+   },
+   "approvalSpan": {
+    "l": 566.6,
+    "r": 660.5,
+    "t": 832,
+    "b": 848,
+    "w": 93.9,
+    "h": 16,
+    "sw": 94,
+    "cw": 94,
+    "rendered": true,
+    "display": "block",
+    "text": "Ask for approval"
+   },
+   "modelName": {
+    "l": 953.9,
+    "r": 1040.1,
+    "t": 832,
+    "b": 848,
+    "w": 86.2,
+    "h": 16,
+    "sw": 86,
+    "cw": 86,
+    "text": "deepseek-chat",
+    "clipped": false
+   },
+   "toolbar": {
+    "tops": {
+     "left": 826,
+     "approval": 826,
+     "model": 826,
+     "send": 823,
+     "stop": 823
+    },
+    "lines": 1,
+    "stopLine": 1,
+    "sendLine": 1,
+    "stopWithSend": true
+   },
+   "stop": {
+    "l": 1193.4,
+    "r": 1227.4,
+    "t": 823,
+    "b": 857,
+    "w": 34,
+    "h": 34
+   },
+   "stopVisible": true,
+   "stopInsideCard": true,
+   "hitIsStop": true
+  }
+ },
+ "receipts-390": {
+  "viewport": {
+   "w": 390,
+   "h": 900
+  },
+  "doc": {
+   "sw": 390,
+   "cw": 390
+  },
+  "card": {
+   "l": 68,
+   "r": 374,
+   "t": 611.6,
+   "b": 896,
+   "w": 306,
+   "h": 284.4
+  },
+  "row": {
+   "l": 69,
+   "r": 373,
+   "t": 823,
+   "b": 865,
+   "w": 304,
+   "h": 42,
+   "sw": 304,
+   "cw": 304
+  },
+  "cluster": {
+   "l": 184.2,
+   "r": 361,
+   "t": 823,
+   "b": 857,
+   "w": 176.8,
+   "h": 34,
+   "sw": 177,
+   "cw": 177
+  },
+  "leftGroup": {
+   "l": 81,
+   "r": 176.2,
+   "t": 826,
+   "b": 854,
+   "w": 95.2,
+   "h": 28,
+   "sw": 95,
+   "cw": 95
+  },
+  "approval": {
+   "l": 109.2,
+   "r": 139.2,
+   "t": 826,
+   "b": 854,
+   "w": 30,
+   "h": 28
+  },
+  "approvalLabel": "Approval mode",
+  "approvalTitle": "Approval mode: Ask for approval",
+  "approvalInnerText": "",
+  "approvalTextContent": "Ask for approval",
+  "approvalSpan": {
+   "l": 0,
+   "r": 0,
+   "t": 0,
+   "b": 0,
+   "w": 0,
+   "h": 0,
+   "sw": 0,
+   "cw": 0,
+   "rendered": false,
+   "display": "none",
+   "text": "Ask for approval"
+  },
+  "model": {
+   "l": 184.2,
+   "r": 321,
+   "t": 826,
+   "b": 854,
+   "w": 136.8,
+   "h": 28
+  },
+  "modelName": {
+   "l": 194.2,
+   "r": 266,
+   "t": 832,
+   "b": 848,
+   "w": 71.8,
+   "h": 16,
+   "sw": 86,
+   "cw": 72,
+   "text": "deepseek-chat",
+   "clipped": true
+  },
+  "thinking": {
+   "text": "Medium",
+   "rendered": false,
+   "display": "none"
+  },
+  "send": {
+   "l": 327,
+   "r": 361,
+   "t": 823,
+   "b": 857,
+   "w": 34,
+   "h": 34
+  },
+  "sendLabel": "Send message",
+  "stop": null,
+  "stopVisible": null,
+  "stopInsideCard": null,
+  "hitIsStop": null,
+  "hitLabel": null,
+  "toolbar": {
+   "tops": {
+    "left": 826,
+    "approval": 826,
+    "model": 826,
+    "send": 823
+   },
+   "lines": 1,
+   "stopLine": null,
+   "sendLine": 1,
+   "stopWithSend": false
+  },
+  "receipts": {
+   "retry": {
+    "l": 335,
+    "r": 346,
+    "t": 640.6,
+    "b": 651.6,
+    "w": 11,
+    "h": 11,
+    "visible": true,
+    "label": "Retry queued message"
+   },
+   "unconfirmed": {
+    "l": 115.1,
+    "r": 202.4,
+    "t": 694.6,
+    "b": 710.6,
+    "w": 87.3,
+    "h": 16,
+    "visible": true,
+    "text": "Sent, unconfirmed"
+   },
+   "rows": [
+    {
+     "text": "Failed | Recheck the TRP row before you summarize.(policy_violation)",
+     "rect": {
+      "l": 68,
+      "r": 374,
+      "t": 631.6,
+      "b": 681.6,
+      "w": 306,
+      "h": 50
+     }
+    },
+    {
+     "text": "Sent | Sent, unconfirmed | Add a note about the assay temperature in the methods.",
+     "rect": {
+      "l": 68,
+      "r": 374,
+      "t": 685.6,
+      "b": 751.6,
+      "w": 306,
+      "h": 66
+     }
+    }
+   ],
+   "toast": null,
+   "bodyHasToastText": false
+  },
+  "queue": {
+   "rect": {
+    "l": 68,
+    "r": 374,
+    "t": 611.6,
+    "b": 742,
+    "w": 306,
+    "h": 130.4
+   },
+   "headText": "0 queued",
+   "ariaExpanded": "true",
+   "listPresent": true,
+   "listVisible": true,
+   "list": {
+    "l": 68,
+    "r": 374,
+    "t": 631.6,
+    "b": 742,
+    "w": 306,
+    "h": 110.4,
+    "sw": 306,
+    "cw": 306,
+    "sh": 120,
+    "ch": 110,
+    "maxH": "110.4px",
+    "overflowY": "auto"
+   },
+   "items": 2
+  },
+  "textarea": {
+   "l": 69,
+   "r": 373,
+   "t": 751,
+   "b": 823,
+   "w": 304,
+   "h": 72
+  },
+  "textareaFullyVisible": true,
+  "clip": {
+   "x": 0,
+   "y": 604,
+   "width": 390,
+   "height": 296
+  },
+  "shot": "390-receipts-after.png"
+ },
+ "receipts-1440": {
+  "viewport": {
+   "w": 1440,
+   "h": 900
+  },
+  "doc": {
+   "sw": 1440,
+   "cw": 1440
+  },
+  "card": {
+   "l": 491.6,
+   "r": 1240.4,
+   "t": 674,
+   "b": 896,
+   "w": 748.8,
+   "h": 222
+  },
+  "row": {
+   "l": 492.6,
+   "r": 1239.4,
+   "t": 823,
+   "b": 865,
+   "w": 746.8,
+   "h": 42,
+   "sw": 747,
+   "cw": 747
+  },
+  "cluster": {
+   "l": 983.9,
+   "r": 1227.4,
+   "t": 823,
+   "b": 857,
+   "w": 243.5,
+   "h": 34,
+   "sw": 244,
+   "cw": 244
+  },
+  "leftGroup": {
+   "l": 504.6,
+   "r": 800.7,
+   "t": 826,
+   "b": 854,
+   "w": 296.1,
+   "h": 28,
+   "sw": 296,
+   "cw": 296
+  },
+  "approval": {
+   "l": 540.6,
+   "r": 668.5,
+   "t": 826,
+   "b": 854,
+   "w": 127.9,
+   "h": 28
+  },
+  "approvalLabel": "Approval mode",
+  "approvalTitle": "Approval mode: Ask for approval",
+  "approvalInnerText": "Ask for approval",
+  "approvalTextContent": "Ask for approval",
+  "approvalSpan": {
+   "l": 566.6,
+   "r": 660.5,
+   "t": 832,
+   "b": 848,
+   "w": 93.9,
+   "h": 16,
+   "sw": 94,
+   "cw": 94,
+   "rendered": true,
+   "display": "block",
+   "text": "Ask for approval"
+  },
+  "model": {
+   "l": 983.9,
+   "r": 1187.4,
+   "t": 826,
+   "b": 854,
+   "w": 203.5,
+   "h": 28
+  },
+  "modelName": {
+   "l": 993.9,
+   "r": 1080.1,
+   "t": 832,
+   "b": 848,
+   "w": 86.2,
+   "h": 16,
+   "sw": 86,
+   "cw": 86,
+   "text": "deepseek-chat",
+   "clipped": false
+  },
+  "thinking": {
+   "text": "Medium",
+   "rendered": true,
+   "display": "block"
+  },
+  "send": {
+   "l": 1193.4,
+   "r": 1227.4,
+   "t": 823,
+   "b": 857,
+   "w": 34,
+   "h": 34
+  },
+  "sendLabel": "Send message",
+  "stop": null,
+  "stopVisible": null,
+  "stopInsideCard": null,
+  "hitIsStop": null,
+  "hitLabel": null,
+  "toolbar": {
+   "tops": {
+    "left": 826,
+    "approval": 826,
+    "model": 826,
+    "send": 823
+   },
+   "lines": 1,
+   "stopLine": null,
+   "sendLine": 1,
+   "stopWithSend": false
+  },
+  "receipts": {
+   "retry": {
+    "l": 1201.4,
+    "r": 1212.4,
+    "t": 703,
+    "b": 714,
+    "w": 11,
+    "h": 11,
+    "visible": true,
+    "label": "Retry queued message"
+   },
+   "unconfirmed": {
+    "l": 538.7,
+    "r": 626,
+    "t": 741,
+    "b": 757,
+    "w": 87.3,
+    "h": 16,
+    "visible": true,
+    "text": "Sent, unconfirmed"
+   },
+   "rows": [
+    {
+     "text": "Failed | Recheck the TRP row before you summarize.(policy_violation)",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 694,
+      "b": 728,
+      "w": 748.8,
+      "h": 34
+     }
+    },
+    {
+     "text": "Sent | Sent, unconfirmed | Add a note about the assay temperature in the methods.",
+     "rect": {
+      "l": 491.6,
+      "r": 1240.4,
+      "t": 732,
+      "b": 766,
+      "w": 748.8,
+      "h": 34
+     }
+    }
+   ],
+   "toast": null,
+   "bodyHasToastText": false
+  },
+  "queue": {
+   "rect": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 674,
+    "b": 766,
+    "w": 748.8,
+    "h": 92
+   },
+   "headText": "0 queued",
+   "ariaExpanded": "true",
+   "listPresent": true,
+   "listVisible": true,
+   "list": {
+    "l": 491.6,
+    "r": 1240.4,
+    "t": 694,
+    "b": 766,
+    "w": 748.8,
+    "h": 72,
+    "sw": 749,
+    "cw": 749,
+    "sh": 72,
+    "ch": 72,
+    "maxH": "110.4px",
+    "overflowY": "auto"
+   },
+   "items": 2
+  },
+  "textarea": {
+   "l": 492.6,
+   "r": 1239.4,
+   "t": 775,
+   "b": 823,
+   "w": 746.8,
+   "h": 48
+  },
+  "textareaFullyVisible": true,
+  "clip": {
+   "x": 0,
+   "y": 666,
+   "width": 1440,
+   "height": 234
+  },
+  "shot": "1440-receipts-after.png"
+ },
+ "toast390": {
+  "viewport": {
+   "w": 390,
+   "h": 900
+  },
+  "doc": {
+   "sw": 390,
+   "cw": 390
+  },
+  "card": {
+   "l": 68,
+   "r": 374,
+   "t": 672,
+   "b": 896,
+   "w": 306,
+   "h": 224
+  },
+  "row": {
+   "l": 69,
+   "r": 373,
+   "t": 823,
+   "b": 865,
+   "w": 304,
+   "h": 42,
+   "sw": 304,
+   "cw": 304
+  },
+  "cluster": {
+   "l": 184.2,
+   "r": 361,
+   "t": 823,
+   "b": 857,
+   "w": 176.8,
+   "h": 34,
+   "sw": 177,
+   "cw": 177
+  },
+  "leftGroup": {
+   "l": 81,
+   "r": 176.2,
+   "t": 826,
+   "b": 854,
+   "w": 95.2,
+   "h": 28,
+   "sw": 95,
+   "cw": 95
+  },
+  "approval": {
+   "l": 109.2,
+   "r": 139.2,
+   "t": 826,
+   "b": 854,
+   "w": 30,
+   "h": 28
+  },
+  "approvalLabel": "Approval mode",
+  "approvalTitle": "Approval mode: Ask for approval",
+  "approvalInnerText": "",
+  "approvalTextContent": "Ask for approval",
+  "approvalSpan": {
+   "l": 0,
+   "r": 0,
+   "t": 0,
+   "b": 0,
+   "w": 0,
+   "h": 0,
+   "sw": 0,
+   "cw": 0,
+   "rendered": false,
+   "display": "none",
+   "text": "Ask for approval"
+  },
+  "model": {
+   "l": 184.2,
+   "r": 321,
+   "t": 826,
+   "b": 854,
+   "w": 136.8,
+   "h": 28
+  },
+  "modelName": {
+   "l": 194.2,
+   "r": 266,
+   "t": 832,
+   "b": 848,
+   "w": 71.8,
+   "h": 16,
+   "sw": 86,
+   "cw": 72,
+   "text": "deepseek-chat",
+   "clipped": true
+  },
+  "thinking": {
+   "text": "Medium",
+   "rendered": false,
+   "display": "none"
+  },
+  "send": {
+   "l": 327,
+   "r": 361,
+   "t": 823,
+   "b": 857,
+   "w": 34,
+   "h": 34
+  },
+  "sendLabel": "Send message",
+  "stop": null,
+  "stopVisible": null,
+  "stopInsideCard": null,
+  "hitIsStop": null,
+  "hitLabel": null,
+  "toolbar": {
+   "tops": {
+    "left": 826,
+    "approval": 826,
+    "model": 826,
+    "send": 823
+   },
+   "lines": 1,
+   "stopLine": null,
+   "sendLine": 1,
+   "stopWithSend": false
+  },
+  "receipts": {
+   "retry": null,
+   "unconfirmed": null,
+   "rows": [
+    {
+     "text": "Queued | Also report the control condition for comparison.",
+     "rect": {
+      "l": 68,
+      "r": 374,
+      "t": 692,
+      "b": 742,
+      "w": 306,
+      "h": 50
+     }
+    }
+   ],
+   "toast": {
+    "text": "The message may not have reached the task.",
+    "rect": {
+     "l": 53,
+     "r": 339,
+     "t": 27,
+     "b": 67,
+     "w": 286,
+     "h": 40
+    },
+    "role": null
+   },
+   "bodyHasToastText": true
+  },
+  "queue": {
+   "rect": {
+    "l": 68,
+    "r": 374,
+    "t": 672,
+    "b": 742,
+    "w": 306,
+    "h": 70
+   },
+   "headText": "1 queued",
+   "ariaExpanded": "true",
+   "listPresent": true,
+   "listVisible": true,
+   "list": {
+    "l": 68,
+    "r": 374,
+    "t": 692,
+    "b": 742,
+    "w": 306,
+    "h": 50,
+    "sw": 306,
+    "cw": 306,
+    "sh": 50,
+    "ch": 50,
+    "maxH": "110.4px",
+    "overflowY": "auto"
+   },
+   "items": 1
+  },
+  "textarea": {
+   "l": 69,
+   "r": 373,
+   "t": 751,
+   "b": 823,
+   "w": 304,
+   "h": 72
+  },
+  "textareaFullyVisible": true,
+  "clip": {
+   "x": 0,
+   "y": 664,
+   "width": 390,
+   "height": 236
+  },
+  "shot": "390-toast-after.png",
+  "toast": {
+   "text": "The message may not have reached the task.",
+   "rect": {
+    "l": 53,
+    "r": 339,
+    "t": 27,
+    "b": 67,
+    "w": 286,
+    "h": 40
+   },
+   "live": "polite"
+  },
+  "fullShot": "390-toast-full-after.png"
+ }
+}
