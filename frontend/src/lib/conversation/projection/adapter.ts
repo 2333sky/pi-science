@@ -1,6 +1,7 @@
 import { ACTIVITY_LITERATURE_TOOLS } from "@pi-science/contracts";
 import type { Thread } from "../../agent-runtime/event-fold";
 import type { AgentMessageBlock, ConversationBlockIdentity, ThreadBlock, ToolCallBlock, TurnArtifactItem } from "../../../types/thread";
+import { activityToolName, isMcpTool } from "../activity-presenters";
 import { activityPolicy } from "../activity-policy";
 import { buildTurnPresentations, type TurnLifecycle, type TurnPresentation } from "../turn-presentation";
 import type {
@@ -191,7 +192,8 @@ function projectArtifact(turn: TurnPresentation, summaryId: string, artifact: Tu
 }
 
 export function activityKind(block: ToolCallBlock): ActivityKind {
-  const tool = block.tool.trim().toLowerCase();
+  if (isMcpTool(block.tool)) return "tool";
+  const tool = activityToolName(block.tool);
   if (block.childSessionId || tool.includes("subagent") || tool.includes("agent")) return "subagent";
   // File-backed notebook reads/edits do not execute a kernel. Keep them on the
   // generic file path; only execution-oriented notebook tools use the kernel

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { withTaskDescription } from "./task-description.js";
 import {
   createBashTool,
   NodeExecutionEnv,
@@ -18,7 +19,7 @@ import { diffWorkspaceSnapshots } from "../../artifacts/workspace-artifact-snaps
 import { publishWorkspaceArtifactsDetailed } from "../../artifacts/workspace-artifact-publisher.js";
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
-/** Keep upstream schema, output capture/checkpoints and result contract. Only replace its OS backend. */
+/** Require a display description and run upstream Bash with the selected OS backend. */
 export function sandboxBashTool(
   identity: SandboxIdentity,
   hostEnvironment: Record<string, string> = toolEnvironment(process.env),
@@ -27,6 +28,7 @@ export function sandboxBashTool(
   const original = createBashTool();
   return {
     ...original,
+    parameters: withTaskDescription(original.parameters),
     description: `Use for running programs, scripts, tests, builds, scientific computations and operations that require a shell. When available, prefer the dedicated ls tool for directory browsing, glob for finding files by name, grep for searching file contents, and read for inspecting a known file. Keep routine file inspection in those tools rather than combining ls/find/rg/grep/cat into a Bash command for convenience. Use Bash when the task requires program execution or shell processing beyond those tools' supported operations. A dedicated tool's access_denied result is not a reason to retry the same access through Bash.\n${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts.`,
     async execute(id, params, update, ctx, invocation, context) {
       const confined =
@@ -199,6 +201,10 @@ export function sandboxBashTool(
             artifacts: evidence.artifacts,
           });
           const references = { execution_id: executionId, artifact_refs: evidence.artifacts };
+          const details = {
+            ...result.details,
+            ...(typeof outcome.exitCode === "number" ? { exit_code: outcome.exitCode } : {}),
+          };
           return binding || evidence.artifacts.length
             ? {
                 ...result,
@@ -206,9 +212,9 @@ export function sandboxBashTool(
                   ...result.content,
                   { type: "text" as const, text: JSON.stringify(references) },
                 ],
-                details: { ...result.details, ...references },
+                details: { ...details, ...references },
               }
-            : result;
+            : { ...result, details };
         } catch (error) {
           const timedOut =
             outcome.errorCode === "timeout" ||

@@ -3,7 +3,11 @@ import {
   activityCategory,
   activityFileLabel,
   activityProgramName,
+  activityPurposeText,
+  activityQueryText,
   activityReadTarget,
+  activityUrlLabel,
+  scrubActivityText,
 } from "./tool-activity.js";
 
 describe("activity classification", () => {
@@ -14,13 +18,31 @@ describe("activity classification", () => {
     ["patch", "edit"],
     ["bash", "execute"],
     ["python", "compute"],
+    ["r", "compute"],
+    ["rscript", "compute"],
+    ["r_kernel", "compute"],
     ["fetch", "web"],
+    ["fetch_url", "web"],
+    ["read_url", "web"],
+    ["subagent_control", "delegate"],
     ["pubmed", "literature"],
     ["image_gen", "generate"],
     ["task", "delegate"],
     ["unknown", "other"],
   ])("classifies %s", (tool, expected) => {
     expect(activityCategory({ tool })).toBe(expected);
+  });
+  it.each(["python", "read_file", "search_pubmed", "bash", "r"])(
+    "does not lend built-in semantics to an MCP name ending in %s",
+    (name) => {
+      expect(activityCategory({ tool: `mcp__stats__${name}` })).toBe("other");
+    },
+  );
+  it("classifies an MCP tool only by the kind it reports", () => {
+    expect(activityCategory({ tool: "mcp__stats__python", presentationKind: "search" })).toBe(
+      "search",
+    );
+    expect(activityCategory({ tool: "mcp__stats__python", presentationKind: "read" })).toBe("read");
   });
   it("prioritizes child, exact tool, kind, then other", () => {
     expect(
@@ -110,5 +132,45 @@ describe("read target", () => {
   });
   it("caps file labels", () => {
     expect(activityFileLabel("a".repeat(90))).toBe(`${"a".repeat(79)}…`);
+  });
+});
+
+describe("display text", () => {
+  it("keeps a scientific term that only contains a credential word", () => {
+    for (const value of [
+      "secreted protein folding",
+      "secretory pathway analysis",
+      "token binding kinase",
+      "api surface review",
+    ]) {
+      expect(scrubActivityText(value)).toBe(value);
+    }
+  });
+  it.each([
+    ["TOKEN=secret_value", "TOKEN=[redacted]"],
+    ["API_KEY=abc123", "API_KEY=[redacted]"],
+    ["--token=abc123", "--token=[redacted]"],
+    ["--api-key=abc123", "--api-key=[redacted]"],
+    ["Authorization: Bearer abc123", "Authorization: [redacted]"],
+    ["https://user:pass@example.com/paper", "https://example.com/paper"],
+  ])("removes the credential in %s", (input, expected) => {
+    expect(scrubActivityText(input)).toBe(expected);
+  });
+  it("leaves a non-credential flag and a short assignment alone", () => {
+    expect(scrubActivityText("--seed=42")).toBe("--seed=42");
+    expect(scrubActivityText("MAX_TOKENS=100")).toBe("MAX_TOKENS=100");
+  });
+  it("bounds and flattens a purpose line", () => {
+    expect(activityPurposeText("  run\n  the   tests  ")).toBe("run the tests");
+    expect(activityPurposeText("x".repeat(200))).toHaveLength(160);
+    expect(activityPurposeText("x".repeat(200)).endsWith("…")).toBe(true);
+  });
+  it("formats a query and a URL as themselves", () => {
+    expect(activityQueryText("  secreted   protein  folding ")).toBe("secreted protein folding");
+    expect(activityUrlLabel("https://user:pass@example.com/paper?token=secret#top")).toBe(
+      "https://example.com/paper",
+    );
+    expect(activityUrlLabel("https://example.com")).toBe("https://example.com");
+    expect(activityUrlLabel("not a url")).toBe("not a url");
   });
 });

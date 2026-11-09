@@ -78,3 +78,27 @@ it("projects the read range on the wire", () => {
     presentation: { kind: "read", title: "Reading a.ts:120-159" },
   });
 });
+
+describe("leak channels", () => {
+  it("drops a shell description that repeats the command", () => {
+    const title = toolActivityTitle("bash", {
+      command: "TOKEN=secret_value pnpm test",
+      description: "Run TOKEN=secret_value pnpm test",
+    });
+    expect(title).toBe("Running bash");
+    expect(title).not.toContain("secret_value");
+  });
+  it("scrubs a credential out of the description it publishes", () => {
+    const presentation = toolActivityPresentation("bash", { description: "Run with TOKEN=abc123" });
+    expect(presentation?.description).toBe("Run with TOKEN=[redacted]");
+    expect(presentation?.title).toBe("Run with TOKEN=[redacted]");
+  });
+  it("keeps a scientific query intact", () => {
+    expect(toolActivityTitle("web_search", { query: "secreted protein folding" })).toBe(
+      "Searching the web for secreted protein folding",
+    );
+    expect(toolActivityTitle("grep", { pattern: "token binding kinase" })).toBe(
+      "Searching for token binding kinase",
+    );
+  });
+});
