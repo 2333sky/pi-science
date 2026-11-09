@@ -54,11 +54,15 @@
   flex-shrink: 0;
 }
 
+/* Basis auto, not a full-width grow: the detail sizes to its own text so the
+   elapsed clock follows the sentence instead of being pushed to the row edge;
+   the leftover width stays after the clock. Shrink stays on for long
+   narratives, which still truncate before the timer. */
 .detail {
   font-size: 0.8125rem;
   line-height: 1.6;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
