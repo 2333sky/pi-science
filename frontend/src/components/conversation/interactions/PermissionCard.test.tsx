@@ -62,8 +62,8 @@ describe("PermissionCard presentation keys", () => {
       presentation: {
         titleKey: "interaction.networkApproval.title",
         titleParams: { domain: "api.example.org" },
-        messageKey: "interaction.networkApproval.messageWithReason",
-        messageParams: { reason: "下载研究数据", domain: "api.example.org", profile: "analysis", port: 443, access: "a TCP tunnel" },
+        messageKey: "interaction.networkApproval.messageWithReasonTls",
+        messageParams: { reason: "下载研究数据", domain: "api.example.org", profile: "analysis", port: 443 },
         optionLabelKeys: {
           allow: "interaction.networkApproval.alwaysAllow",
           deny_once: "interaction.networkApproval.denyThisRequest",
@@ -73,10 +73,45 @@ describe("PermissionCard presentation keys", () => {
     });
     expect(screen.getByText("网络访问：api.example.org")).toBeInTheDocument();
     expect(document.body.textContent).toContain("下载研究数据");
-    expect(document.body.textContent).toContain("端口 443");
+    expect(document.body.textContent).toContain("443 端口");
+    expect(document.body.textContent).toContain("代理不验证 TLS 握手");
+    expect(document.body.textContent).toContain("设置 → 网络");
+    expect(document.body.textContent).not.toContain("加密隧道");
     expect(screen.getByRole("button", { name: "始终允许" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "拒绝本次请求" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "永不允许" })).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("{{");
+  });
+
+  it("renders a private network target as plain HTTP instead of an encrypted tunnel", () => {
+    renderCard({
+      requestId: "network-http-1",
+      method: "select",
+      kind: "permission",
+      title: "Network access: 192.168.1.10:8080",
+      message: "Download study data\n\nAllow 192.168.1.10:8080 over HTTP for analysis across all projects?",
+      options: [
+        { label: "Always allow", value: "allow" },
+        { label: "Deny this request", value: "deny_once" },
+        { label: "Never allow", value: "deny" },
+      ],
+      presentation: {
+        titleKey: "interaction.networkApproval.title",
+        titleParams: { domain: "192.168.1.10:8080" },
+        messageKey: "interaction.networkApproval.messageWithReasonHttp",
+        messageParams: { reason: "下载研究数据", domain: "192.168.1.10:8080", profile: "analysis", port: 8080 },
+        optionLabelKeys: {
+          allow: "interaction.networkApproval.alwaysAllow",
+          deny_once: "interaction.networkApproval.denyThisRequest",
+          deny: "interaction.networkApproval.neverAllow",
+        },
+      },
+    });
+    expect(screen.getByText("网络访问：192.168.1.10:8080")).toBeInTheDocument();
+    expect(document.body.textContent).toContain("以 HTTP 访问");
+    expect(document.body.textContent).toContain("端口 8080");
+    expect(document.body.textContent).toContain("设置 → 网络");
+    expect(document.body.textContent).not.toContain("加密隧道");
     expect(document.body.textContent).not.toContain("{{");
   });
 

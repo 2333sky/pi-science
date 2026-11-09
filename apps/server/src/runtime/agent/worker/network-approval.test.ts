@@ -87,8 +87,15 @@ it.each(["api.example.org", "192.168.1.10:8080"])(
       presentation: {
         titleKey: "interaction.networkApproval.title",
         titleParams: { domain },
-        messageKey: "interaction.networkApproval.messageWithReason",
-        messageParams: { domain, profile: "analysis", reason: "Download study data", port: domain.includes(":") ? 8080 : 443 },
+        messageKey: domain.includes(":")
+          ? "interaction.networkApproval.messageWithReasonHttp"
+          : "interaction.networkApproval.messageWithReasonTls",
+        messageParams: {
+          domain,
+          profile: "analysis",
+          reason: "Download study data",
+          port: domain.includes(":") ? 8080 : 443,
+        },
         optionLabelKeys: {
           allow: "interaction.networkApproval.alwaysAllow",
           deny_once: "interaction.networkApproval.denyThisRequest",
@@ -108,6 +115,28 @@ it.each(["api.example.org", "192.168.1.10:8080"])(
     expect(restored.events).toHaveLength(0);
   },
 );
+it("switches the presentation message key with the network target and keeps only locale params", async () => {
+  const cases = [
+    { domain: "api.example.org", key: "interaction.networkApproval.messageTls", port: 443 },
+    { domain: "192.168.1.10:8080", key: "interaction.networkApproval.messageHttp", port: 8080 },
+  ];
+  for (const { domain, key, port } of cases) {
+    const events: Array<Record<string, unknown>> = [];
+    const bridge = new InteractionBridge((event) => events.push(event));
+    const run = requestNetworkAccess(bridge, { domain, profile: "analysis" });
+    await vi.waitFor(() => expect(events).toHaveLength(1));
+    const presentation = events[0]!.presentation as {
+      messageKey: string;
+      messageParams: Record<string, unknown>;
+    };
+    expect(presentation.messageKey).toBe(key);
+    expect(presentation.messageParams).toEqual({ domain, port, profile: "analysis" });
+    expect(presentation.messageParams).not.toHaveProperty("access");
+    bridge.notify("extension_ui_response", { id: events[0]!.id, value: "deny_once" });
+    await run;
+  }
+});
+
 it.each(["deny_once", "deny"])("handles %s without granting network access", async (answer) => {
   const { events, bridge, run } = request();
   const result = run();

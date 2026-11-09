@@ -88,14 +88,17 @@ export async function requestNetworkAccess(
         presentation: {
           titleKey: "interaction.networkApproval.title",
           titleParams: { domain },
-          messageKey: reason
-            ? "interaction.networkApproval.messageWithReason"
-            : "interaction.networkApproval.message",
+          messageKey: target
+            ? reason
+              ? "interaction.networkApproval.messageWithReasonHttp"
+              : "interaction.networkApproval.messageHttp"
+            : reason
+              ? "interaction.networkApproval.messageWithReasonTls"
+              : "interaction.networkApproval.messageTls",
           messageParams: {
             domain,
-            access,
-            profile,
             port: target?.port ?? 443,
+            profile,
             ...(reason ? { reason } : {}),
           },
           optionLabelKeys: {
