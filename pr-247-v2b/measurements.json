@@ -1,0 +1,261 @@
+{
+ "meta": {
+  "old": "ec69c81d0e56d074801b3c7b95c691955ca2e9ec",
+  "new": "ec4cc24465393e5414b0ba784e67df1b2f404c17",
+  "fixture": "frontend/tests/visual/fixtures/data.mjs；edge 会话是探针额外注入（不在仓库里）",
+  "fixedNow": "2026-08-15T12:00:00.000Z",
+  "dpr": 2,
+  "locale": "en-US",
+  "timezone": "Asia/Shanghai",
+  "reducedMotion": "reduce",
+  "colorScheme": "light",
+  "note": "旧版 emoji 行走 UTF-16 截断，标签里真的带着孤立代理字符 U+D83D（渲染成 �）；这里用 backslashreplace 存成 \\ud83d"
+ },
+ "v2_states": {
+  "1440-settled": {
+   "identical": true,
+   "panelH": 45,
+   "doc": {
+    "docSW": 1440,
+    "docCW": 1440
+   }
+  },
+  "1440-expanded": {
+   "identical": true,
+   "panelH": 203,
+   "doc": {
+    "docSW": 1440,
+    "docCW": 1440
+   }
+  },
+  "1440-running": {
+   "identical": true,
+   "panelH": null,
+   "doc": {
+    "docSW": 1440,
+    "docCW": 1440
+   }
+  },
+  "1440-edge": {
+   "identical": false,
+   "panelH": 270,
+   "doc": {
+    "docSW": 1440,
+    "docCW": 1440
+   }
+  },
+  "390-settled": {
+   "identical": true,
+   "panelH": 49,
+   "doc": {
+    "docSW": 390,
+    "docCW": 390
+   }
+  },
+  "390-expanded": {
+   "identical": true,
+   "panelH": 223,
+   "doc": {
+    "docSW": 390,
+    "docCW": 390
+   }
+  },
+  "390-running": {
+   "identical": true,
+   "panelH": null,
+   "doc": {
+    "docSW": 390,
+    "docCW": 390
+   }
+  },
+  "390-edge": {
+   "identical": false,
+   "panelH": 298,
+   "doc": {
+    "docSW": 390,
+    "docCW": 390
+   }
+  }
+ },
+ "edge_rows": [
+  {
+   "state": "1440-edge",
+   "row": 0,
+   "text_old": "Reading shikimate.csv:1-40",
+   "text_new": "Reading data/shikimate.csv rows 1-40",
+   "bbox_old": {
+    "l": 491.6,
+    "t": 186.8,
+    "w": 245.8,
+    "h": 36
+   },
+   "bbox_new": {
+    "l": 491.6,
+    "t": 186.8,
+    "w": 311,
+    "h": 36
+   },
+   "glyph": "file-text",
+   "duration": "4.0s"
+  },
+  {
+   "state": "1440-edge",
+   "row": 1,
+   "text_old": "Searching for shikimate.csv",
+   "text_new": "Searching for shikimate",
+   "bbox_old": {
+    "l": 491.6,
+    "t": 224.8,
+    "w": 246.6,
+    "h": 36
+   },
+   "bbox_new": {
+    "l": 491.6,
+    "t": 224.8,
+    "w": 220.7,
+    "h": 36
+   },
+   "glyph": "search",
+   "duration": "4.0s"
+  },
+  {
+   "state": "1440-edge",
+   "row": 2,
+   "text_old": "Searching for file.ts",
+   "text_new": "Searching for needle in src/",
+   "bbox_old": {
+    "l": 491.6,
+    "t": 262.8,
+    "w": 195.6,
+    "h": 36
+   },
+   "bbox_new": {
+    "l": 491.6,
+    "t": 262.8,
+    "w": 245.4,
+    "h": 36
+   },
+   "glyph": "search",
+   "duration": "4.0s"
+  },
+  {
+   "state": "1440-edge",
+   "row": 3,
+   "text_old": "Searching for 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\\ud83d…",
+   "text_new": "Searching for 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "bbox_old": {
+    "l": 491.6,
+    "t": 300.8,
+    "w": 510.4,
+    "h": 36
+   },
+   "bbox_new": {
+    "l": 491.6,
+    "t": 300.8,
+    "w": 510.4,
+    "h": 36
+   },
+   "glyph": "search",
+   "duration": "4.0s"
+  },
+  {
+   "state": "390-edge",
+   "row": 0,
+   "text_old": "Reading shikimate.csv:1-40",
+   "text_new": "Reading data/shikimate.csv rows 1-40",
+   "bbox_old": {
+    "l": 84,
+    "t": 213.5,
+    "w": 245.8,
+    "h": 40
+   },
+   "bbox_new": {
+    "l": 84,
+    "t": 213.5,
+    "w": 274,
+    "h": 40
+   },
+   "glyph": "file-text",
+   "duration": "4.0s"
+  },
+  {
+   "state": "390-edge",
+   "row": 1,
+   "text_old": "Searching for shikimate.csv",
+   "text_new": "Searching for shikimate",
+   "bbox_old": {
+    "l": 84,
+    "t": 255.5,
+    "w": 246.6,
+    "h": 40
+   },
+   "bbox_new": {
+    "l": 84,
+    "t": 255.5,
+    "w": 220.7,
+    "h": 40
+   },
+   "glyph": "search",
+   "duration": "4.0s"
+  },
+  {
+   "state": "390-edge",
+   "row": 2,
+   "text_old": "Searching for file.ts",
+   "text_new": "Searching for needle in src/",
+   "bbox_old": {
+    "l": 84,
+    "t": 297.5,
+    "w": 195.6,
+    "h": 40
+   },
+   "bbox_new": {
+    "l": 84,
+    "t": 297.5,
+    "w": 245.4,
+    "h": 40
+   },
+   "glyph": "search",
+   "duration": "4.0s"
+  },
+  {
+   "state": "390-edge",
+   "row": 3,
+   "text_old": "Searching for 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀\\ud83d…",
+   "text_new": "Searching for 😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+   "bbox_old": {
+    "l": 84,
+    "t": 339.5,
+    "w": 274,
+    "h": 40
+   },
+   "bbox_new": {
+    "l": 84,
+    "t": 339.5,
+    "w": 274,
+    "h": 40
+   },
+   "glyph": "search",
+   "duration": "4.0s"
+  }
+ ],
+ "lone_surrogate_rows": 2,
+ "images": {
+  "1440-edge-new.png": {
+   "px": "1044x476",
+   "md5": "8edf80941e9eb368b00ee5a722e952ad"
+  },
+  "1440-edge-old.png": {
+   "px": "1044x476",
+   "md5": "b89f0a06ddad6a7973f01278bc1eefb2"
+  },
+  "390-edge-new.png": {
+   "px": "572x524",
+   "md5": "002caf9675c5f06ad9e2dcfc7b22aeca"
+  },
+  "390-edge-old.png": {
+   "px": "572x524",
+   "md5": "0f755c36a9c4ef3a8d7be1bcd581598e"
+  }
+ }
+}
