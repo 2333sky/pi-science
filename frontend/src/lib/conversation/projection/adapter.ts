@@ -1,3 +1,4 @@
+import { ACTIVITY_LITERATURE_TOOLS } from "@pi-science/contracts";
 import type { Thread } from "../../agent-runtime/event-fold";
 import type { AgentMessageBlock, ConversationBlockIdentity, ThreadBlock, ToolCallBlock, TurnArtifactItem } from "../../../types/thread";
 import { activityToolName, isMcpTool } from "../activity-presenters";
@@ -18,20 +19,9 @@ import type {
   UserMessageProjection,
 } from "./types";
 
-const LITERATURE_TOOLS = new Set([
-  "search_pubmed",
-  "search_arxiv",
-  "search_crossref",
-  "search_biorxiv_preprints",
-  "get_europe_pmc_full_text",
-  // Keep the legacy aliases explicit rather than treating the broad research
-  // domain as a renderer selector.
-  "pubmed",
-  "crossref",
-  "semantic_scholar",
-  "search_semantic_scholar",
-  "literature",
-]);
+// The legacy aliases stay in the name list rather than widening the renderer
+// selector to the whole research domain; the list itself is the shared one.
+const LITERATURE_TOOLS = new Set(ACTIVITY_LITERATURE_TOOLS);
 
 export const LEGACY_STREAM_EPOCH = "legacy";
 

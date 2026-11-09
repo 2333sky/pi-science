@@ -1,3 +1,4 @@
+export * from "./tool-activity.js";
 export * from "./citation-identifier.js";
 export { conversationEventTypes } from "./conversation-events.js";
 export * from "./sessions.js";
