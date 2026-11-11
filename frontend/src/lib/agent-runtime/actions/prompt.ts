@@ -72,6 +72,10 @@ export function createPromptActions(set: SetState, get: GetState): Pick<RuntimeS
         sessionId: activeSessionId ?? "",
         clientMessageId: requestId,
         contentDigest,
+        // The text is persisted before the create round trip so a reload in
+        // that window can replay what the user typed instead of losing it.
+        text: message,
+        createdAt: Date.now(),
         status: recoveredStatus?.status ?? "pending",
       });
 

@@ -18,7 +18,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { Ref } from "react";
-import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import type { VirtuosoHandle } from "react-virtuoso";
 
 const { virtuosoProps } = vi.hoisted(() => ({ virtuosoProps: [] as Array<Record<string, unknown>> }));
@@ -63,6 +63,7 @@ import { FeedbackContext } from "../../components/feedback/feedback-context";
 import { useRuntimeStore } from "../../lib/agent-runtime";
 import { useUiStore } from "../../lib/ui";
 import { queryClient } from "../../lib/client/query-client";
+import { promptContentDigest, saveLocalPromptRequest } from "../../lib/client/prompt-request-cache";
 import type { PendingInteraction, PendingQuestionnaire } from "../../lib/agent-runtime";
 import i18n from "../../i18n";
 import type { ThreadBlock } from "../../types/thread";
@@ -1615,5 +1616,70 @@ describe("route-level completion lifecycle", () => {
     expect(within(screen.getByRole("listbox")).queryByText("/summarize")).toBeNull();
     expect(within(screen.getByRole("listbox")).getByText("/summaries")).toBeInTheDocument();
 
+  });
+});
+
+describe("prompt replay on the landing route", () => {
+  const CLIENT_MESSAGE_ID = "8fd824aa-51d3-4f63-839c-09e021b7970b";
+
+  function renderLandingWithLocation() {
+    let location: string | null = null;
+    function LocationProbe() {
+      location = useLocation().pathname;
+      return null;
+    }
+    render(
+      <QueryClientProvider client={queryClient}>
+        <FeedbackContext.Provider value={{ toast: vi.fn(), confirm: async () => true }}>
+          <MemoryRouter initialEntries={[`/workspace/${CWD}`]}>
+            <LocationProbe />
+            <Routes>
+              <Route path="/workspace/:cwd" element={<WorkspaceProvider><LiveSessionPage /></WorkspaceProvider>} />
+              {/* The replay adopts a session route this harness does not render. */}
+              <Route path="*" element={null} />
+            </Routes>
+          </MemoryRouter>
+        </FeedbackContext.Provider>
+      </QueryClientProvider>,
+    );
+    return () => location;
+  }
+
+  function seedStrandedPrompt() {
+    saveLocalPromptRequest({
+      cwd: CWD,
+      sessionId: "",
+      clientMessageId: CLIENT_MESSAGE_ID,
+      contentDigest: promptContentDigest("draw the curve"),
+      text: "draw the curve",
+      createdAt: Date.now(),
+      status: "pending",
+    });
+  }
+
+  it("replays a prompt stranded by a refresh during session creation and adopts its session", async () => {
+    useRuntimeStore.setState({ sessions: [], activeSessionId: null });
+    const sendPrompt = vi.fn(async (): Promise<string | null> => "session-created");
+    const connect = vi.fn(async () => undefined);
+    useRuntimeStore.setState({ connect, sendPrompt });
+    seedStrandedPrompt();
+
+    const location = renderLandingWithLocation();
+
+    await waitFor(() => expect(location()).toBe(`/workspace/${CWD}/session/session-created`));
+    // The recorded id is what makes the create idempotent on the server.
+    expect(sendPrompt).toHaveBeenCalledWith("draw the curve", CLIENT_MESSAGE_ID);
+    expect(connect).toHaveBeenCalledWith(CWD, undefined);
+  });
+
+  it("does not replay on a route that already names a session", async () => {
+    const sendPrompt = vi.fn(async (): Promise<string | null> => "session-created");
+    useRuntimeStore.setState({ sendPrompt });
+    seedStrandedPrompt();
+
+    renderReady();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 });

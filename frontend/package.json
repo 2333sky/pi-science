@@ -14,6 +14,7 @@
     "test:uat:model-config": "node scripts/uat-model-config.mjs",
     "test:uat:model-discovery": "node scripts/uat-model-discovery.mjs",
     "test:uat:conversation": "node scripts/uat-conversation.mjs",
+    "test:uat:prompt-replay": "node scripts/uat-prompt-replay.mjs",
     "test:uat:slash": "node scripts/uat-slash-commands.mjs",
     "test:uat:notebook": "node scripts/uat-notebook.mjs",
     "test:uat:office": "node scripts/uat-office-preview.mjs",
