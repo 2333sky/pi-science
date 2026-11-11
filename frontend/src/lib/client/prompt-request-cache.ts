@@ -93,9 +93,11 @@ export function localPromptRequests(cwd: string, sessionId: string): LocalPrompt
 
 /** Every unfinished request for a workspace, whatever session it was scoped
  *  to. The replay entry point uses it to find a prompt whose create round trip
- *  never finished (sessionId "") or whose prompt POST never landed. */
+ *  never finished (sessionId "") or whose prompt POST never landed. Rejected
+ *  requests are excluded on purpose: a 4xx was already shown to the user as a
+ *  failure, and replaying it would silently retry a request the server refused. */
 export function pendingPromptRequests(cwd: string): LocalPromptRequest[] {
-  return read().filter((record) => record.cwd === cwd && record.status !== "persisted");
+  return read().filter((record) => record.cwd === cwd && record.status !== "persisted" && record.status !== "rejected");
 }
 
 export function saveLocalPromptRequest(record: LocalPromptRequest): void {

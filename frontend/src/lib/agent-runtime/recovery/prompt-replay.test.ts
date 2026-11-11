@@ -23,7 +23,7 @@ function store(overrides: Partial<{ cwd: string; activeSessionId: string | null;
   return { get, connect, sendPrompt, state };
 }
 
-function seed(text = "draw the curve", overrides: Partial<{ sessionId: string; createdAt: number }> = {}) {
+function seed(text = "draw the curve", overrides: Partial<{ sessionId: string; createdAt: number; status: "pending" | "rejected" }> = {}) {
   saveLocalPromptRequest({
     cwd: CWD,
     sessionId: overrides.sessionId ?? "",
@@ -31,7 +31,7 @@ function seed(text = "draw the curve", overrides: Partial<{ sessionId: string; c
     contentDigest: promptContentDigest(text),
     text,
     createdAt: overrides.createdAt ?? Date.now(),
-    status: "pending",
+    status: overrides.status ?? "pending",
   });
 }
 
@@ -72,6 +72,17 @@ describe("replayPendingPrompts", () => {
     expect(await replayPendingPrompts(CWD, get)).toBe("session-created");
     expect(connect).toHaveBeenCalledWith(CWD, "session-existing");
     expect(sendPrompt).toHaveBeenCalledWith("adopt me", CLIENT_MESSAGE_ID);
+  });
+
+  it("does not resend a prompt the server already rejected", async () => {
+    // A rejected prompt already surfaced its 4xx to the user; replaying it would
+    // silently dispatch a request the server refused.
+    seed("bad request", { sessionId: "session-existing", status: "rejected" });
+    const { get, connect, sendPrompt } = store();
+
+    expect(await replayPendingPrompts(CWD, get)).toBeNull();
+    expect(connect).not.toHaveBeenCalled();
+    expect(sendPrompt).not.toHaveBeenCalled();
   });
 
   it("keeps the record when the replay fails so a later landing retries it", async () => {
