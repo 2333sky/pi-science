@@ -146,23 +146,37 @@ const SHEET_CSS = `
 `;
 
 export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: string }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { hostRef, page } = useShadowPage(SHEET_CSS);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [sheets, setSheets] = useState<SheetHtml[] | null>(null);
   const [active, setActive] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // The tab name survives a re-parse (the language change re-runs the effect);
+  // a new document resets it below.
+  const activeNameRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const current = sheets?.[Math.min(active, sheets.length - 1)];
+    if (current) activeNameRef.current = current.name;
+  }, [sheets, active]);
+
+  useEffect(() => {
+    activeNameRef.current = null;
+  }, [bytes]);
 
   useEffect(() => {
     let cancelled = false;
+    const previousName = activeNameRef.current;
     (async () => {
       try {
         // Dynamic import keeps ExcelJS in a lazy chunk, out of the main bundle.
         const { workbookSheets } = await import("@/lib/shared/xlsx");
-        const parsed = await workbookSheets(bytes);
+        const parsed = await workbookSheets(bytes, i18n.resolvedLanguage);
         if (cancelled) return;
         setSheets(parsed);
-        setActive(0);
+        const restored = previousName === null ? -1 : parsed.findIndex((candidate) => candidate.name === previousName);
+        setActive(restored >= 0 ? restored : 0);
       } catch (e) {
         if (!cancelled) setError(t("office.xlsxReadError", { message: message(e) }));
       }
@@ -170,11 +184,23 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
     return () => {
       cancelled = true;
     };
-    // `t` intentionally excluded, same reasoning as DocxView above.
+    // `t` intentionally excluded, same reasoning as DocxView above; the active
+    // language is a parse input now because date cells are formatted with it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bytes]);
+  }, [bytes, i18n.resolvedLanguage]);
 
   const sheet = sheets?.[Math.min(active, sheets.length - 1)];
+  // The two clamps are independent: a wide, short sheet loses columns, not
+  // rows, so the notice must name the dimension that was actually truncated.
+  const truncationNotice = !sheet
+    ? ""
+    : sheet.truncatedRows && sheet.truncatedColumns
+      ? t("office.truncatedRowsAndColumns", { count: sheet.rows, columns: sheet.columns })
+      : sheet.truncatedColumns
+        ? t("office.truncatedColumns", { count: sheet.columns })
+        : sheet.truncatedRows
+          ? t("office.truncatedPrefix", { count: sheet.rows })
+          : "";
   // Layout effect (in this hook order): the sheet HTML must be in the DOM
   // before the scroll restore below runs, or the offset would clamp to 0.
   useLayoutEffect(() => {
@@ -206,7 +232,7 @@ export function XlsxView({ bytes, scrollKey }: { bytes: ArrayBuffer; scrollKey: 
         <div ref={hostRef} />
       </div>
       <div className="border-t border-border px-4 py-1.5 text-xs text-muted">
-        {sheet?.truncated ? t("office.truncatedPrefix") : ""}{t("office.embeddedChartsNote")}
+        {truncationNotice}{t("office.embeddedChartsNote")}
       </div>
     </div>
   );

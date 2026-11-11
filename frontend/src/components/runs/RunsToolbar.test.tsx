@@ -1,6 +1,11 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { i18nReady } from "../../i18n";
 import { RunsToolbar } from "./RunsToolbar";
+
+// Importing the date formatter also brings up the i18n instance; wait for its
+// locale bundle so useTranslation renders instead of suspending.
+await i18nReady;
 
 beforeEach(() => vi.useFakeTimers());
 afterEach(() => vi.useRealTimers());

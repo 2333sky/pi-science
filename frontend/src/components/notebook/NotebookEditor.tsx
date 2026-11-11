@@ -211,7 +211,7 @@ export function NotebookEditor({
         )}>
           {languageLabel}
         </span>
-        {dirty && <span className="text-[11px] text-warn">Unsaved</span>}
+        {dirty && <span className="text-[11px] text-warn">{t("notebook.unsaved")}</span>}
         <button type="button" onClick={() => void openInJupyter()} disabled={openingJupyter} className="flex h-9 items-center gap-1.5 rounded-input border border-border px-3 text-xs text-text hover:bg-surface-2 disabled:opacity-40">
           {openingJupyter ? <Loader2 size={13} className="animate-spin" /> : <ExternalLink size={13} />} JupyterLab
         </button>
@@ -401,6 +401,7 @@ function NotebookCellView({
 }
 
 function LiveResult({ result }: { result: CellResult }) {
+  const { t } = useTranslation();
   if (!result.stdout && !result.stderr && !result.result && !result.error && !Object.keys(result.mime || {}).length && !result.outputs?.length) return null;
   return (
     <div className="space-y-2 border-t border-faint px-4 py-3 font-mono text-xs leading-5">
@@ -409,7 +410,7 @@ function LiveResult({ result }: { result: CellResult }) {
       {result.outputs?.length ? <StoredOutputs outputs={result.outputs} /> : null}
       {!result.outputs?.length && result.result && Object.keys(result.mime || {}).length === 0 && <pre className="max-h-64 overflow-auto whitespace-pre-wrap text-accent">{result.result}</pre>}
       {result.error && <pre role="alert" className={cn("max-h-64 overflow-auto whitespace-pre-wrap", result.interrupted ? "text-muted" : "text-error")}>{result.error}</pre>}
-      {!result.outputs?.length && result.mime && Object.keys(result.mime).length > 0 && <NotebookMimeOutput mime={result.mime} label="Cell output" />}
+      {!result.outputs?.length && result.mime && Object.keys(result.mime).length > 0 && <NotebookMimeOutput mime={result.mime} label={t("notebook.cellOutput")} />}
     </div>
   );
 }

@@ -1,7 +1,14 @@
 export interface SheetHtml {
   name: string;
   html: string;
-  truncated: boolean;
+  /** Rows actually rendered after the MAX_ROWS clamp. */
+  rows: number;
+  /** Columns actually rendered after the MAX_COLUMNS clamp. */
+  columns: number;
+  /** True when the sheet has more rows than MAX_ROWS renders. */
+  truncatedRows: boolean;
+  /** True when the sheet has more columns than MAX_COLUMNS renders. */
+  truncatedColumns: boolean;
 }
 
 const MAX_ROWS = 600;
@@ -24,9 +31,23 @@ function cellPosition(value: string): { row: number; column: number } | null {
   return { row: Number(match[2]), column };
 }
 
-function cellValue(value: unknown): string {
+/** One formatter per locale: a large date-heavy sheet otherwise builds an
+ *  Intl.DateTimeFormat for every cell, which dominates the parse time. */
+const dateFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function dateFormatter(locale?: string): Intl.DateTimeFormat {
+  const key = locale ?? "";
+  let formatter = dateFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(locale);
+    dateFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+function cellValue(value: unknown, locale?: string): string {
   if (value === null || value === undefined) return "";
-  if (value instanceof Date) return value.toLocaleString();
+  if (value instanceof Date) return dateFormatter(locale).format(value);
   if (typeof value === "object") {
     const record = value as Record<string, unknown>;
     if (Array.isArray(record.richText)) {
@@ -81,9 +102,11 @@ function mergeMap(worksheet: any): Map<string, { rowspan: number; colspan: numbe
   return result;
 }
 
-function renderSheet(worksheet: any): SheetHtml {
-  const rows = Math.min(Math.max(worksheet.rowCount || 1, 1), MAX_ROWS);
-  const columns = Math.min(Math.max(worksheet.columnCount || 1, 1), MAX_COLUMNS);
+function renderSheet(worksheet: any, locale?: string): SheetHtml {
+  const sourceRows = Math.max(worksheet.rowCount || 0, 0);
+  const sourceColumns = Math.max(worksheet.columnCount || 0, 0);
+  const rows = Math.min(Math.max(sourceRows || 1, 1), MAX_ROWS);
+  const columns = Math.min(Math.max(sourceColumns || 1, 1), MAX_COLUMNS);
   const merges = mergeMap(worksheet);
   const html: string[] = ["<table><colgroup>"];
   for (let column = 1; column <= columns; column++) {
@@ -102,7 +125,7 @@ function renderSheet(worksheet: any): SheetHtml {
         merge && merge.rowspan > 1 ? ` rowspan="${merge.rowspan}"` : "",
         merge && merge.colspan > 1 ? ` colspan="${merge.colspan}"` : "",
       ].join("");
-      html.push(`<td${attrs}>${escapeHtml(cellValue(cell.value))}</td>`);
+      html.push(`<td${attrs}>${escapeHtml(cellValue(cell.value, locale))}</td>`);
     }
     html.push("</tr>");
   }
@@ -110,14 +133,18 @@ function renderSheet(worksheet: any): SheetHtml {
   return {
     name: String(worksheet.name || `Sheet${worksheet.id}`),
     html: html.join(""),
-    truncated: (worksheet.rowCount || 0) > MAX_ROWS || (worksheet.columnCount || 0) > MAX_COLUMNS,
+    rows,
+    columns,
+    truncatedRows: sourceRows > MAX_ROWS,
+    truncatedColumns: sourceColumns > MAX_COLUMNS,
   };
 }
 
-/** Parse an XLSX workbook into lightweight, style-aware HTML sheets. */
-export async function workbookSheets(bytes: ArrayBuffer): Promise<SheetHtml[]> {
+/** Parse an XLSX workbook into lightweight, style-aware HTML sheets. `locale`
+ *  formats date cells; callers pass the active app language, not the OS locale. */
+export async function workbookSheets(bytes: ArrayBuffer, locale?: string): Promise<SheetHtml[]> {
   const { Workbook } = await import("exceljs");
   const workbook = new Workbook();
   await workbook.xlsx.load(bytes);
-  return workbook.worksheets.map((worksheet) => renderSheet(worksheet));
+  return workbook.worksheets.map((worksheet) => renderSheet(worksheet, locale));
 }

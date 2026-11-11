@@ -116,3 +116,55 @@ describe("i18n resource coverage", () => {
     expect(setItem).toHaveBeenCalledWith("pi-science.locale", JSON.stringify("zh-Hans"));
   });
 });
+
+
+/** Count-bearing keys whose copy cannot inflect (labels, units, past tense,
+ *  parenthetical counts). Everything else with {{count}} must ship a real
+ *  singular/plural pair, otherwise English prints "~1 rows". */
+const PLURAL_INVARIANT_KEYS = new Set([
+  "conversation.activity.failureSummary",
+  "conversation.activity.executionDetails",
+  "settings.mcpPage.importLegacy",
+  "settings.mcpPage.importSelected",
+  "phase.stableCount",
+  "knowledge.safetyReferences",
+  "conversation.generatedFilesLabel",
+  "conversation.referencedFilesLabel",
+  "conversation.moreColumns",
+  "runs.succeededCount",
+  "memory.schedulerDiagnostic",
+  "memory.unchangedFields",
+  "memory.elapsedSeconds",
+]);
+
+
+describe("i18n plural resources", () => {
+  it("gives every countable key singular and plural variants in both languages", () => {
+    const missing: string[] = [];
+    for (const [key, value] of Object.entries(en)) {
+      if (typeof value !== "string" || !value.includes("{{count}}")) continue;
+      if (/_one$|_other$/.test(key)) continue;
+      if (PLURAL_INVARIANT_KEYS.has(key)) continue;
+      for (const suffix of ["_one", "_other"]) {
+        if (!(`${key}${suffix}` in en)) missing.push(`en:${key}${suffix}`);
+        if (!(`${key}${suffix}` in zhHans)) missing.push(`zh-Hans:${key}${suffix}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it("resolves English singular and plural forms from the count", async () => {
+    await i18n.changeLanguage("en");
+    expect(i18n.t("provenance.packageCount", { count: 1 })).toBe("1 package");
+    expect(i18n.t("provenance.packageCount", { count: 3 })).toBe("3 packages");
+    expect(i18n.t("office.truncatedPrefix", { count: 1 })).toBe("Showing first 1 row");
+    expect(i18n.t("office.truncatedPrefix", { count: 2 })).toBe("Showing first 2 rows");
+    expect(i18n.t("knowledge.reviewCreated", { count: 1 })).toBe("1 new proposal created");
+    expect(i18n.t("knowledge.reviewCreated", { count: 2 })).toBe("2 new proposals created");
+  });
+
+  it("no longer relies on the deprecated _plural suffix", () => {
+    expect(Object.keys(en).filter((key) => key.endsWith("_plural"))).toEqual([]);
+  });
+});
+

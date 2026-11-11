@@ -15,6 +15,7 @@ import { useFeedback } from "../../components/feedback/feedback-context";
 import { WorkspacePage, WorkspacePageHeader, WorkspacePageRefreshButton } from "../../components/layout/WorkspacePage";
 import { useRuntimeStore } from "../../lib/agent-runtime";
 import { useRequiredWorkspaceCwd } from "../../lib/workspace";
+import { formatDate } from "../../i18n/format";
 
 export function FilesPage() {
   const { t } = useTranslation();
@@ -252,7 +253,7 @@ export function FilesPage() {
                 <button onClick={() => handleClick(item.row)} className="flex items-center gap-3 flex-1 min-w-0 text-left" title={item.row.name} aria-label={item.row.name}>
                   {item.row.isDir ? <FolderOpen size={16} className="text-accent/60 shrink-0" /> : <File size={16} className="text-muted shrink-0" />}
                   <span className="min-w-0 flex-1 break-all text-text">{item.row.name}</span>
-                  <time className="hidden shrink-0 text-ui-caption text-muted lg:block" title={t("files.modified")}>{new Date(item.row.modified * 1000).toLocaleDateString()}</time>
+                  <time className="hidden shrink-0 text-ui-caption text-muted lg:block" title={t("files.modified")}>{formatDate(item.row.modified * 1000)}</time>
                   <span className="text-xs text-muted shrink-0 ml-auto">{item.row.isDir ? "—" : workspaceFiles.formatSize(item.row.size)}</span>
                 </button>
                 <button onClick={(ev) => { ev.stopPropagation(); handleDelete(item.row); }}

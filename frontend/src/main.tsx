@@ -10,6 +10,7 @@ import { useUiStore, applyTheme } from "./lib/ui";
 import { queryClient } from "./lib/client/query-client";
 import { FeedbackProvider } from "./components/feedback/FeedbackProvider";
 import { resolveEffectiveLocale } from "./i18n/config";
+import { useTranslation } from "react-i18next";
 
 const initialUi = useUiStore.getState();
 applyTheme(initialUi.theme);
@@ -18,6 +19,17 @@ document.documentElement.lang = resolveEffectiveLocale(initialUi.locale);
 // Translation resources load in a separate chunk. Mount immediately so a slow
 // or failed locale request never leaves the webview as an unexplained blank page.
 void i18nReady.catch(() => undefined);
+
+/** The fallback renders before the locale chunk settles, so it must not suspend
+ *  on the namespace; it re-renders once the resources finish loading. */
+function AppLoading() {
+  const { t } = useTranslation(undefined, { useSuspense: false });
+  return (
+    <div role="status" style={{ padding: "2rem", color: "#666", fontFamily: "system-ui, sans-serif" }}>
+      {t("app.loading", { defaultValue: "Loading Pi-Science…" })}
+    </div>
+  );
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -35,7 +47,7 @@ createRoot(document.getElementById("root")!).render(
         </div>
       }
     >
-      <Suspense fallback={<div role="status" style={{ padding: "2rem", color: "#666", fontFamily: "system-ui, sans-serif" }}>Loading Pi-Science…</div>}>
+      <Suspense fallback={<AppLoading />}>
         <QueryClientProvider client={queryClient}>
           <FeedbackProvider>
             <RouterProvider router={router} />

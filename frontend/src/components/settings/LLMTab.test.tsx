@@ -324,7 +324,7 @@ describe("LLMTab dynamic provider inventory", () => {
     fireEvent.click(item);
     // The row shows the model count and the login-unavailable notice, and no
     // API key input or save button is rendered for an OAuth-only provider.
-    expect(await screen.findByText("1 models available")).toBeInTheDocument();
+    expect(await screen.findByText("1 model available")).toBeInTheDocument();
     expect(screen.getByText("Subscription login required")).toBeInTheDocument();
     expect(screen.getByText(/Subscription sign-in is not supported in settings yet/)).toBeInTheDocument();
     expect(screen.queryByLabelText("OpenAI Codex API key")).toBeNull();

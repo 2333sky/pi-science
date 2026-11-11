@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Search, SlidersHorizontal, CalendarDays, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { ExecutionRecord } from "@pi-science/contracts";
+import { formatDateTime } from "../../i18n/format";
 
 export const RUN_KINDS: ExecutionRecord["kind"][] = ["tool", "kernel_cell", "job", "research_agent", "research_evaluation"];
 export const RUN_STATUSES: ExecutionRecord["status"][] = ["pending", "running", "succeeded", "failed", "timed_out", "cancelled", "interrupted", "lost"];
@@ -65,6 +66,6 @@ export function RunsToolbar({ search, kind, status, from, to, onChange, onClear 
       </div>
     </details>
     {active && <button type="button" onClick={clear} className="flex min-h-10 items-center gap-1.5 px-2 text-sm text-muted hover:text-text"><X size={14} />{t("runs.clearFilters")}</button>}
-    {(kind || status || from || to) && <p className="basis-full text-xs text-muted" aria-live="polite">{[kind && t(`runs.kind.${kind}`), status && t(`runs.status.${status}`), from && `${t("runs.from")} ${new Date(from).toLocaleString()}`, to && `${t("runs.to")} ${new Date(to).toLocaleString()}`].filter(Boolean).join(" · ")}</p>}
+    {(kind || status || from || to) && <p className="basis-full text-xs text-muted" aria-live="polite">{[kind && t(`runs.kind.${kind}`), status && t(`runs.status.${status}`), from && `${t("runs.from")} ${formatDateTime(from)}`, to && `${t("runs.to")} ${formatDateTime(to)}`].filter(Boolean).join(" · ")}</p>}
   </div>;
 }

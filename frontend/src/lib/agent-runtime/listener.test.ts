@@ -241,6 +241,42 @@ describe("runtime event subscription", () => {
     expect(useRuntimeStore.getState().status).toBe("ready");
   });
 
+  it("keeps locale-neutral presentation keys on the pending interaction", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/messages")) return jsonResponse({ messages: [] });
+      if (url.includes("/state")) return jsonResponse(state("session-presentation"));
+      if (url.startsWith("/api/sessions?")) return jsonResponse([]);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    await useRuntimeStore.getState().connect("/workspace", "session-presentation");
+    const source = FakeEventSource.instances[0];
+    source.open();
+    source.emit("interaction.requested", {
+      type: "interaction.requested",
+      sessionId: "session-presentation",
+      requestId: "permission-presentation",
+      method: "confirm",
+      kind: "permission",
+      title: "Allow echo: echo?",
+      message: "Arguments: {}",
+      presentation: {
+        titleKey: "interaction.mcpPermission.title",
+        titleParams: { connector: "echo", tool: "echo" },
+        messageKey: "interaction.mcpPermission.arguments",
+        messageParams: { preview: "{}" },
+        optionLabelKeys: { allow: "interaction.networkApproval.alwaysAllow" },
+      },
+    });
+    expect(useRuntimeStore.getState().pendingInteraction?.presentation).toEqual({
+      titleKey: "interaction.mcpPermission.title",
+      titleParams: { connector: "echo", tool: "echo" },
+      messageKey: "interaction.mcpPermission.arguments",
+      messageParams: { preview: "{}" },
+      optionLabelKeys: { allow: "interaction.networkApproval.alwaysAllow" },
+    });
+  });
+
   it("queues parallel approvals and advances after both POST and SSE resolution", async () => {
     let finishResponse: (() => void) | undefined;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {

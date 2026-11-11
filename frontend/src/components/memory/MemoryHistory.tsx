@@ -4,6 +4,7 @@ import type { MemoryRecord } from "@pi-science/contracts";
 import { MemoryProposalDiff } from "./MemoryProposalDiff";
 import { MemorySources } from "./MemorySources";
 import { memoryButton, type MemoryCategory } from "./memory-ui";
+import { formatDateTime } from "../../i18n/format";
 export type MemoryHistoryData = {
   revisions: MemoryRecord[];
   reviews: Array<{
@@ -67,7 +68,7 @@ export function MemoryHistory({
                   {t("memory.version", { version: v.revision })}
                 </span>
                 <time className="mt-1 block text-ui-caption text-muted">
-                  {new Date(v.updatedAt).toLocaleString()}
+                  {formatDateTime(v.updatedAt)}
                 </time>
                 {v.revision === current.revision && (
                   <span className="mt-2 inline-block text-ui-caption text-accent">
@@ -147,7 +148,7 @@ export function MemoryHistory({
                 .filter((e) => e.revision === r.revision)
                 .map((event, index) => (
                   <p key={index} className="text-ui-caption text-muted">
-                    {new Date(event.created_at).toLocaleString()} ·{" "}
+                    {formatDateTime(event.created_at)} ·{" "}
                     {event.actor === "local-owner"
                       ? t("memory.localOwner")
                       : event.actor}{" "}

@@ -206,7 +206,7 @@ describe("InspectorTabs", () => {
   it("does not offer or apply generic zoom to a scientific view", async () => {
     useUiStore.getState().openInspector({ ...file("features.bed"), content: "chr1\t0\t100\tgene" });
     render(<Harness />);
-    await screen.findByText(/1 features/);
+    await screen.findByText(/1 feature$/);
     expect(screen.queryByRole("button", { name: "Reset zoom to 100%" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Focus file" }));
     const dialog = screen.getByRole("dialog");

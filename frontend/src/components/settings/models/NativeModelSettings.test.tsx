@@ -192,7 +192,7 @@ it("reports partial success and retries only the failing service without exposin
   const requests = setup(false, false, true, false, "partial");
   await screen.findByRole("button", { name: "Lab" });
   fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
-  expect(await screen.findByText(/Partially refreshed/)).toHaveTextContent("1 services need attention");
+  expect(await screen.findByText(/Partially refreshed/)).toHaveTextContent("1 service needs attention");
   expect(screen.queryByText(/do-not-echo-key/)).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Retry this service" }));
   await waitFor(() => expect(requests.filter((request) => request.url.endsWith("broken/discover"))).toHaveLength(2));
@@ -213,7 +213,7 @@ it("retains other failures after one targeted retry succeeds", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Refresh models" }));
   expect(await screen.findByText(/Partially refreshed/)).toHaveTextContent("2 services need attention");
   fireEvent.click(screen.getAllByRole("button", { name: "Retry this service" })[0]!);
-  expect(await screen.findByText(/No changes published/)).toHaveTextContent("1 services need attention");
+  expect(await screen.findByText(/No changes published/)).toHaveTextContent("1 service needs attention");
   expect(screen.getByRole("alert")).toHaveTextContent("Still broken");
 });
 it("reports unresolved credentials without attempting a discovery request", async () => {

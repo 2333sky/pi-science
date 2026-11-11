@@ -1,4 +1,5 @@
 import type { ExecutionRecord } from "@pi-science/contracts";
+import { formatDateTime } from "../../i18n/format";
 
 export function executionLabel(run: ExecutionRecord): string {
   if (run.kind === "kernel_cell") {
@@ -83,6 +84,5 @@ export function formatDuration(milliseconds: number): string {
 
 export function formatTimestamp(value?: string): string {
   if (!value) return "—";
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  return formatDateTime(value);
 }
