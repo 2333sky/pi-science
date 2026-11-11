@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { relative } from "node:path";
-import { appendJsonLineUnlocked, readJsonLines, withFileWriteLock, workspaceFile } from "../../storage/persistence.js";
+import {
+  appendJsonLineUnlocked,
+  readJsonLines,
+  withFileWriteLock,
+  workspaceFile,
+} from "../../storage/persistence.js";
 import { resolveWorkspaceFile, validateWorkspaceCwd } from "../../security/workspace-security.js";
 import { persistArtifactFile } from "./artifact-content-store.js";
 import { previewKind, previewMime } from "./workspace-artifact-snapshot.js";
@@ -63,7 +68,9 @@ export interface DetailedWorkspaceArtifactPublishResult {
 
 export class WorkspaceArtifactPublishError extends Error {
   constructor(readonly failures: WorkspaceArtifactPublishFailure[]) {
-    super(`Failed to publish ${failures.length} workspace artifact${failures.length === 1 ? "" : "s"}`);
+    super(
+      `Failed to publish ${failures.length} workspace artifact${failures.length === 1 ? "" : "s"}`,
+    );
     this.name = "WorkspaceArtifactPublishError";
   }
 }
@@ -116,7 +123,9 @@ export async function publishWorkspaceArtifactsDetailed(
       const failure: WorkspaceArtifactPublishFailure = {
         path,
         error: error instanceof Error ? error.message : String(error),
-        ...((error as NodeJS.ErrnoException)?.code ? { code: (error as NodeJS.ErrnoException).code } : {}),
+        ...((error as NodeJS.ErrnoException)?.code
+          ? { code: (error as NodeJS.ErrnoException).code }
+          : {}),
       };
       failures.push(failure);
       options.onFailure?.(failure);
@@ -197,10 +206,13 @@ async function publishWorkspaceArtifact(
       sha256: digest.sha256,
       published_at: publishedAt,
       producer,
-      inputs: (options.inputs ?? []).slice(0, 50).map((input) => ({
-        path: String(input.path ?? ""),
-        ...(input.sha256 ? { sha256: String(input.sha256) } : {}),
-      })).filter((input) => input.path),
+      inputs: (options.inputs ?? [])
+        .slice(0, 50)
+        .map((input) => ({
+          path: String(input.path ?? ""),
+          ...(input.sha256 ? { sha256: String(input.sha256) } : {}),
+        }))
+        .filter((input) => input.path),
       environment: options.environment ?? {},
       verification: {
         status: "passed",
@@ -228,9 +240,10 @@ async function recordArtifactProvenance(
   const provenancePath = workspaceFile(cwd, "provenance.jsonl");
   await withFileWriteLock(provenancePath, async () => {
     const records = await readJsonLines<Record<string, unknown>>(provenancePath);
-    const version = records
-      .filter((record) => record.path === artifact.path)
-      .reduce((max, record) => Math.max(max, Number(record.version ?? 0)), 0) + 1;
+    const version =
+      records
+        .filter((record) => record.path === artifact.path)
+        .reduce((max, record) => Math.max(max, Number(record.version ?? 0)), 0) + 1;
     const content = `artifact:${artifact.artifact_id}:${artifact.version}:${artifact.sha256}`;
     await appendJsonLineUnlocked(provenancePath, {
       path: artifact.path,

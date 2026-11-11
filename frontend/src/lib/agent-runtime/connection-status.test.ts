@@ -101,6 +101,24 @@ describe("conversation connection status", () => {
     expect(transportDiagnostics().counters.foregroundDemotions).toBe(0);
   });
 
+  it("surfaces exhausted stream retries even if the REST recovery succeeds", async () => {
+    stubFetch();
+    await useRuntimeStore.getState().connect("/workspace", "session-a");
+    vi.useFakeTimers();
+    try {
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const source = FakeEventSource.instances.at(-1)!;
+        source.open();
+        source.readyState = FakeEventSource.CONNECTING;
+        source.onerror?.({} as Event);
+        if (attempt < 3) await vi.advanceTimersByTimeAsync([250, 500, 1_000][attempt]);
+      }
+      await vi.advanceTimersByTimeAsync(0);
+      expect(useRuntimeStore.getState()).toMatchObject({ status: "error", transportStatus: "error" });
+      expect(FakeEventSource.instances.at(-1)!.readyState).toBe(FakeEventSource.CLOSED);
+    } finally { vi.useRealTimers(); }
+  });
+
   it("rebases after a stream gap without a visible connection phase", async () => {
     stubFetch();
     await useRuntimeStore.getState().connect("/workspace", "session-a");

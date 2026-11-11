@@ -21,10 +21,15 @@ export interface SessionTitleRecord {
 /** Records written before revisions existed count as 0 so an upgrade keeps
  *  compare-and-set working against titles the user already had. */
 function revisionOf(record: SessionTitleRecord | undefined): number {
-  return record && typeof record.revision === "number" && Number.isFinite(record.revision) ? record.revision : 0;
+  return record && typeof record.revision === "number" && Number.isFinite(record.revision)
+    ? record.revision
+    : 0;
 }
 
-function latestRecord(records: SessionTitleRecord[], sessionId: string): SessionTitleRecord | undefined {
+function latestRecord(
+  records: SessionTitleRecord[],
+  sessionId: string,
+): SessionTitleRecord | undefined {
   let latest: SessionTitleRecord | undefined;
   for (const record of records) if (record && record.session_id === sessionId) latest = record;
   return latest;
@@ -65,7 +70,12 @@ export class SessionTitleRepository {
     const records = await readJsonLines<SessionTitleRecord>(this.file(cwd));
     const titles = new Map<string, string>();
     for (const record of records) {
-      if (record && typeof record.session_id === "string" && typeof record.title === "string" && record.title) {
+      if (
+        record &&
+        typeof record.session_id === "string" &&
+        typeof record.title === "string" &&
+        record.title
+      ) {
         // Last write wins (records are appended in write order).
         titles.set(record.session_id, record.title);
       }
@@ -77,10 +87,16 @@ export class SessionTitleRepository {
    *  A record whose title is unusable still reports its revision: a caller that
    *  read 0 there could never win the compare-and-set and the session's title
    *  would stop being regenerable. */
-  async getTitleEntry(cwd: string, sessionId: string): Promise<{ title: string; revision: number } | null> {
+  async getTitleEntry(
+    cwd: string,
+    sessionId: string,
+  ): Promise<{ title: string; revision: number } | null> {
     const record = latestRecord(await readJsonLines<SessionTitleRecord>(this.file(cwd)), sessionId);
     if (!record) return null;
-    return { title: typeof record.title === "string" ? record.title : "", revision: revisionOf(record) };
+    return {
+      title: typeof record.title === "string" ? record.title : "",
+      revision: revisionOf(record),
+    };
   }
 
   /** Upsert a title for a session. Rewrites the file under a lock so a
@@ -90,7 +106,12 @@ export class SessionTitleRepository {
     await withFileWriteLock(file, async () => {
       const records = await readJsonLines<SessionTitleRecord>(file);
       const next = records.filter((record) => record?.session_id !== sessionId);
-      next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision: revisionOf(latestRecord(records, sessionId)) + 1 });
+      next.push({
+        session_id: sessionId,
+        title,
+        updated_at: new Date().toISOString(),
+        revision: revisionOf(latestRecord(records, sessionId)) + 1,
+      });
       await rewriteTitles(file, next);
     });
   }
@@ -99,12 +120,17 @@ export class SessionTitleRepository {
    *  stored afterwards. The caller's local name cache belongs to one browser, so
    *  "no local name" cannot prove the session is unnamed: a second browser
    *  backfilling history must not replace a title typed somewhere else. */
-  async createTitle(cwd: string, sessionId: string, title: string): Promise<{ applied: boolean; title: string }> {
+  async createTitle(
+    cwd: string,
+    sessionId: string,
+    title: string,
+  ): Promise<{ applied: boolean; title: string }> {
     const file = this.file(cwd);
     return withFileWriteLock(file, async () => {
       const records = await readJsonLines<SessionTitleRecord>(file);
       const current = latestRecord(records, sessionId);
-      if (current && typeof current.title === "string" && current.title) return { applied: false, title: current.title };
+      if (current && typeof current.title === "string" && current.title)
+        return { applied: false, title: current.title };
       const revision = revisionOf(current) + 1;
       const next = records.filter((record) => record?.session_id !== sessionId);
       next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision });
@@ -128,8 +154,11 @@ export class SessionTitleRepository {
   private outranked(key: string, claim: TitleClaim): boolean {
     const started = this.newestStart.get(key);
     if (!started) return false;
-    return (started.manual > claim.seq && outranks({ seq: started.manual, source: "manual" }, claim))
-      || (started.automatic > claim.seq && outranks({ seq: started.automatic, source: "automatic" }, claim));
+    return (
+      (started.manual > claim.seq && outranks({ seq: started.manual, source: "manual" }, claim)) ||
+      (started.automatic > claim.seq &&
+        outranks({ seq: started.automatic, source: "automatic" }, claim))
+    );
   }
 
   /** Write a generated title. Arbitration, the compare-and-set and the write run
@@ -153,10 +182,13 @@ export class SessionTitleRepository {
       const current = revisionOf(latestRecord(records, sessionId));
       // A request the session already outranks must not touch the file at all:
       // its result is not the one the user asked for last.
-      if (this.outranked(key, claim)) return { applied: false, revision: current, reason: "stale" as const };
+      if (this.outranked(key, claim))
+        return { applied: false, revision: current, reason: "stale" as const };
       // Someone else wrote while this generation ran, so its input is stale.
-      if (current !== expected) return { applied: false, revision: current, reason: "stale" as const };
-      if (guard && !(await guard())) return { applied: false, revision: current, reason: "gone" as const };
+      if (current !== expected)
+        return { applied: false, revision: current, reason: "stale" as const };
+      if (guard && !(await guard()))
+        return { applied: false, revision: current, reason: "gone" as const };
       const revision = current + 1;
       const next = records.filter((record) => record?.session_id !== sessionId);
       next.push({ session_id: sessionId, title, updated_at: new Date().toISOString(), revision });
@@ -188,12 +220,16 @@ async function rewriteTitles(file: string, records: SessionTitleRecord[]): Promi
   try {
     await writeFile(temporary, content, "utf8");
     for (let attempt = 0; ; attempt += 1) {
-      try { await rename(temporary, file); return; }
-      catch (error) {
+      try {
+        await rename(temporary, file);
+        return;
+      } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
         if (code !== "EPERM" && code !== "EBUSY" && code !== "EEXIST") throw error;
         if (attempt >= TITLE_RENAME_RETRIES - 1) throw error;
-        await new Promise((resolveWait) => setTimeout(resolveWait, TITLE_RENAME_RETRY_MS * (attempt + 1)));
+        await new Promise((resolveWait) =>
+          setTimeout(resolveWait, TITLE_RENAME_RETRY_MS * (attempt + 1)),
+        );
       }
     }
   } catch (error) {

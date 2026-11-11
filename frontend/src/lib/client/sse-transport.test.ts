@@ -149,6 +149,116 @@ describe("PiScienceClient conversation transport", () => {
     source.onerror?.({} as Event);
     expect(FakeEventSource.instances).toHaveLength(1);
   });
+
+  it("stops repeated open-then-fail reconnects without treating them as a terminal run error", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PiScienceClient();
+      const events: Array<{ type: string; retryExhausted?: unknown }> = [];
+      client.onEvent((event) => events.push(event));
+      client.connect("session-a", "/workspace");
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const source = FakeEventSource.instances.at(-1)!;
+        source.open();
+        source.readyState = FakeEventSource.CONNECTING;
+        source.onerror?.({} as Event);
+        if (attempt < 3) vi.advanceTimersByTime([250, 500, 1_000][attempt]);
+      }
+      expect(FakeEventSource.instances.at(-1)!.readyState).toBe(FakeEventSource.CLOSED);
+      expect(client.isConnected).toBe(false);
+      expect(events).toContainEqual(expect.objectContaining({ type: "connection.error", retryExhausted: true }));
+      expect(events.some((event) => event.type === "error")).toBe(false);
+
+      client.connect("session-a", "/workspace");
+      expect(FakeEventSource.instances).toHaveLength(5);
+      client.disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("resets the reconnect budget after the stream stays open", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PiScienceClient();
+      client.connect("session-a", "/workspace");
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const source = FakeEventSource.instances.at(-1)!;
+        source.open();
+        source.readyState = FakeEventSource.CONNECTING;
+        source.onerror?.({} as Event);
+        vi.advanceTimersByTime([250, 500, 1_000][attempt]);
+      }
+      const source = FakeEventSource.instances.at(-1)!;
+      source.open();
+      vi.advanceTimersByTime(30_000);
+      source.readyState = FakeEventSource.CONNECTING;
+      source.onerror?.({} as Event);
+      vi.advanceTimersByTime(250);
+      expect(FakeEventSource.instances).toHaveLength(5);
+      expect(client.isConnected).toBe(true);
+      client.disconnect();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("reconnects from the last applied cursor rather than a rejected event", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PiScienceClient();
+      client.onEvent((event) => event.type === "message.delta" && event.text === "rejected" ? false : undefined);
+      client.connect("session-a", "/workspace");
+      const source = FakeEventSource.instances[0];
+      source.open();
+      source.emit("message.delta", { type: "message.delta", sessionId: "session-a", text: "applied" }, "epoch:1");
+      source.emit("message.delta", { type: "message.delta", sessionId: "session-a", text: "rejected" }, "epoch:2");
+      source.readyState = FakeEventSource.CONNECTING;
+      source.onerror?.({} as Event);
+      vi.advanceTimersByTime(250);
+      expect(FakeEventSource.instances[1].url).toContain("lastEventId=epoch%3A1");
+      client.disconnect();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("uses a recovery sentinel after losing a stream with no applied cursor", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PiScienceClient();
+      client.connect("session-a", "/workspace");
+      const source = FakeEventSource.instances[0];
+      source.open();
+      source.readyState = FakeEventSource.CONNECTING;
+      source.onerror?.({} as Event);
+      vi.advanceTimersByTime(250);
+      expect(FakeEventSource.instances[1].url).toContain("lastEventId=pi-recovery-sentinel%3A0");
+      client.disconnect();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("uses a recovery sentinel when explicitly rebuilding a stream without a cursor", () => {
+    const client = new PiScienceClient();
+    client.connect("session-a", "/workspace");
+    FakeEventSource.instances[0].open();
+    client.reconnect("session-a", "/workspace");
+    expect(FakeEventSource.instances[1].url).toContain("lastEventId=pi-recovery-sentinel%3A0");
+    client.disconnect();
+  });
+
+  it("cancels a scheduled reconnect when the user disconnects", () => {
+    vi.useFakeTimers();
+    try {
+      const client = new PiScienceClient();
+      client.connect("session-a", "/workspace");
+      const source = FakeEventSource.instances[0];
+      source.open();
+      source.readyState = FakeEventSource.CONNECTING;
+      source.onerror?.({} as Event);
+      client.disconnect();
+      vi.advanceTimersByTime(2_000);
+      expect(FakeEventSource.instances).toHaveLength(1);
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe("PiScienceClient SSE cursor resumption", () => {

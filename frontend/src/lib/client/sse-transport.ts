@@ -25,6 +25,11 @@ export type TransportReason =
  *  with stream.gap, which establishes a live subscriber before recovery runs. */
 const RECOVERY_REPLAY_SENTINEL = "pi-recovery-sentinel:0";
 
+// Rebuild failed streams with the applied cursor, with a bounded retry budget.
+const MAX_CONSECUTIVE_RECONNECT_ERRORS = 4;
+const STABLE_CONNECTION_MS = 30_000;
+const RECONNECT_DELAY_MS = [250, 500, 1_000] as const;
+
 export class SseTransport {
   private baseUrl: string;
   private eventSource: EventSource | null = null;
@@ -33,6 +38,9 @@ export class SseTransport {
   private cwd: string | null = null;
   private connectionGeneration = 0;
   private connectionWatchdog: ReturnType<typeof setTimeout> | null = null;
+  private stableConnectionTimer: ReturnType<typeof setTimeout> | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private consecutiveReconnectErrors = 0;
   /** Why the current subscription exists. Reported with every lifecycle event
    *  of that subscription so a reconnect storm is attributable. */
   private connectionReason: TransportReason = "initial_attach";
@@ -93,6 +101,10 @@ export class SseTransport {
   }
 
   connect(sessionId: string, cwd?: string, reason?: TransportReason): void {
+    this.openConnection(sessionId, cwd, reason, false);
+  }
+
+  private openConnection(sessionId: string, cwd: string | undefined, reason: TransportReason | undefined, retrying: boolean, forceRecovery = false): void {
     const targetCwd = cwd ?? null;
     if (this.isConnectedTo(sessionId, targetCwd ?? undefined)) {
       return;
@@ -110,6 +122,7 @@ export class SseTransport {
     this.gapFencedKey = null;
     this.closeEventSource();
     const generation = ++this.connectionGeneration;
+    if (!retrying) this.consecutiveReconnectErrors = 0;
     this.sessionId = sessionId;
     this.cwd = targetCwd;
     if (typeof document !== "undefined" && document.hidden) {
@@ -122,9 +135,10 @@ export class SseTransport {
     // instead of the full event log. This is the key optimisation for
     // conversation switching speed.
     const cursorKey = targetCwd ? sessionKey(targetCwd, sessionId) : "";
+    const needsRecovery = resumingFromHidden || retrying || forceRecovery;
     const lastEventId = cursorKey
-      ? this.lastEventIds.get(cursorKey) ?? (resumingFromHidden ? RECOVERY_REPLAY_SENTINEL : undefined)
-      : undefined;
+      ? this.lastEventIds.get(cursorKey) ?? (needsRecovery ? RECOVERY_REPLAY_SENTINEL : undefined)
+      : needsRecovery ? RECOVERY_REPLAY_SENTINEL : undefined;
     this.pausedForVisibility = false;
     const params = new URLSearchParams();
     if (cwd) params.set("cwd", cwd);
@@ -208,6 +222,13 @@ export class SseTransport {
     source.onopen = () => {
       if (generation === this.connectionGeneration && source === this.eventSource) {
         this.clearConnectionWatchdog();
+        this.clearStableConnectionTimer();
+        this.stableConnectionTimer = globalThis.setTimeout(() => {
+          if (generation === this.connectionGeneration && source === this.eventSource && source.readyState === EventSource.OPEN) {
+            this.consecutiveReconnectErrors = 0;
+          }
+          this.stableConnectionTimer = null;
+        }, STABLE_CONNECTION_MS);
         this.emit({ type: "connection.open", sessionId, reason: this.connectionReason });
       }
     };
@@ -218,16 +239,33 @@ export class SseTransport {
       // by the named listener above. Only native EventSource transport errors
       // should change the connection state.
       if ("data" in event) return;
-      if (source.readyState === EventSource.CLOSED) this.clearConnectionWatchdog();
-      else this.armConnectionWatchdog(source, generation, sessionId);
-      this.emit({
-        type: source.readyState === EventSource.CLOSED ? "connection.error" : "connection.reconnecting",
-        sessionId,
-        reason: "transport_error",
-        message: source.readyState === EventSource.CLOSED
-          ? "Conversation stream closed"
-          : "Reconnecting conversation stream",
-      });
+      this.clearStableConnectionTimer();
+      if (source.readyState === EventSource.CLOSED) {
+        this.clearConnectionWatchdog();
+        this.emit({ type: "connection.error", sessionId, reason: "transport_error", message: "Conversation stream closed" });
+        return;
+      }
+      const failures = ++this.consecutiveReconnectErrors;
+      const reconnectGeneration = ++this.connectionGeneration;
+      this.gapFencedKey = null;
+      this.closeEventSource();
+      if (failures >= MAX_CONSECUTIVE_RECONNECT_ERRORS) {
+        this.emit({
+          type: "connection.error", sessionId, reason: "transport_error", retryExhausted: true,
+          message: "Conversation stream repeatedly disconnected. Reopen the session to retry.",
+        });
+        return;
+      }
+      // The browser's native Last-Event-ID can advance before a reducer accepts
+      // an event. Recreate the source from our applied cursor (or the recovery
+      // sentinel) so reconnecting cannot skip an unapplied event.
+      this.reconnectTimer = globalThis.setTimeout(() => {
+        this.reconnectTimer = null;
+        if (this.connectionGeneration === reconnectGeneration && this.sessionId === sessionId && this.cwd === targetCwd) {
+          this.openConnection(sessionId, cwd, "transport_error", true);
+        }
+      }, RECONNECT_DELAY_MS[failures - 1]);
+      this.emit({ type: "connection.reconnecting", sessionId, reason: "transport_error", message: "Reconnecting conversation stream" });
     };
   }
 
@@ -242,6 +280,7 @@ export class SseTransport {
   reconnect(sessionId: string, cwd?: string, reason?: TransportReason): void {
     if (typeof document !== "undefined" && document.hidden) return;
     const targetCwd = cwd ?? null;
+    if (this.reconnectTimer !== null && this.sessionId === sessionId && this.cwd === targetCwd) return;
     const cursorKey = targetCwd ? sessionKey(targetCwd, sessionId) : "";
     if (
       cursorKey
@@ -253,7 +292,7 @@ export class SseTransport {
       return;
     }
     this.closeEventSource();
-    this.connect(sessionId, cwd, reason);
+    this.openConnection(sessionId, cwd, reason, false, true);
   }
 
   disconnect(): void {
@@ -315,9 +354,21 @@ export class SseTransport {
 
   private closeEventSource(): void {
     this.clearConnectionWatchdog();
+    this.clearStableConnectionTimer();
+    if (this.reconnectTimer !== null) {
+      globalThis.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.eventSource) {
       this.eventSource.close();
       this.eventSource = null;
+    }
+  }
+
+  private clearStableConnectionTimer(): void {
+    if (this.stableConnectionTimer !== null) {
+      globalThis.clearTimeout(this.stableConnectionTimer);
+      this.stableConnectionTimer = null;
     }
   }
 

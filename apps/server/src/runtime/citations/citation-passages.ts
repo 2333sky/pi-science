@@ -15,12 +15,28 @@
  */
 import { createHash } from "node:crypto";
 import { appendJsonLine, readJsonLines, workspaceFile } from "../../storage/persistence.js";
-import { fullTextSnapshot, passageIdOf, refFromKey, snapshotIdOf, type FullTextDeps, type FullTextPassage, type FullTextSnapshot } from "./citation-fulltext.js";
-import { citationEvidenceService, generationExcerpts, type CitationExcerpt, type PositionResult } from "./citation-evidence.js";
+import {
+  fullTextSnapshot,
+  passageIdOf,
+  refFromKey,
+  snapshotIdOf,
+  type FullTextDeps,
+  type FullTextPassage,
+  type FullTextSnapshot,
+} from "./citation-fulltext.js";
+import {
+  citationEvidenceService,
+  generationExcerpts,
+  type CitationExcerpt,
+  type PositionResult,
+} from "./citation-evidence.js";
 
 export type { CitationExcerpt, PositionResult } from "./citation-evidence.js";
 
-export interface PassageRequest { key: string; claim: string }
+export interface PassageRequest {
+  key: string;
+  claim: string;
+}
 
 const MAX_EXCERPTS = 3;
 const NEIGHBOR_CHARS = 200;
@@ -41,7 +57,8 @@ const RANKER_VERSION = 2;
  *  numbers on every line, so these leave the pool instead of scoring low: a
  *  scored-down inventory paragraph would still crowd out a real one when the
  *  paper is short. */
-const BOILERPLATE_SECTION = /^(?:supplementar|supporting\s+information|reporting\s+summary|author\s+contribution|competing\s+interest|conflict\s+of\s+interest|publisher|editorial|additional\s+information|source\s+data|data\s+availability|code\s+availability|acknowledg|peer\s+review|ethics\s+statement)/i;
+const BOILERPLATE_SECTION =
+  /^(?:supplementar|supporting\s+information|reporting\s+summary|author\s+contribution|competing\s+interest|conflict\s+of\s+interest|publisher|editorial|additional\s+information|source\s+data|data\s+availability|code\s+availability|acknowledg|peer\s+review|ethics\s+statement)/i;
 
 /** Where a claim's evidence usually lives, as a multiplier on the retrieval
  *  score. A Methods paragraph repeats the words of a Results claim ("training",
@@ -68,7 +85,122 @@ const CJK_RUN = /[\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+/g;
 /** Closed-class words carry no claim. In a short paper the idf of a once-seen
  *  "of" is as large as a content word's, so an unrelated sentence would match
  *  on grammar alone; dropping them keeps a match about what the paper says. */
-const STOPWORDS = new Set(["a", "an", "as", "at", "be", "by", "do", "does", "did", "if", "in", "is", "it", "of", "on", "or", "out", "per", "so", "to", "up", "us", "we", "the", "and", "for", "with", "from", "that", "this", "these", "those", "are", "was", "were", "been", "being", "has", "have", "had", "its", "their", "they", "them", "into", "onto", "over", "under", "between", "during", "while", "using", "via", "can", "may", "might", "must", "who", "whom", "whose", "which", "what", "when", "where", "how", "why", "not", "nor", "but", "than", "then", "also", "such", "more", "most", "less", "very", "just", "only", "own", "same", "some", "any", "all", "both", "each", "every", "about", "after", "before", "again", "further", "here", "there", "upon", "within", "without", "our", "your", "his", "her", "hers", "itself", "themselves", "的", "了", "和", "是", "在", "有", "与", "就", "都", "而"]);
+const STOPWORDS = new Set([
+  "a",
+  "an",
+  "as",
+  "at",
+  "be",
+  "by",
+  "do",
+  "does",
+  "did",
+  "if",
+  "in",
+  "is",
+  "it",
+  "of",
+  "on",
+  "or",
+  "out",
+  "per",
+  "so",
+  "to",
+  "up",
+  "us",
+  "we",
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "that",
+  "this",
+  "these",
+  "those",
+  "are",
+  "was",
+  "were",
+  "been",
+  "being",
+  "has",
+  "have",
+  "had",
+  "its",
+  "their",
+  "they",
+  "them",
+  "into",
+  "onto",
+  "over",
+  "under",
+  "between",
+  "during",
+  "while",
+  "using",
+  "via",
+  "can",
+  "may",
+  "might",
+  "must",
+  "who",
+  "whom",
+  "whose",
+  "which",
+  "what",
+  "when",
+  "where",
+  "how",
+  "why",
+  "not",
+  "nor",
+  "but",
+  "than",
+  "then",
+  "also",
+  "such",
+  "more",
+  "most",
+  "less",
+  "very",
+  "just",
+  "only",
+  "own",
+  "same",
+  "some",
+  "any",
+  "all",
+  "both",
+  "each",
+  "every",
+  "about",
+  "after",
+  "before",
+  "again",
+  "further",
+  "here",
+  "there",
+  "upon",
+  "within",
+  "without",
+  "our",
+  "your",
+  "his",
+  "her",
+  "hers",
+  "itself",
+  "themselves",
+  "的",
+  "了",
+  "和",
+  "是",
+  "在",
+  "有",
+  "与",
+  "就",
+  "都",
+  "而",
+]);
 
 function tokens(text: string): string[] {
   const result: string[] = [];
@@ -80,7 +212,8 @@ function tokens(text: string): string[] {
     // also catches a term glued into a longer run. A Chinese claim against an
     // English-only passage still shares nothing, and `no_match` is then the
     // honest answer instead of a guessed quote.
-    for (const run of word.match(CJK_RUN) ?? []) for (let at = 0; at + 1 < run.length; at += 1) result.push(run.slice(at, at + 2));
+    for (const run of word.match(CJK_RUN) ?? [])
+      for (let at = 0; at + 1 < run.length; at += 1) result.push(run.slice(at, at + 2));
   }
   return result;
 }
@@ -93,7 +226,9 @@ function bm25(query: string[], passages: FullTextPassage[]): number[] {
   const b = 0.75;
   const documents = passages.map((passage) => tokens(passage.text));
   const documentFrequency = new Map<string, number>();
-  for (const document of documents) for (const term of new Set(document)) documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
+  for (const document of documents)
+    for (const term of new Set(document))
+      documentFrequency.set(term, (documentFrequency.get(term) ?? 0) + 1);
   const totalLength = documents.reduce((sum, document) => sum + document.length, 0);
   const averageLength = documents.length ? totalLength / documents.length : 0;
   const weights = new Map<string, number>();
@@ -115,7 +250,8 @@ function bm25(query: string[], passages: FullTextPassage[]): number[] {
   });
 }
 
-const verbatim = (needle: string, source: string): boolean => needle.length > 0 && source.includes(needle);
+const verbatim = (needle: string, source: string): boolean =>
+  needle.length > 0 && source.includes(needle);
 
 /** "4.0" and "4" are the same reported value, so trailing zeros go before the
  *  comparison; "1.16.4" stays one token and so never equals "1.16". */
@@ -147,7 +283,8 @@ function locate(passages: FullTextPassage[], claim: string): CitationExcerpt[] {
     .map((score, index) => {
       const passage = pool[index]!;
       const present = new Set(numbersOf(passage.text));
-      const anchors = wanted.length && !wanted.some((number) => present.has(number)) ? MISSING_NUMBER_WEIGHT : 1;
+      const anchors =
+        wanted.length && !wanted.some((number) => present.has(number)) ? MISSING_NUMBER_WEIGHT : 1;
       return { score: score * sectionWeight(passage.section_title) * anchors, index };
     })
     .filter((entry) => entry.score > 0)
@@ -171,8 +308,8 @@ function locate(passages: FullTextPassage[], claim: string): CitationExcerpt[] {
     const at = passages.indexOf(passage);
     excerpts.push({
       text: passage.text,
-      before: at > 0 ? passages[at - 1]?.text.slice(-NEIGHBOR_CHARS) ?? "" : "",
-      after: at >= 0 ? passages[at + 1]?.text.slice(0, NEIGHBOR_CHARS) ?? "" : "",
+      before: at > 0 ? (passages[at - 1]?.text.slice(-NEIGHBOR_CHARS) ?? "") : "",
+      after: at >= 0 ? (passages[at + 1]?.text.slice(0, NEIGHBOR_CHARS) ?? "") : "",
       section_title: passage.section_title,
       section_id: passage.section_id,
       page: passage.page,
@@ -201,13 +338,24 @@ async function readPositionCache(cwd: string): Promise<PositionResult[]> {
   const rows = await readJsonLines<Record<string, unknown>>(passagesCacheFile(cwd));
   const results: PositionResult[] = [];
   for (const row of rows) {
-    if (typeof row.key !== "string" || typeof row.claim_sha256 !== "string" || typeof row.state !== "string" || !Array.isArray(row.excerpts)) continue;
+    if (
+      typeof row.key !== "string" ||
+      typeof row.claim_sha256 !== "string" ||
+      typeof row.state !== "string" ||
+      !Array.isArray(row.excerpts)
+    )
+      continue;
     // A row written before passages had ids cannot name the paragraph it
     // quoted, so it is dropped and the position is located again. A row scored
     // by an older ranker is dropped for the same reason: replaying it would keep
     // showing the paragraph that rule picked.
     if (row.ranker !== RANKER_VERSION) continue;
-    if (!(row.excerpts as CitationExcerpt[]).every((excerpt) => typeof excerpt?.passage_id === "string")) continue;
+    if (
+      !(row.excerpts as CitationExcerpt[]).every(
+        (excerpt) => typeof excerpt?.passage_id === "string",
+      )
+    )
+      continue;
     results.push({
       key: row.key,
       claim_sha256: row.claim_sha256,
@@ -229,7 +377,11 @@ export const citationPassagesService = {
    *  A position whose full text is not on disk and may not be fetched reports
    *  `unfetched`: the answer is unknown, which is not the same as "this paper
    *  has no open text". */
-  async positions(cwd: string, input: { positions: PassageRequest[]; fetch?: boolean; session_id?: string }, deps: FullTextDeps = {}): Promise<PositionResult[]> {
+  async positions(
+    cwd: string,
+    input: { positions: PassageRequest[]; fetch?: boolean; session_id?: string },
+    deps: FullTextDeps = {},
+  ): Promise<PositionResult[]> {
     const allowFetch = input.fetch !== false;
     const cache = await readPositionCache(cwd);
     // Two claims in one answer can cite the same paper; reading it twice would
@@ -241,7 +393,14 @@ export const citationPassagesService = {
       // The model's own choice, recorded while it wrote, always wins over a
       // search: it is the paragraph the writer actually used, and re-deriving
       // it from the finished sentence can only guess.
-      const recorded = input.session_id && request.claim.trim() ? await citationEvidenceService.lookup(cwd, { session_id: input.session_id, key: request.key, claim: request.claim }) : { state: "absent" as const };
+      const recorded =
+        input.session_id && request.claim.trim()
+          ? await citationEvidenceService.lookup(cwd, {
+              session_id: input.session_id,
+              key: request.key,
+              claim: request.claim,
+            })
+          : { state: "absent" as const };
       if (recorded.state === "recorded") {
         const excerpts = generationExcerpts(recorded.snapshot, recorded.record.passage_ids);
         // A record whose passages no longer resolve is not a match: saying so is
@@ -250,46 +409,120 @@ export const citationPassagesService = {
         // What a search of the same snapshot would have offered, kept apart from
         // the model's own choice so the card can offer it as the supplement it
         // is. It costs no request: the snapshot is the one already read.
-        const supplementary = excerpts.length ? locate(recorded.snapshot.passages, request.claim).filter((excerpt) => !chosen.has(excerpt.passage_id)) : [];
-        results.push({ key: request.key, claim_sha256, state: excerpts.length ? "matched" : "stale", note: excerpts.length ? null : "the recorded passages are no longer in this snapshot", snapshot_sha256: recorded.snapshot.content_sha256, snapshot_id: snapshotIdOf(recorded.snapshot), origin: "generation", excerpts, supplementary });
+        const supplementary = excerpts.length
+          ? locate(recorded.snapshot.passages, request.claim).filter(
+              (excerpt) => !chosen.has(excerpt.passage_id),
+            )
+          : [];
+        results.push({
+          key: request.key,
+          claim_sha256,
+          state: excerpts.length ? "matched" : "stale",
+          note: excerpts.length ? null : "the recorded passages are no longer in this snapshot",
+          snapshot_sha256: recorded.snapshot.content_sha256,
+          snapshot_id: snapshotIdOf(recorded.snapshot),
+          origin: "generation",
+          excerpts,
+          supplementary,
+        });
         continue;
       }
       if (recorded.state === "stale") {
-        results.push({ key: request.key, claim_sha256, state: "stale", note: "the source was read again since this answer recorded its evidence, so the recorded passages no longer resolve", snapshot_sha256: null, snapshot_id: recorded.record.snapshot_id, origin: "generation", excerpts: [] });
+        results.push({
+          key: request.key,
+          claim_sha256,
+          state: "stale",
+          note: "the source was read again since this answer recorded its evidence, so the recorded passages no longer resolve",
+          snapshot_sha256: null,
+          snapshot_id: recorded.record.snapshot_id,
+          origin: "generation",
+          excerpts: [],
+        });
         continue;
       }
       const ref = refFromKey(request.key);
       if (!ref) {
-        results.push({ key: request.key, claim_sha256, state: "no_match", note: "the citation key is not a DOI or arXiv id", snapshot_sha256: null, snapshot_id: null, origin: "located", excerpts: [] });
+        results.push({
+          key: request.key,
+          claim_sha256,
+          state: "no_match",
+          note: "the citation key is not a DOI or arXiv id",
+          snapshot_sha256: null,
+          snapshot_id: null,
+          origin: "located",
+          excerpts: [],
+        });
         continue;
       }
       const sourceKey = `${ref.kind}:${ref.id}`;
-      if (!snapshots.has(sourceKey)) snapshots.set(sourceKey, await fullTextSnapshot(cwd, ref, { fetch: allowFetch }, deps));
+      if (!snapshots.has(sourceKey))
+        snapshots.set(sourceKey, await fullTextSnapshot(cwd, ref, { fetch: allowFetch }, deps));
       const snapshot = snapshots.get(sourceKey) ?? null;
       if (!snapshot) {
-        results.push({ key: request.key, claim_sha256, state: "unfetched", note: "full text not fetched yet", snapshot_sha256: null, snapshot_id: null, origin: "located", excerpts: [] });
+        results.push({
+          key: request.key,
+          claim_sha256,
+          state: "unfetched",
+          note: "full text not fetched yet",
+          snapshot_sha256: null,
+          snapshot_id: null,
+          origin: "located",
+          excerpts: [],
+        });
         continue;
       }
       const snapshot_sha256 = snapshot.content_sha256;
       const snapshot_id = snapshotIdOf(snapshot);
       if (snapshot.state !== "available") {
-        results.push({ key: request.key, claim_sha256, state: snapshot.state, note: snapshot.note, snapshot_sha256, snapshot_id, origin: "located", excerpts: [] });
+        results.push({
+          key: request.key,
+          claim_sha256,
+          state: snapshot.state,
+          note: snapshot.note,
+          snapshot_sha256,
+          snapshot_id,
+          origin: "located",
+          excerpts: [],
+        });
         continue;
       }
       if (!snapshot.passages.length) {
-        results.push({ key: request.key, claim_sha256, state: "no_match", note: "the full text holds no passages", snapshot_sha256, snapshot_id, origin: "located", excerpts: [] });
+        results.push({
+          key: request.key,
+          claim_sha256,
+          state: "no_match",
+          note: "the full text holds no passages",
+          snapshot_sha256,
+          snapshot_id,
+          origin: "located",
+          excerpts: [],
+        });
         continue;
       }
       // A cache row only answers for the exact text it was computed against. A
       // re-read paper has a new content hash, so every old row for that source
       // stops matching and the position is found again instead of quoted stale.
-      const cached = cache.findLast((row) => row.key === request.key && row.claim_sha256 === claim_sha256 && row.snapshot_sha256 === snapshot_sha256);
+      const cached = cache.findLast(
+        (row) =>
+          row.key === request.key &&
+          row.claim_sha256 === claim_sha256 &&
+          row.snapshot_sha256 === snapshot_sha256,
+      );
       if (cached) {
         results.push({ ...cached, snapshot_id, origin: "located" });
         continue;
       }
       const excerpts = locate(snapshot.passages, request.claim);
-      const result: PositionResult = { key: request.key, claim_sha256, state: excerpts.length ? "matched" : "no_match", note: null, snapshot_sha256, snapshot_id, origin: "located", excerpts };
+      const result: PositionResult = {
+        key: request.key,
+        claim_sha256,
+        state: excerpts.length ? "matched" : "no_match",
+        note: null,
+        snapshot_sha256,
+        snapshot_id,
+        origin: "located",
+        excerpts,
+      };
       if (snapshot_sha256) {
         await appendJsonLine(passagesCacheFile(cwd), { ...result, ranker: RANKER_VERSION });
         cache.push(result);

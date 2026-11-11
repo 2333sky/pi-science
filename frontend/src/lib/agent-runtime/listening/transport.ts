@@ -9,6 +9,7 @@ import { reconcileAfterConnectionLoss } from "../recovery/connection";
 import { reconcileAfterGap } from "../recovery/gap";
 import { applySessionReplacements } from "../session-replacement";
 import type { RuntimeState } from "../types";
+import { runtimeStore } from "../store-access";
 
 const RECONNECT_REASON_SET = new Set<string>(RECONNECT_REASONS);
 
@@ -104,20 +105,33 @@ export function handleTransportEvent(client: PiScienceClient, event: PiScienceEv
     // A transport error is not proof that the session is unusable. The
     // authoritative recovery below decides: it keeps the foreground ready
     // when it recovers and promotes to `error` only when it gives up.
-    applyTransportEvent({
+    const exhausted = event.retryExhausted === true;
+    const failure = {
       transport: "error",
       reason: reconnectReason(event, "transport_error"),
       sessionId: state.activeSessionId,
       detail: String(event.message ?? ""),
-    });
+      ...(exhausted ? { foreground: "error" as const } : {}),
+    } as const;
+    applyTransportEvent(failure);
     if (state.activeSessionId) {
-      void reconcileAfterConnectionLoss(
+      const sessionId = state.activeSessionId;
+      const cwd = state.cwd;
+      const recovery = reconcileAfterConnectionLoss(
         client,
-        state.activeSessionId,
-        state.cwd,
+        sessionId,
+        cwd,
         generations.connection,
         generations.activity,
       );
+      if (exhausted) {
+        void recovery.finally(() => {
+          const current = runtimeStore.getState();
+          if (current.activeSessionId === sessionId && current.cwd === cwd && !client.isConnectedTo(sessionId, cwd)) {
+            applyTransportEvent(failure);
+          }
+        }).catch(() => undefined);
+      }
     }
     return "handled";
   }

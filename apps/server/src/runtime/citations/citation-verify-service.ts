@@ -16,7 +16,13 @@
  * out of the snapshot because one DOI can be cited with different titles.
  */
 import { createHash } from "node:crypto";
-import { appendJsonLine, configPath, readJson, readJsonLines, workspaceFile } from "../../storage/persistence.js";
+import {
+  appendJsonLine,
+  configPath,
+  readJson,
+  readJsonLines,
+  workspaceFile,
+} from "../../storage/persistence.js";
 import { recordEgress } from "../../security/egress-audit.js";
 import { arxivIdOf, arxivVersionOf, scanIdentifiers } from "@pi-science/contracts";
 
@@ -112,7 +118,11 @@ const MAX_ABSTRACT_CHARS = 2_000;
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const REQUEST_TIMEOUT_MS = 15_000;
 /** Per-domain minimum interval, mirroring the paper-search connector. */
-const MINIMUM_INTERVAL: Record<string, number> = { "api.crossref.org": 50, "api.unpaywall.org": 350, "export.arxiv.org": 3_000 };
+const MINIMUM_INTERVAL: Record<string, number> = {
+  "api.crossref.org": 50,
+  "api.unpaywall.org": 350,
+  "export.arxiv.org": 3_000,
+};
 const UNPAYWALL_EMAIL_CONFIG = "citation_verify_email";
 
 const lastRequestAt = new Map<string, number>();
@@ -151,7 +161,13 @@ async function readCache(cwd: string): Promise<Map<string, CitationEvidence>> {
   for (const row of rows) {
     // Pre-schema rows cannot be trusted for retraction state, and failed
     // requests must never come back as a book that does not exist.
-    if (row.schema !== 2 || (row.kind !== "doi" && row.kind !== "arxiv") || typeof row.id !== "string" || typeof row.verified_at !== "string") continue;
+    if (
+      row.schema !== 2 ||
+      (row.kind !== "doi" && row.kind !== "arxiv") ||
+      typeof row.id !== "string" ||
+      typeof row.verified_at !== "string"
+    )
+      continue;
     if (statusState(row.status) === "error") continue;
     const key = `${row.kind}:${row.id}`;
     const existing = cache.get(key);
@@ -174,7 +190,9 @@ async function readCache(cwd: string): Promise<Map<string, CitationEvidence>> {
       retraction: retractionState(row.retraction),
       retraction_note: typeof row.retraction_note === "string" ? row.retraction_note : null,
       retraction_url: typeof row.retraction_url === "string" ? row.retraction_url : null,
-      checked_providers: Array.isArray(row.checked_providers) ? (row.checked_providers as string[]) : [],
+      checked_providers: Array.isArray(row.checked_providers)
+        ? (row.checked_providers as string[])
+        : [],
       error: null,
       record_version: typeof row.record_version === "string" ? row.record_version : null,
       status_note: typeof row.status_note === "string" ? row.status_note : null,
@@ -199,15 +217,47 @@ async function throttle(domain: string, deps: CitationDeps): Promise<void> {
 async function fetchJson(url: URL, deps: CitationDeps, domain: string): Promise<unknown> {
   const fetchFn = deps.fetch ?? fetch;
   await throttle(domain, deps);
-  await recordEgress({ connector_type: "literature", connector_id: "citation-verify", target_domain: domain, approved: true });
+  await recordEgress({
+    connector_type: "literature",
+    connector_id: "citation-verify",
+    target_domain: domain,
+    approved: true,
+  });
   const response = await fetchFn(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`${domain} returned HTTP ${response.status}`);
   return await response.json();
 }
 
-function emptyEvidence(kind: CitationKind, id: string, status: CitationStatus, providers: string[]): CitationEvidence {
-  return { schema: 2, kind, id, status, title: null, authors: [], journal: null, year: null, volume: null, issue: null, pages: null, abstract: null, oa_url: null, retraction: "unknown", retraction_note: null, retraction_url: null, checked_providers: providers, error: null, record_version: null, status_note: null, verified_at: new Date().toISOString() };
+function emptyEvidence(
+  kind: CitationKind,
+  id: string,
+  status: CitationStatus,
+  providers: string[],
+): CitationEvidence {
+  return {
+    schema: 2,
+    kind,
+    id,
+    status,
+    title: null,
+    authors: [],
+    journal: null,
+    year: null,
+    volume: null,
+    issue: null,
+    pages: null,
+    abstract: null,
+    oa_url: null,
+    retraction: "unknown",
+    retraction_note: null,
+    retraction_url: null,
+    checked_providers: providers,
+    error: null,
+    record_version: null,
+    status_note: null,
+    verified_at: new Date().toISOString(),
+  };
 }
 
 /** Crossref registers an update relation on both records: the notice carries
@@ -215,22 +265,35 @@ function emptyEvidence(kind: CitationKind, id: string, status: CitationStatus, p
  *  (pointing at the notice, often with source `retraction-watch`). Reading
  *  only `update-to` reports every retracted paper as clean, so both sides are
  *  read and the first retraction relation wins. */
-function retractionFromCrossref(message: Record<string, unknown>): { retraction: RetractionState; note: string | null; url: string | null } {
+function retractionFromCrossref(message: Record<string, unknown>): {
+  retraction: RetractionState;
+  note: string | null;
+  url: string | null;
+} {
   const relations = [
-    ...(Array.isArray(message["update-to"]) ? (message["update-to"] as Array<Record<string, unknown>>) : []),
-    ...(Array.isArray(message["updated-by"]) ? (message["updated-by"] as Array<Record<string, unknown>>) : []),
+    ...(Array.isArray(message["update-to"])
+      ? (message["update-to"] as Array<Record<string, unknown>>)
+      : []),
+    ...(Array.isArray(message["updated-by"])
+      ? (message["updated-by"] as Array<Record<string, unknown>>)
+      : []),
   ];
   const notice = relations.find((link) => /retract/i.test(String(link.type ?? "")));
   if (notice) {
     return {
       retraction: "retracted",
-      note: [notice.label, notice.DOI, notice.source].filter(Boolean).join(" · ") || "A retraction notice is linked to this DOI",
+      note:
+        [notice.label, notice.DOI, notice.source].filter(Boolean).join(" · ") ||
+        "A retraction notice is linked to this DOI",
       url: typeof notice.DOI === "string" ? `https://doi.org/${notice.DOI}` : null,
     };
   }
-  const assertions = Array.isArray(message.assertion) ? (message.assertion as Array<Record<string, unknown>>) : [];
+  const assertions = Array.isArray(message.assertion)
+    ? (message.assertion as Array<Record<string, unknown>>)
+    : [];
   const assertionNote = assertions.find((item) => /retract/i.test(String(item.label ?? "")));
-  if (assertionNote) return { retraction: "retracted", note: String(assertionNote.label), url: null };
+  if (assertionNote)
+    return { retraction: "retracted", note: String(assertionNote.label), url: null };
   return { retraction: "clear", note: null, url: null };
 }
 
@@ -238,14 +301,31 @@ function crossrefEvidence(doi: string, works: Record<string, unknown>): Citation
   const message = (works.message ?? {}) as Record<string, unknown>;
   const issued = (message.issued ?? {}) as Record<string, unknown>;
   const dateParts = Array.isArray(issued["date-parts"]) ? (issued["date-parts"] as number[][]) : [];
-  const authors = Array.isArray(message.author) ? (message.author as Array<Record<string, unknown>>).map((author) => [author.given, author.family].filter(Boolean).join(" ")).filter(Boolean) : [];
-  const abstract = typeof message.abstract === "string" ? message.abstract.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim() : null;
+  const authors = Array.isArray(message.author)
+    ? (message.author as Array<Record<string, unknown>>)
+        .map((author) => [author.given, author.family].filter(Boolean).join(" "))
+        .filter(Boolean)
+    : [];
+  const abstract =
+    typeof message.abstract === "string"
+      ? message.abstract
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim()
+      : null;
   const retraction = retractionFromCrossref(message);
   return {
     ...emptyEvidence("doi", doi, "found", ["crossref"]),
-    title: typeof message.title === "string" ? message.title : Array.isArray(message.title) ? String(message.title[0] ?? "") : null,
+    title:
+      typeof message.title === "string"
+        ? message.title
+        : Array.isArray(message.title)
+          ? String(message.title[0] ?? "")
+          : null,
     authors,
-    journal: Array.isArray(message["container-title"]) ? String(message["container-title"][0] ?? "") || null : null,
+    journal: Array.isArray(message["container-title"])
+      ? String(message["container-title"][0] ?? "") || null
+      : null,
     year: dateParts[0]?.[0] ? String(dateParts[0][0]) : null,
     volume: typeof message.volume === "string" ? message.volume : null,
     issue: typeof message.issue === "string" ? message.issue : null,
@@ -260,10 +340,19 @@ function crossrefEvidence(doi: string, works: Record<string, unknown>): Citation
 /** Crossref is one registration agency among several. When it does not hold a
  *  DOI, ask the DOI Foundation which agency does, so the answer names what was
  *  checked instead of claiming the paper does not exist. */
-async function doiRegistrar(doi: string, deps: CitationDeps): Promise<{ agency: string | null; checked: boolean }> {
+async function doiRegistrar(
+  doi: string,
+  deps: CitationDeps,
+): Promise<{ agency: string | null; checked: boolean }> {
   try {
-    const answer = await fetchJson(new URL(`https://doi.org/doiRA/${encodeURIComponent(doi)}`), deps, "doi.org");
-    const agency = Array.isArray(answer) ? String((answer[0] as Record<string, unknown> | undefined)?.RA ?? "").trim() : "";
+    const answer = await fetchJson(
+      new URL(`https://doi.org/doiRA/${encodeURIComponent(doi)}`),
+      deps,
+      "doi.org",
+    );
+    const agency = Array.isArray(answer)
+      ? String((answer[0] as Record<string, unknown> | undefined)?.RA ?? "").trim()
+      : "";
     return { agency: agency || null, checked: true };
   } catch {
     return { agency: null, checked: false };
@@ -271,12 +360,18 @@ async function doiRegistrar(doi: string, deps: CitationDeps): Promise<{ agency: 
 }
 
 async function verifyDoi(doi: string, deps: CitationDeps): Promise<CitationEvidence> {
-  const works = await fetchJson(new URL(`https://api.crossref.org/works/${encodeURIComponent(doi)}`), deps, "api.crossref.org") as { message?: Record<string, unknown> } | null;
+  const works = (await fetchJson(
+    new URL(`https://api.crossref.org/works/${encodeURIComponent(doi)}`),
+    deps,
+    "api.crossref.org",
+  )) as { message?: Record<string, unknown> } | null;
   // Crossref is one registration agency among several, so a miss here means
   // "not in Crossref", not "this DOI does not exist".
   if (!works?.message) {
     const registrar = await doiRegistrar(doi, deps);
-    const providers = registrar.checked ? ["crossref", registrar.agency ? `doi.org (${registrar.agency})` : "doi.org"] : ["crossref"];
+    const providers = registrar.checked
+      ? ["crossref", registrar.agency ? `doi.org (${registrar.agency})` : "doi.org"]
+      : ["crossref"];
     const evidence = emptyEvidence("doi", doi, "not_found", providers);
     evidence.status_note = registrar.agency
       ? `Crossref does not hold this DOI; ${registrar.agency} registers it, and that agency's metadata is not read yet`
@@ -289,10 +384,18 @@ async function verifyDoi(doi: string, deps: CitationDeps): Promise<CitationEvide
   // Unpaywall needs a configured contact email; without one we degrade to
   // Crossref metadata only instead of sending a placeholder address.
   const config = await readJson<Record<string, unknown>>(configPath("config.json"), {});
-  const email = String(config[UNPAYWALL_EMAIL_CONFIG] ?? "").trim() || String(process.env.PI_SCIENCE_CITATION_EMAIL ?? "").trim();
+  const email =
+    String(config[UNPAYWALL_EMAIL_CONFIG] ?? "").trim() ||
+    String(process.env.PI_SCIENCE_CITATION_EMAIL ?? "").trim();
   if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     try {
-      const unpaywall = await fetchJson(new URL(`https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=${encodeURIComponent(email)}`), deps, "api.unpaywall.org") as Record<string, unknown> | null;
+      const unpaywall = (await fetchJson(
+        new URL(
+          `https://api.unpaywall.org/v2/${encodeURIComponent(doi)}?email=${encodeURIComponent(email)}`,
+        ),
+        deps,
+        "api.unpaywall.org",
+      )) as Record<string, unknown> | null;
       evidence.checked_providers.push("unpaywall");
       const best = unpaywall?.best_oa_location as Record<string, unknown> | undefined;
       if (best?.url_for_landing_page || best?.url_for_pdf) {
@@ -306,7 +409,9 @@ async function verifyDoi(doi: string, deps: CitationDeps): Promise<CitationEvide
 }
 
 function arxivXmlTag(entry: string, name: string): string {
-  return (new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`).exec(entry)?.[1] ?? "").replace(/\s+/g, " ").trim();
+  return (new RegExp(`<${name}[^>]*>([\\s\\S]*?)</${name}>`).exec(entry)?.[1] ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 /** Query the version-less id: arXiv answers with the current version in the
@@ -317,8 +422,15 @@ async function verifyArxiv(id: string, deps: CitationDeps): Promise<CitationEvid
   url.searchParams.set("id_list", id);
   url.searchParams.set("max_results", "1");
   await throttle("export.arxiv.org", deps);
-  await recordEgress({ connector_type: "literature", connector_id: "citation-verify", target_domain: "export.arxiv.org", approved: true });
-  const response = await (deps.fetch ?? fetch)(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  await recordEgress({
+    connector_type: "literature",
+    connector_id: "citation-verify",
+    target_domain: "export.arxiv.org",
+    approved: true,
+  });
+  const response = await (deps.fetch ?? fetch)(url, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   if (!response.ok) throw new Error(`export.arxiv.org returned HTTP ${response.status}`);
   const xml = await response.text();
   const entry = /<entry>([\s\S]*?)<\/entry>/.exec(xml)?.[1] ?? "";
@@ -326,15 +438,22 @@ async function verifyArxiv(id: string, deps: CitationDeps): Promise<CitationEvid
   // filed under /api/errors. That is a failed request, not a source that does
   // not hold the paper: caching it for a week would invent a missing paper.
   const feedTitle = entry ? arxivXmlTag(entry, "title") : "";
-  if (/\/api\/errors/.test(entry ? arxivXmlTag(entry, "id") : "") || /^(?:error|api rate limit exceeded)$/i.test(feedTitle)) {
-    throw new Error(`export.arxiv.org answered with an API error feed (${feedTitle || "no title"})`);
+  if (
+    /\/api\/errors/.test(entry ? arxivXmlTag(entry, "id") : "") ||
+    /^(?:error|api rate limit exceeded)$/i.test(feedTitle)
+  ) {
+    throw new Error(
+      `export.arxiv.org answered with an API error feed (${feedTitle || "no title"})`,
+    );
   }
   if (!entry) return emptyEvidence("arxiv", id, "not_found", ["arxiv"]);
   const recordVersion = arxivVersionOf(arxivXmlTag(entry, "id").replace(/^.*\/abs\//, ""));
   return {
     ...emptyEvidence("arxiv", id, "found", ["arxiv"]),
     title: arxivXmlTag(entry, "title") || null,
-    authors: [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)].map((match) => match[1]!.replace(/\s+/g, " ").trim()).filter(Boolean),
+    authors: [...entry.matchAll(/<name>([\s\S]*?)<\/name>/g)]
+      .map((match) => match[1]!.replace(/\s+/g, " ").trim())
+      .filter(Boolean),
     // The feed serves the current version only, so this is that record's own
     // abstract and it belongs on the source snapshot: another answer may cite
     // the current version. `citationView` hides it for a citation pinned to a
@@ -350,23 +469,47 @@ async function verifyArxiv(id: string, deps: CitationDeps): Promise<CitationEvid
 
 function failedEvidence(ref: CitationRef, error: unknown): CitationEvidence {
   const provider = ref.kind === "doi" ? "crossref" : "arxiv";
-  return { ...emptyEvidence(ref.kind, ref.id, "error", [provider]), error: error instanceof Error ? error.message : String(error) };
+  return {
+    ...emptyEvidence(ref.kind, ref.id, "error", [provider]),
+    error: error instanceof Error ? error.message : String(error),
+  };
 }
 
-function versionState(evidence: CitationEvidence, requestedVersion: string | null): CitationVersionState {
+function versionState(
+  evidence: CitationEvidence,
+  requestedVersion: string | null,
+): CitationVersionState {
   if (evidence.kind !== "arxiv") return "not_applicable";
   if (!requestedVersion || !evidence.record_version) return "unconfirmed";
   return requestedVersion === evidence.record_version ? "confirmed" : "unconfirmed";
 }
 
-const NOT_COMPARED: { state: BibliographicState; note: string | null } = { state: "not_compared", note: null };
+const NOT_COMPARED: { state: BibliographicState; note: string | null } = {
+  state: "not_compared",
+  note: null,
+};
 
-function citationView(evidence: CitationEvidence, ref: CitationRef, cached: boolean, bibliographic = NOT_COMPARED): CitationView {
+function citationView(
+  evidence: CitationEvidence,
+  ref: CitationRef,
+  cached: boolean,
+  bibliographic = NOT_COMPARED,
+): CitationView {
   const version = versionState(evidence, ref.requested_version);
   // The snapshot keeps the current version's abstract. A citation that names
   // another version must not read it as the text of the version it cites.
-  const citesOtherVersion = ref.requested_version !== null && ref.requested_version !== evidence.record_version;
-  return { ...evidence, abstract: citesOtherVersion ? null : evidence.abstract, requested_id: ref.requested_id, requested_version: ref.requested_version, version, bibliographic: bibliographic.state, bibliographic_note: bibliographic.note, cached };
+  const citesOtherVersion =
+    ref.requested_version !== null && ref.requested_version !== evidence.record_version;
+  return {
+    ...evidence,
+    abstract: citesOtherVersion ? null : evidence.abstract,
+    requested_id: ref.requested_id,
+    requested_version: ref.requested_version,
+    version,
+    bibliographic: bibliographic.state,
+    bibliographic_note: bibliographic.note,
+    cached,
+  };
 }
 
 /** A reference list is the one place an answer states a title for an
@@ -376,16 +519,72 @@ const REFERENCE_ENTRY = /(?:^|\n)[ \t]*(?:\[\d{1,3}\]|\d{1,3}[.)、]|[-*•])[ \
 const NUMBERED_ENTRY = /^(?:\[\d{1,3}\]|\d{1,3}[.)、])/;
 const YEAR_PATTERN = /\b(?:19|20)\d{2}\b/;
 const LATIN_TOKEN = /[a-z0-9\u00c0-\u024f]+/g;
-const STOPWORDS = new Set(["the", "and", "for", "with", "from", "that", "this", "are", "was", "were", "has", "have", "not", "its", "their", "into", "over", "under", "between", "using", "via", "can", "may", "who", "which", "what", "when", "where", "how", "why", "been", "being", "than", "then", "also", "such", "more", "most", "less", "new", "one", "two", "all", "about", "after", "before"]);
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "that",
+  "this",
+  "are",
+  "was",
+  "were",
+  "has",
+  "have",
+  "not",
+  "its",
+  "their",
+  "into",
+  "over",
+  "under",
+  "between",
+  "using",
+  "via",
+  "can",
+  "may",
+  "who",
+  "which",
+  "what",
+  "when",
+  "where",
+  "how",
+  "why",
+  "been",
+  "being",
+  "than",
+  "then",
+  "also",
+  "such",
+  "more",
+  "most",
+  "less",
+  "new",
+  "one",
+  "two",
+  "all",
+  "about",
+  "after",
+  "before",
+]);
 
 /** Latin words only: a Chinese title has no whitespace tokens, so comparing it
  *  here would read as a mismatch on every citation. Non-Latin records stay
  *  `not_compared`. */
 function latinTokens(value: string): string[] {
-  return (value.toLowerCase().replace(/https?:\/\/\S+/g, " ").replace(/10\.\d{4,9}\/\S+/g, " ").match(LATIN_TOKEN) ?? []).filter((token) => token.length >= 3 && !STOPWORDS.has(token));
+  return (
+    value
+      .toLowerCase()
+      .replace(/https?:\/\/\S+/g, " ")
+      .replace(/10\.\d{4,9}\/\S+/g, " ")
+      .match(LATIN_TOKEN) ?? []
+  ).filter((token) => token.length >= 3 && !STOPWORDS.has(token));
 }
 
-function referenceEntry(text: string, ref: CitationRef): { text: string; numbered: boolean } | null {
+function referenceEntry(
+  text: string,
+  ref: CitationRef,
+): { text: string; numbered: boolean } | null {
   const needle = ref.requested_id.toLowerCase();
   const starts = [...text.matchAll(REFERENCE_ENTRY)];
   for (const [index, match] of starts.entries()) {
@@ -393,7 +592,10 @@ function referenceEntry(text: string, ref: CitationRef): { text: string; numbere
     const end = starts[index + 1]?.index ?? text.length;
     const entry = text.slice(start, end);
     if (!entry.toLowerCase().includes(needle)) continue;
-    return { text: entry.replace(/\s+/g, " ").trim(), numbered: NUMBERED_ENTRY.test(match[0].trim()) };
+    return {
+      text: entry.replace(/\s+/g, " ").trim(),
+      numbered: NUMBERED_ENTRY.test(match[0].trim()),
+    };
   }
   return null;
 }
@@ -403,7 +605,11 @@ function referenceEntry(text: string, ref: CitationRef): { text: string; numbere
  *  reference entry that carries its own year and several words but none of the
  *  record's words: a bullet that merely mentions a DOI alongside prose is not
  *  evidence of a wrong title. */
-function bibliographicCheck(text: string, ref: CitationRef, evidence: CitationEvidence): { state: BibliographicState; note: string | null } {
+function bibliographicCheck(
+  text: string,
+  ref: CitationRef,
+  evidence: CitationEvidence,
+): { state: BibliographicState; note: string | null } {
   const titleTokens = evidence.title ? latinTokens(evidence.title) : [];
   if (titleTokens.length < 2) return NOT_COMPARED;
   const entry = referenceEntry(text, ref);
@@ -412,8 +618,10 @@ function bibliographicCheck(text: string, ref: CitationRef, evidence: CitationEv
   const hits = titleTokens.filter((token) => entryTokens.has(token)).length;
   const overlap = hits / titleTokens.length;
   const surnames = evidence.authors.flatMap((author) => latinTokens(author).slice(-1));
-  if (overlap >= 0.6 || surnames.some((surname) => entryTokens.has(surname))) return { state: "match", note: null };
-  if (entry.numbered && overlap < 0.2 && YEAR_PATTERN.test(entry.text) && entryTokens.size >= 4) return { state: "mismatch", note: entry.text.slice(0, 200) };
+  if (overlap >= 0.6 || surnames.some((surname) => entryTokens.has(surname)))
+    return { state: "match", note: null };
+  if (entry.numbered && overlap < 0.2 && YEAR_PATTERN.test(entry.text) && entryTokens.size >= 4)
+    return { state: "mismatch", note: entry.text.slice(0, 200) };
   return NOT_COMPARED;
 }
 
@@ -428,7 +636,12 @@ function refFromCompositeId(raw: string): CitationRef | null {
   const requestedId = rest.join(":");
   if ((kind !== "doi" && kind !== "arxiv") || !requestedId) return null;
   const id = kind === "arxiv" ? arxivIdOf(requestedId) : requestedId;
-  return { kind, id, requested_id: requestedId, requested_version: kind === "arxiv" ? arxivVersionOf(requestedId) : null };
+  return {
+    kind,
+    id,
+    requested_id: requestedId,
+    requested_version: kind === "arxiv" ? arxivVersionOf(requestedId) : null,
+  };
 }
 
 /** One logical query per source, so a caller that names the same source twice
@@ -446,9 +659,17 @@ function uniqueRefs(refs: CitationRef[]): CitationRef[] {
 /** One source snapshot per citation: replay a fresh one, otherwise query and
  *  cache the answer. A failed request is reported and never cached, so a retry
  *  asks the provider again. */
-async function resolveRef(cwd: string, ref: CitationRef, cache: Map<string, CitationEvidence>, deps: CitationDeps, now: () => number, bibliographic: (evidence: CitationEvidence) => { state: BibliographicState; note: string | null }): Promise<CitationView> {
+async function resolveRef(
+  cwd: string,
+  ref: CitationRef,
+  cache: Map<string, CitationEvidence>,
+  deps: CitationDeps,
+  now: () => number,
+  bibliographic: (evidence: CitationEvidence) => { state: BibliographicState; note: string | null },
+): Promise<CitationView> {
   const cached = cache.get(`${ref.kind}:${ref.id}`);
-  if (cached && now() - Date.parse(cached.verified_at) < CACHE_TTL_MS) return citationView(cached, ref, true, bibliographic(cached));
+  if (cached && now() - Date.parse(cached.verified_at) < CACHE_TTL_MS)
+    return citationView(cached, ref, true, bibliographic(cached));
   let evidence: CitationEvidence;
   try {
     evidence = ref.kind === "doi" ? await verifyDoi(ref.id, deps) : await verifyArxiv(ref.id, deps);
@@ -472,16 +693,29 @@ export const citationVerifyService = {
    *  after a rate limit or a provider outage. `ids` verifies exactly those
    *  sources instead of scanning the text again: that is how the automatic pass
    *  continues past the per-call cap without re-reading the answer. */
-  async verify(cwd: string, input: { text: string; refresh?: boolean; ids?: CitationRef[] }, deps: CitationDeps = {}): Promise<VerifyCitationsResult> {
+  async verify(
+    cwd: string,
+    input: { text: string; refresh?: boolean; ids?: CitationRef[] },
+    deps: CitationDeps = {},
+  ): Promise<VerifyCitationsResult> {
     const now = deps.now ?? Date.now;
     const text = String(input.text ?? "");
     const refs = input.ids ? uniqueRefs(input.ids) : extractCitations(text);
     const batch = refs.slice(0, MAX_CITATIONS_PER_CALL);
-    const cache = refreshRequested(input.refresh) ? new Map<string, CitationEvidence>() : await readCache(cwd);
+    const cache = refreshRequested(input.refresh)
+      ? new Map<string, CitationEvidence>()
+      : await readCache(cwd);
     const results: CitationView[] = [];
-    for (const ref of batch) results.push(await resolveRef(cwd, ref, cache, deps, now, (evidence) => bibliographicCheck(text, ref, evidence)));
+    for (const ref of batch)
+      results.push(
+        await resolveRef(cwd, ref, cache, deps, now, (evidence) =>
+          bibliographicCheck(text, ref, evidence),
+        ),
+      );
     return {
-      text_sha256: createHash("sha256").update(String(input.text ?? "")).digest("hex"),
+      text_sha256: createHash("sha256")
+        .update(String(input.text ?? ""))
+        .digest("hex"),
       total: refs.length,
       processed: batch.length,
       unprocessed: refs.slice(MAX_CITATIONS_PER_CALL),
@@ -494,7 +728,12 @@ export const citationVerifyService = {
    *  gated by the automatic switch, because a manual check is the user's own
    *  request. `refresh` re-queries instead of replaying a snapshot taken before
    *  a rate limit or an outage. */
-  async verifyIds(cwd: string, ids: string[], input: { refresh?: boolean } = {}, deps: CitationDeps = {}): Promise<VerifyCitationsResult> {
+  async verifyIds(
+    cwd: string,
+    ids: string[],
+    input: { refresh?: boolean } = {},
+    deps: CitationDeps = {},
+  ): Promise<VerifyCitationsResult> {
     const now = deps.now ?? Date.now;
     const refs: CitationRef[] = [];
     const seen = new Set<string>();
@@ -505,13 +744,18 @@ export const citationVerifyService = {
       refs.push(ref);
     }
     const batch = refs.slice(0, MAX_CITATIONS_PER_CALL);
-    const cache = refreshRequested(input.refresh) ? new Map<string, CitationEvidence>() : await readCache(cwd);
+    const cache = refreshRequested(input.refresh)
+      ? new Map<string, CitationEvidence>()
+      : await readCache(cwd);
     const citations: CitationView[] = [];
     // There is no answer text here, so the reference-entry comparison has
     // nothing to read and stays `not_compared` on every citation.
-    for (const ref of batch) citations.push(await resolveRef(cwd, ref, cache, deps, now, () => NOT_COMPARED));
+    for (const ref of batch)
+      citations.push(await resolveRef(cwd, ref, cache, deps, now, () => NOT_COMPARED));
     return {
-      text_sha256: createHash("sha256").update(refs.map((ref) => `${ref.kind}:${ref.id}`).join(",")).digest("hex"),
+      text_sha256: createHash("sha256")
+        .update(refs.map((ref) => `${ref.kind}:${ref.id}`).join(","))
+        .digest("hex"),
       total: refs.length,
       processed: batch.length,
       unprocessed: refs.slice(MAX_CITATIONS_PER_CALL),
@@ -534,7 +778,9 @@ export const citationVerifyService = {
       return citationView(unchecked, ref, false);
     });
     return {
-      text_sha256: createHash("sha256").update(String(input.text ?? "")).digest("hex"),
+      text_sha256: createHash("sha256")
+        .update(String(input.text ?? ""))
+        .digest("hex"),
       total: refs.length,
       processed: citations.filter((view) => view.status !== "unchecked").length,
       unprocessed: refs.slice(MAX_CITATIONS_PER_CALL),

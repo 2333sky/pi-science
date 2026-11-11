@@ -1,10 +1,12 @@
 import type { ProductInput } from "../product-input.js";
 import type { EventPublishGuard, SseEventRecord } from "../event-store.js";
 
-/** Why delivery gave up on a subscriber. The owner of the consumer (the SSE
- *  route) needs this: without it a subscriber can be dropped while its HTTP
- *  response stays open and heartbeats keep the connection looking healthy. */
 export type SubscriberAbandonReason = "delivery_failed" | "replay_backlog_overflow";
+
+export type SubscribeOptions = {
+  signal?: AbortSignal;
+  onAbandon?: (reason: SubscriberAbandonReason) => void;
+};
 
 export type Subscriber = {
   ready: boolean;
@@ -12,12 +14,17 @@ export type Subscriber = {
   delivered: Set<string>;
   cancelled: boolean;
   deliver: (record: SseEventRecord) => unknown;
-  abandon?: (reason: SubscriberAbandonReason) => void;
+  abandon: (reason: SubscriberAbandonReason) => void;
 };
 
 export type EventStore = {
   append(cwd: string, sessionId: string, event: SseEventRecord): Promise<void>;
-  appendConditional?: (cwd: string, sessionId: string, event: SseEventRecord, guard: EventPublishGuard) => Promise<boolean>;
+  appendConditional?: (
+    cwd: string,
+    sessionId: string,
+    event: SseEventRecord,
+    guard: EventPublishGuard,
+  ) => Promise<boolean>;
   readAfter(cwd: string, sessionId: string, lastEventId?: string | null): Promise<SseEventRecord[]>;
   nextSequence?: (cwd: string, sessionId: string) => Promise<number>;
 };
@@ -34,9 +41,15 @@ export type ConversationEventHubOptions = {
 
 export type BindingOptions = {
   activeSessionId: () => string | null;
+  /** Worker startup cost measured by the runtime client, for the startup log line. */
+  startupMs?: number;
   onBusy: (busy: boolean) => void;
   onExit: () => void;
-  observe?: (event: ProductInput, sessionId: string, identity: { turnId: string; turnOrdinal: number } | undefined) => Promise<void> | void;
+  observe?: (
+    event: ProductInput,
+    sessionId: string,
+    identity: { turnId: string; turnOrdinal: number } | undefined,
+  ) => Promise<void> | void;
 };
 
 export type TurnState = {

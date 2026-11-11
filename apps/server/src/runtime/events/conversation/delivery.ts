@@ -1,27 +1,25 @@
 import type { SseEventRecord } from "../event-store.js";
-import type { Subscriber, SubscriberAbandonReason, EventStore } from "./types.js";
+import type { Subscriber, EventStore, SubscribeOptions, SubscriberAbandonReason } from "./types.js";
 import { MAX_SUBSCRIBER_REPLAY_PENDING } from "./limits.js";
 import { streamKey, recordKey, recordPayload } from "./records.js";
-
-// A replay runs inside one synchronous loop while the response is already
-// attached. Without a yield the Readable's consumer never gets a turn to
-// drain, so `blocked` stays set once the first 64KB is handed over and every
-// later record lands in the route's pending buffer: a healthy client
-// reconnecting to a long conversation would be told the replay overflowed
-// even though it could have consumed all of it. Yield by bytes as well as by
-// count (a page of large tool results must still reach a fast consumer) so the
-// 512-record/512KB caps keep measuring the real backlog; a genuinely slow
-// consumer keeps filling them and still gets the explicit gap.
-const REPLAY_YIELD_BYTES = 32 * 1024;
-const REPLAY_YIELD_RECORDS = 128;
 
 export class ConversationDelivery {
   private readonly subscribers = new Map<string, Set<Subscriber>>();
   private readonly pendingInteractions = new Map<string, SseEventRecord[]>();
   constructor(private readonly eventStore: EventStore) {}
-  pendingInteraction(cwd: string, sessionId: string, requestId: string): Record<string, unknown> | undefined {
-    return this.pendingInteractions.get(streamKey(cwd, sessionId))?.map(recordPayload)
-      .find((payload) => payload?.type === "interaction.requested" && payload.requestId === requestId) ?? undefined;
+  pendingInteraction(
+    cwd: string,
+    sessionId: string,
+    requestId: string,
+  ): Record<string, unknown> | undefined {
+    return (
+      this.pendingInteractions
+        .get(streamKey(cwd, sessionId))
+        ?.map(recordPayload)
+        .find(
+          (payload) => payload?.type === "interaction.requested" && payload.requestId === requestId,
+        ) ?? undefined
+    );
   }
   hasSubscribers(cwd: string, sessionId: string): boolean {
     return (this.subscribers.get(streamKey(cwd, sessionId))?.size ?? 0) > 0;
@@ -36,21 +34,23 @@ export class ConversationDelivery {
 
     const request = pending
       .map((record) => recordPayload(record))
-      .find((payload) => (
-        (payload?.type === "interaction.requested")
-        && payload.requestId === requestId
-      ));
-    const toolCallId = request?.questionnaire === true && typeof request.toolCallId === "string"
-      ? request.toolCallId
-      : null;
+      .find(
+        (payload) => payload?.type === "interaction.requested" && payload.requestId === requestId,
+      );
+    const toolCallId =
+      request?.questionnaire === true && typeof request.toolCallId === "string"
+        ? request.toolCallId
+        : null;
     const remaining = pending.filter((record) => {
       const payload = recordPayload(record);
       if (!payload) return true;
+      if (payload.type === "interaction.requested" && payload.requestId === requestId) return false;
       if (
-        (payload.type === "interaction.requested")
-        && payload.requestId === requestId
-      ) return false;
-      if (toolCallId !== null && payload.type === "questionnaire.asked" && payload.toolCallId === toolCallId) return false;
+        toolCallId !== null &&
+        payload.type === "questionnaire.asked" &&
+        payload.toolCallId === toolCallId
+      )
+        return false;
       return true;
     });
     if (remaining.length > 0) this.pendingInteractions.set(key, remaining);
@@ -62,24 +62,47 @@ export class ConversationDelivery {
     lastEventId: string | undefined,
     deliver: (record: SseEventRecord) => unknown,
     replay = true,
-    onAbandon?: (reason: SubscriberAbandonReason) => void,
+    options: SubscribeOptions = {},
   ): Promise<() => void> {
     const key = streamKey(cwd, sessionId);
-    const subscriber: Subscriber = { ready: false, pending: [], delivered: new Set(), cancelled: false, deliver, abandon: onAbandon };
     const set = this.subscribers.get(key) ?? new Set<Subscriber>();
-    set.add(subscriber);
-    this.subscribers.set(key, set);
+    let subscriber: Subscriber;
+    let cancelReplay: (() => void) | undefined;
     const unsubscribe = () => {
       if (subscriber.cancelled) return;
       subscriber.cancelled = true;
       subscriber.pending.length = 0;
+      subscriber.delivered.clear();
+      options.signal?.removeEventListener("abort", unsubscribe);
       set.delete(subscriber);
       if (set.size === 0) this.subscribers.delete(key);
+      cancelReplay?.();
+      cancelReplay = undefined;
     };
-    const abandon = (reason: SubscriberAbandonReason): void => {
+    const abandon = (reason: SubscriberAbandonReason) => {
       if (subscriber.cancelled) return;
-      this.abandonSubscriber(key, subscriber, reason);
+      unsubscribe();
+      try {
+        options.onAbandon?.(reason);
+      } catch {
+        // A transport cleanup callback must not interrupt event publication.
+      }
     };
+    subscriber = {
+      ready: false,
+      pending: [],
+      delivered: new Set(),
+      cancelled: false,
+      deliver,
+      abandon,
+    };
+    set.add(subscriber);
+    this.subscribers.set(key, set);
+    if (options.signal?.aborted) {
+      unsubscribe();
+      return unsubscribe;
+    }
+    options.signal?.addEventListener("abort", unsubscribe, { once: true });
     const send = (record: SseEventRecord): boolean => {
       if (subscriber.cancelled) return false;
       const identity = recordKey(record);
@@ -91,55 +114,57 @@ export class ConversationDelivery {
       }
       return true;
     };
-    const records = replay ? await this.eventStore.readAfter(cwd, sessionId, lastEventId) : [];
-    // Let the already-attached response drain during a long replay. The caps in
-    // the SSE route must bound what the consumer has not taken yet, not how
-    // fast this loop can hand records over: without the turn below a healthy
-    // reconnect streams nothing for the whole replay and then reports
-    // `replay_overflow`.
-    let replayedBytes = 0;
-    let replayedRecords = 0;
-    for (const record of records) {
-      if (!send(record)) return unsubscribe;
-      replayedBytes += Buffer.byteLength(record.data);
-      replayedRecords += 1;
-      if (replayedBytes >= REPLAY_YIELD_BYTES || replayedRecords >= REPLAY_YIELD_RECORDS) {
-        replayedBytes = 0;
-        replayedRecords = 0;
-        await new Promise<void>((resolve) => setImmediate(resolve));
+    try {
+      let records: SseEventRecord[] | undefined = [];
+      if (replay) {
+        const read = this.eventStore.readAfter(cwd, sessionId, lastEventId);
+        const cancelled = new Promise<undefined>((resolve) => {
+          cancelReplay = () => resolve(undefined);
+        });
+        if (subscriber.cancelled) cancelReplay?.();
+        records = await Promise.race([read, cancelled]);
+        cancelReplay = undefined;
       }
-    }
-    // A page refresh has no in-memory SSE cursor. Re-deliver interactions that
-    // are still waiting for a browser response so the UI can reconstruct the
-    // prompt without replaying the whole durable conversation.
-    const pendingInteraction = this.pendingInteractions.get(key);
-    if (pendingInteraction) {
-      for (const record of pendingInteraction) {
+      if (!records || subscriber.cancelled) return unsubscribe;
+      let replayBytes = 0;
+      for (const record of records) {
+        if (!send(record)) return unsubscribe;
+        replayBytes += Buffer.byteLength(record.data);
+        if (replayBytes >= 64 * 1024) {
+          // Replay is synchronous delivery into a bounded transport. Give socket
+          // consumers a chance to drain between batches without letting live
+          // events overtake history (subscriber.ready remains false).
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          replayBytes = 0;
+        }
+      }
+      // A page refresh has no in-memory SSE cursor. Re-deliver interactions that
+      // are still waiting for a browser response so the UI can reconstruct the
+      // prompt without replaying the whole durable conversation.
+      const pendingInteraction = this.pendingInteractions.get(key);
+      if (pendingInteraction) {
+        for (const record of pendingInteraction) {
+          if (!send(record)) return unsubscribe;
+        }
+      }
+      subscriber.ready = true;
+      for (const record of subscriber.pending) {
         if (!send(record)) return unsubscribe;
       }
+      subscriber.pending.length = 0;
+      subscriber.delivered.clear();
+      return unsubscribe;
+    } catch (error) {
+      unsubscribe();
+      throw error;
     }
-    subscriber.ready = true;
-    for (const record of subscriber.pending) {
-      if (!send(record)) return unsubscribe;
-    }
-    subscriber.pending.length = 0;
-    subscriber.delivered.clear();
-    return unsubscribe;
   }
-  /** Delivery, not the consumer, decided this subscriber is gone. Tell the
-   *  consumer: it owns the socket and can only close it (or hand the client a
-   *  cursor rebase) if it hears about it. */
-  private abandonSubscriber(key: string, subscriber: Subscriber, reason: SubscriberAbandonReason): void {
-    if (subscriber.cancelled) return;
-    subscriber.cancelled = true;
-    subscriber.pending.length = 0;
-    const set = this.subscribers.get(key);
-    set?.delete(subscriber);
-    if (set && set.size === 0) this.subscribers.delete(key);
-    try { subscriber.abandon?.(reason); }
-    catch { /* a consumer callback must never break event delivery */ }
-  }
-  deliver(key: string, payload: Record<string, unknown>, record: SseEventRecord, canPublish: () => boolean): boolean {
+  deliver(
+    key: string,
+    payload: Record<string, unknown>,
+    record: SseEventRecord,
+    canPublish: () => boolean,
+  ): boolean {
     const type = String(payload.type ?? "");
     if (type === "questionnaire.asked" || type === "interaction.requested") {
       const pending = this.pendingInteractions.get(key) ?? [];
@@ -170,9 +195,11 @@ export class ConversationDelivery {
       if (subscriber.cancelled) continue;
       if (subscriber.ready) {
         if (!canPublish()) return false;
-        if (subscriber.deliver(record) === false) this.abandonSubscriber(key, subscriber, "delivery_failed");
+        if (subscriber.deliver(record) === false) {
+          subscriber.abandon("delivery_failed");
+        }
       } else if (subscriber.pending.length >= MAX_SUBSCRIBER_REPLAY_PENDING) {
-        this.abandonSubscriber(key, subscriber, "replay_backlog_overflow");
+        subscriber.abandon("replay_backlog_overflow");
       } else {
         subscriber.pending.push(record);
       }
