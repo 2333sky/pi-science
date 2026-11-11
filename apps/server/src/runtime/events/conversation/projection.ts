@@ -1,3 +1,4 @@
+import { normalizeToolProgress } from "@pi-science/contracts";
 import type { ProductInput } from "../product-input.js";
 import { boundedToolDetails } from "../../node/message-details.js";
 import {
@@ -233,9 +234,11 @@ export class ConversationProjection {
         }
         const partialDetails =
           snapshot && typeof snapshot === "object"
-            ? (snapshot as { details?: { approval?: unknown } }).details
+            ? (snapshot as { details?: { approval?: unknown; progress?: unknown } }).details
             : undefined;
         if (partialDetails?.approval === "waiting") record.status = "waiting-approval";
+        const progress = normalizeToolProgress(partialDetails?.progress);
+        if (progress) record.progress = progress;
         // Partial results arrive as result-shaped snapshots; unwrap the text
         // so the live row shows real output. An empty snapshot must not
         // clobber an already accumulated tail, so it is simply omitted.
@@ -261,6 +264,14 @@ export class ConversationProjection {
         turn.hadActivity = true;
         const callId = String(event.toolCallId ?? "");
         const tool = String(event.toolName ?? "");
+        // The tool reports its last measured value in the result details. A
+        // completed record carries it too, so a client that joins late (or
+        // replays the turn) still knows what the row settled on.
+        const completedProgress = normalizeToolProgress(
+          event.details && typeof event.details === "object"
+            ? (event.details as { progress?: unknown }).progress
+            : undefined,
+        );
         const records: Record<string, unknown>[] = [];
         if (tool === "ask_user_question")
           records.push({
@@ -287,6 +298,7 @@ export class ConversationProjection {
             ? { outputTruncated: true, originalOutputBytes: output.originalBytes }
             : {}),
           ...(presentation ? { presentation: safeValue(presentation) } : {}),
+          ...(completedProgress ? { progress: completedProgress } : {}),
           ...(event.details === undefined
             ? {}
             : {

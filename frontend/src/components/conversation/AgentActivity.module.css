@@ -1,5 +1,10 @@
 .root {
   --activity-color: var(--accent);
+  /* Continuation content (progress line, expanded details) shares the row
+     label's left baseline: 14px marker slot + 8px gap-2. */
+  --activity-marker-size: 14px;
+  --activity-row-gap: 0.5rem;
+  --activity-text-inset: calc(var(--activity-marker-size) + var(--activity-row-gap));
 }
 
 /* Terminal activity is the process boundary before the user-facing answer.
@@ -111,6 +116,12 @@
   animation: reveal var(--motion-normal) var(--ease-standard) both;
 }
 
+/* Continuation content starts where the row label starts, not at the marker
+   slot's own edge. */
+.details {
+  padding-left: var(--activity-text-inset);
+}
+
 .narration {
   padding-block: 0.25rem;
 }
@@ -131,6 +142,66 @@
 
 .toolButton:hover, .toolButton:focus-visible {
   color: var(--text);
+}
+
+.progressLayer {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0 0 var(--space-compact) var(--activity-text-inset);
+  animation: reveal var(--motion-normal) var(--ease-standard) both;
+}
+
+.progressText {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.6875rem;
+  line-height: 1rem;
+  color: var(--muted);
+}
+
+.progressLabel {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.progressPercent {
+  flex-shrink: 0;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.progressTrack {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-inset);
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--activity-color);
+  transition: width var(--motion-normal) var(--ease-standard);
+}
+
+/* A settled row freezes the layer it already earned: the measurement ink is
+   `--muted`, and neither the reveal nor the width transition runs, so the value
+   outlives the step without animating towards a verdict. */
+.progressLayer[data-settled="true"] {
+  animation: none;
+}
+
+.progressFillSettled {
+  background: var(--muted);
+  transition: none;
 }
 
 .tool[data-running="true"] .toolButton,

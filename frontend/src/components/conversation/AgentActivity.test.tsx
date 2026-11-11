@@ -5,11 +5,18 @@ import type { ActivityBlock } from "./AgentActivity";
 import type { ToolCallBlock } from "../../types/thread";
 import { AgentActivity } from "./AgentActivity";
 import { executionActivities, executionOperationCount } from "../../lib/conversation/activity-policy";
-import { defaultProgressAppearance } from "@pi-science/contracts";
+import { defaultProgressAppearance, normalizeToolProgress, type ToolProgressV1 } from "@pi-science/contracts";
+import { emptyThread, foldEvent } from "../../lib/agent-runtime/event-fold";
 import { setProgressAppearance } from "../progress/progress-settings-store";
 import { activityRendererRegistry } from "./activity-renderers/registry";
 
 const tool = (id: string, name: string, status: ToolCallBlock["status"] = "done", input?: Record<string, unknown>): ToolCallBlock => ({ kind: "tool", id, callId: `${id}-call`, tool: name, status, input, output: "output" });
+const startedLongAgo = () => new Date(Date.now() - 1_000).toISOString();
+function measuredProgress(fields: Record<string, unknown>): ToolProgressV1 {
+  const progress = normalizeToolProgress({ version: 1, scopeId: "cells", scopeLabel: "Indexing files", totalKind: "fixed", ...fields });
+  if (!progress) throw new Error("test progress did not normalize");
+  return progress;
+}
 beforeAll(async () => { await i18n.changeLanguage("en"); });
 beforeEach(() => { setProgressAppearance(defaultProgressAppearance); });
 
@@ -471,6 +478,190 @@ describe("AgentActivity live stream", () => {
     rerender(<AgentActivity lifecycle="active" blocks={[tool("read", "read"), { ...waiting, interactionResolved: true }]} />);
     expect(screen.getByText("Working")).toBeInTheDocument();
     expect(screen.queryByText("Needs your input")).not.toBeInTheDocument();
+  });
+});
+
+describe("AgentActivity measured progress", () => {
+  it("renders the measured portion of a named scope", () => {
+    render(<AgentActivity blocks={[{ ...tool("python-1", "python", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: 72, total: 100, unit: "cells" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 72 / 100 cells")).toBeInTheDocument();
+    expect(screen.getByText("72%")).toBeInTheDocument();
+    const bar = screen.getByRole("progressbar", { name: "Indexing files 72%" });
+    expect(bar).toHaveAttribute("aria-valuemin", "0");
+    expect(bar).toHaveAttribute("aria-valuemax", "100");
+    expect(bar).toHaveAttribute("aria-valuenow", "72");
+    expect(bar.firstElementChild).toHaveStyle({ width: "72%" });
+  });
+
+  it("renders a measured count without inventing a total", () => {
+    render(<AgentActivity blocks={[{ ...tool("python-1", "python", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: 18, totalKind: "unknown", unit: "files" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 18 files · total unknown")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("draws a revisable total as an estimate with no percentage readout", () => {
+    render(<AgentActivity blocks={[{ ...tool("python-1", "python", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: 45, total: 100, totalKind: "reestimated", unit: "files" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 45 / 100 files (estimated)")).toBeInTheDocument();
+    expect(screen.queryByText("45%")).not.toBeInTheDocument();
+    const bar = screen.getByRole("progressbar", { name: "Indexing files" });
+    expect(bar).toHaveAttribute("aria-valuenow", "45");
+    expect(bar).toHaveAttribute("aria-valuetext", "Indexing files · 45 / 100 files (estimated)");
+    expect(bar.firstElementChild).toHaveStyle({ width: "45%" });
+  });
+
+  it("draws a producer's own share with its percentage and no invented counts", () => {
+    render(<AgentActivity blocks={[{ ...tool("bash-1", "bash", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: undefined, total: undefined, percent: 45, totalKind: "unknown" }) }]} />);
+
+    expect(screen.getByText("45%")).toBeInTheDocument();
+    expect(screen.getByText("Indexing files")).toBeInTheDocument();
+    expect(screen.queryByText(/total unknown/)).not.toBeInTheDocument();
+    const bar = screen.getByRole("progressbar", { name: "Indexing files 45%" });
+    expect(bar).toHaveAttribute("aria-valuenow", "45");
+    expect(bar.firstElementChild).toHaveStyle({ width: "45%" });
+  });
+
+  it("formats a byte count into a human unit", () => {
+    render(<AgentActivity blocks={[{ ...tool("bash-1", "bash", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: 2956984320, totalKind: "unknown", unit: "bytes" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 3 GB · total unknown")).toBeInTheDocument();
+  });
+
+  it("shows the phase wording when the producer has a label but no number", () => {
+    render(<AgentActivity blocks={[{ ...tool("python-1", "python", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: undefined, total: undefined, label: "Screening records" }) }]} />);
+
+    expect(screen.getByText("Screening records")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(screen.queryByText(/%/)).not.toBeInTheDocument();
+  });
+
+  it("renders a count without a unit or extra spaces", () => {
+    render(<AgentActivity blocks={[{ ...tool("python-1", "python", "running"), startedAt: startedLongAgo(), progress: measuredProgress({ current: 18, totalKind: "unknown" }) }]} />);
+    expect(screen.getByText("Indexing files · 18 · total unknown")).toBeInTheDocument();
+  });
+
+  it("freezes the last measurement when the tool settles", () => {
+    const { container } = render(<AgentActivity blocks={[{ ...tool("python-1", "python", "done"), startedAt: startedLongAgo(), endedAt: new Date().toISOString(), progress: measuredProgress({ current: 72, total: 100, unit: "cells" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 72 / 100 cells")).toBeInTheDocument();
+    expect(screen.getByText("72%")).toBeInTheDocument();
+    const layer = container.querySelector('[data-settled="true"]');
+    expect(layer).not.toBeNull();
+    expect(layer?.querySelector("[style]")).toHaveStyle({ width: "72%" });
+    expect(container.querySelector('[role="progressbar"]')).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+  });
+
+  it("floors a settled count instead of rounding it up to the total", () => {
+    const { container } = render(<AgentActivity blocks={[{ ...tool("python-1", "python", "done"), startedAt: startedLongAgo(), endedAt: new Date().toISOString(), progress: measuredProgress({ current: 8, total: 30, unit: "cells" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 8 / 30 cells")).toBeInTheDocument();
+    expect(screen.getByText("26%")).toBeInTheDocument();
+    expect(container.querySelector('[data-settled="true"] [style]')).toHaveStyle({ width: "26%" });
+  });
+
+  it("keeps an error row's number without a running bar", () => {
+    const { container } = render(<AgentActivity blocks={[{ ...tool("python-1", "python", "error"), startedAt: startedLongAgo(), endedAt: new Date().toISOString(), progress: measuredProgress({ current: 27, total: 100, unit: "cells" }) }]} />);
+
+    expect(screen.getByText("Indexing files · 27 / 100 cells")).toBeInTheDocument();
+    expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    expect(container.querySelector('[data-settled="true"]')?.textContent).toContain("27%");
+    expect(container.querySelector("svg.lucide-circle-x")).not.toBeNull();
+  });
+
+  it("does not add a bar to a step that finished before the reveal delay", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-08T00:00:00.000Z"));
+      const block = { ...tool("python-1", "python", "running"), startedAt: "2026-09-08T00:00:00.000Z", progress: measuredProgress({ current: 3, total: 10 }) };
+      const { container, rerender } = render(<AgentActivity blocks={[block]} />);
+      expect(container.querySelector('[data-settled="true"]')).toBeNull();
+      act(() => { vi.advanceTimersByTime(100); });
+      rerender(<AgentActivity blocks={[{ ...block, status: "done", endedAt: "2026-09-08T00:00:00.100Z" }]} />);
+      expect(container.querySelector('[data-settled="true"]')).toBeNull();
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("holds the layer back for half a second so a fast step does not flash", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-08T00:00:00.000Z"));
+      render(<AgentActivity blocks={[{ ...tool("python-1", "python", "running"), startedAt: "2026-09-08T00:00:00.000Z", progress: measuredProgress({ current: 1, total: 10 }) }]} />);
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(499); });
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("yields the live tail to the progress layer once the layer appears", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-08T00:00:00.000Z"));
+      render(<AgentActivity blocks={[{
+        ...tool("bash-1", "bash", "running", { description: "Check Python", command: "python3 -V" }),
+        startedAt: "2026-09-08T00:00:00.000Z",
+        partialOutput: "Processing files: 50%|███| 15/30 [00:01<00:01, 15.00file/s]",
+        progress: measuredProgress({ scopeLabel: "Processing files", current: 15, total: 30, unit: "file" }),
+      }]} />);
+      const row = screen.getByRole("button", { name: /Check Python/ });
+      expect(row).toHaveTextContent(/Processing files: 50%/);
+
+      act(() => { vi.advanceTimersByTime(500); });
+
+      // The title stays and the right edge is empty: no tail, no compact.detail fallback.
+      expect(row).toHaveTextContent(/^Check Python$/);
+      expect(screen.getByRole("progressbar")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the live tail while a running step has no measured progress", () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date("2026-09-08T00:00:00.000Z"));
+      render(<AgentActivity blocks={[{
+        ...tool("bash-1", "bash", "running", { description: "Check Python" }),
+        startedAt: "2026-09-08T00:00:00.000Z",
+        partialOutput: "Compiling module 3 of 7",
+      }]} />);
+
+      act(() => { vi.advanceTimersByTime(5_000); });
+
+      expect(screen.getByRole("button", { name: /Check Python/ })).toHaveTextContent("Compiling module 3 of 7");
+      expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not lower the rendered value when a stale count arrives in the same scope", () => {
+    const progress = (current: number) => ({ version: 1, scopeId: "cells", scopeLabel: "Indexing cells", current, total: 100, totalKind: "fixed" });
+    let thread = foldEvent(emptyThread(), { sessionId: "s", type: "tool.started", turnId: "t1", callId: "c1", tool: "python", status: "running", startedAt: startedLongAgo(), progress: progress(80) });
+    thread = foldEvent(thread, { sessionId: "s", type: "tool.updated", turnId: "t1", callId: "c1", tool: "python", status: "running", progress: progress(50) });
+    const block = thread.blocks.find((item) => item.kind === "tool");
+
+    render(<AgentActivity blocks={block?.kind === "tool" ? [block] : []} />);
+    expect(screen.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "80");
+  });
+
+  it("renders the label of a new progress scope", () => {
+    let thread = foldEvent(emptyThread(), { sessionId: "s", type: "tool.started", turnId: "t1", callId: "c1", tool: "python", status: "running", startedAt: startedLongAgo(), progress: { version: 1, scopeId: "cells", scopeLabel: "Indexing cells", current: 8, total: 10, totalKind: "fixed" } });
+    thread = foldEvent(thread, { sessionId: "s", type: "tool.updated", turnId: "t1", callId: "c1", tool: "python", status: "running", progress: { version: 1, scopeId: "rows", scopeLabel: "Writing rows", current: 5, total: 10, totalKind: "fixed" } });
+    const block = thread.blocks.find((item) => item.kind === "tool");
+
+    render(<AgentActivity blocks={block?.kind === "tool" ? [block] : []} />);
+    expect(screen.getByText("Writing rows · 5 / 10")).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Writing rows 50%" })).toHaveAttribute("aria-valuenow", "50");
   });
 });
 

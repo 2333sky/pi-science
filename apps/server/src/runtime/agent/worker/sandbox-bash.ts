@@ -17,6 +17,9 @@ import { toolEnvironment } from "../agent-runtime-environment.js";
 import { snapshotSandboxOutputs, sandboxArtifactCapture } from "../../sandbox/artifacts.js";
 import { diffWorkspaceSnapshots } from "../../artifacts/workspace-artifact-snapshot.js";
 import { publishWorkspaceArtifactsDetailed } from "../../artifacts/workspace-artifact-publisher.js";
+import { ToolProgressCollector } from "./progress/collector.js";
+import { DEFAULT_PROGRESS_ADAPTERS } from "./progress/registry.js";
+import { readToolProgressStream } from "./tool-progress-stream.js";
 
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 /** Require a display description and run upstream Bash with the selected OS backend. */
@@ -29,7 +32,7 @@ export function sandboxBashTool(
   return {
     ...original,
     parameters: withTaskDescription(original.parameters),
-    description: `Use for running programs, scripts, tests, builds, scientific computations and operations that require a shell. When available, prefer the dedicated ls tool for directory browsing, glob for finding files by name, grep for searching file contents, and read for inspecting a known file. Keep routine file inspection in those tools rather than combining ls/find/rg/grep/cat into a Bash command for convenience. Use Bash when the task requires program execution or shell processing beyond those tools' supported operations. A dedicated tool's access_denied result is not a reason to retry the same access through Bash.\n${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts.`,
+    description: `Use for running programs, scripts, tests, builds, scientific computations and operations that require a shell. When available, prefer the dedicated ls tool for directory browsing, glob for finding files by name, grep for searching file contents, and read for inspecting a known file. Keep routine file inspection in those tools rather than combining ls/find/rg/grep/cat into a Bash command for convenience. Use Bash when the task requires program execution or shell processing beyond those tools' supported operations. A dedicated tool's access_denied result is not a reason to retry the same access through Bash.\n${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts. Progress is read automatically from tqdm bars, \`pv --format '%b/%s '\`, \`rsync --info=progress2\` and \`dd status=progress\`. Any other program can report its own count by writing a complete line starting with <<pi-progress>> followed by a space and a JSON object such as {"version":1,"scopeId":"process-files:1","scopeLabel":"Processing files","current":72,"total":100,"unit":"files","totalKind":"fixed"}. Ready-made helpers for Python, R and shell live in the repository's demos/tool-progress directory.`,
     async execute(id, params, update, ctx, invocation, context) {
       const confined =
         !!identity.executionGrantId ||
@@ -175,14 +178,65 @@ export function sandboxBashTool(
               execution.inheritEnv = false;
             },
           });
-          const result = await safeOriginal.execute(
+          const collector = new ToolProgressCollector({
+            command: values.command,
+            adapters: DEFAULT_PROGRESS_ADAPTERS,
+          });
+          let latestUpdate:
+            | [Parameters<typeof update>[0], Parameters<typeof update>[1]]
+            | undefined;
+          const rawResult = await safeOriginal.execute(
             id,
             { ...values, timeout: Math.min(timeout, 600) },
-            update,
+            (snapshot, options) => {
+              const readings = snapshot.content.map((part) =>
+                part.type === "text" ? collector.observe(part.text) : undefined,
+              );
+              const progress = readings
+                .map((reading) => reading?.progress)
+                .filter((value) => value !== undefined)
+                .at(-1);
+              latestUpdate = [snapshot, options];
+              if (!progress && !snapshot.content.some((part) => part.type === "text" && part.text))
+                return update(snapshot, options);
+              return update(
+                {
+                  ...snapshot,
+                  content: snapshot.content.map((part, index) =>
+                    part.type === "text" ? { ...part, text: readings[index]!.text } : part,
+                  ),
+                  details: { ...snapshot.details, ...(progress ? { progress } : {}) },
+                },
+                options,
+              );
+            },
             { ...ctx, env },
             invocation,
             context,
           );
+          // The refresh limit can hold the newest value back. The call is not
+          // allowed to end showing a count the tool has already passed.
+          const finalProgress = collector.finish().progress;
+          // finish() only hands out a value it has not published yet, so a
+          // value the live row already shows is absent there. The collector's
+          // current value is the settled truth in both cases.
+          const settledProgress = finalProgress ?? collector.current;
+          if (finalProgress && latestUpdate) {
+            const [snapshot, options] = latestUpdate;
+            const details =
+              snapshot.details && typeof snapshot.details === "object"
+                ? (snapshot.details as Record<string, unknown>)
+                : {};
+            update({ ...snapshot, details: { ...details, progress: finalProgress } }, options);
+          }
+          const result = {
+            ...rawResult,
+            content: rawResult.content.map((part) =>
+              part.type === "text"
+                ? { ...part, text: readToolProgressStream(part.text).text }
+                : part,
+            ),
+          };
           const evidence = await outputs();
           await executionRepository.finish(identity.cwd, executionId, {
             status: "succeeded",
@@ -203,6 +257,9 @@ export function sandboxBashTool(
           const references = { execution_id: executionId, artifact_refs: evidence.artifacts };
           const details = {
             ...result.details,
+            // The settled row keeps its measured progress, and history restores
+            // it from the persisted tool result details.
+            ...(settledProgress ? { progress: settledProgress } : {}),
             ...(typeof outcome.exitCode === "number" ? { exit_code: outcome.exitCode } : {}),
           };
           return binding || evidence.artifacts.length
@@ -216,6 +273,9 @@ export function sandboxBashTool(
               }
             : { ...result, details };
         } catch (error) {
+          const message = readToolProgressStream(
+            error instanceof Error ? error.message : String(error),
+          ).text;
           const timedOut =
             outcome.errorCode === "timeout" ||
             (context.abortSignal?.reason instanceof Error &&
@@ -230,7 +290,7 @@ export function sandboxBashTool(
                   : "failed",
               producer: "bash",
               result: {
-                error: String(error),
+                error: message,
                 sandbox_policy_id: policy.id,
                 ...(outcome.exitCode !== undefined ? { exit_code: outcome.exitCode } : {}),
                 ...(outcome.errorCode ? { execution_error_code: outcome.errorCode } : {}),
@@ -240,7 +300,7 @@ export function sandboxBashTool(
               artifacts: evidence.artifacts,
             });
             throw new Error(
-              `${error instanceof Error ? error.message : String(error)}\n${JSON.stringify({ execution_id: executionId, artifact_refs: evidence.artifacts })}`,
+              `${message}\n${JSON.stringify({ execution_id: executionId, artifact_refs: evidence.artifacts })}`,
               { cause: error },
             );
           }

@@ -38,6 +38,20 @@ source, and so values we invent are clearly marked as our own proposals.
 | `packages/client/ui-primitives/src/markdown/CodeBlock.module.css` | Code block radius 12px, sticky banner |
 | `packages/client/ui-primitives/src/markdown/MarkdownText.module.css` | Markdown spacing (16px paragraph rhythm), link color = business blue |
 
+## Pi-Science proposal: tool progress layer
+
+The tool progress layer uses a 3 px rounded track, a `14px marker + 8px gap = 22px` left inset under the tool row, 11 px text, and a 500 ms reveal delay. The inset is derived from the activity row's marker slot and spacing step, not a new token. These values are a Pi-Science proposal, not an upstream citation.
+
+| Tier | Bar | Right `%` readout | Text |
+|---|---|---|---|
+| determinate | yes, solid | yes | `{{scope}} · {{current}} / {{total}}{{unitSuffix}}` |
+| estimated | yes, solid | no | `{{scope}} · {{current}} / {{total}}{{unitSuffix}} (estimated)` |
+| percent | yes, solid | yes | `{{scope}}`, share as the producer published it |
+| count | no | no | `{{scope}} · {{count}}{{unitSuffix}} · total unknown` |
+| indeterminate | no | no | the producer's label, when it published one |
+
+Three decisions belong to this proposal: an estimate is a text property, not a bar property, because at 3 px a stripe is indistinguishable from a solid line and a 60% accent fill mixed with white measures 2.25:1 on the light surface, below the 3:1 graphical minimum; byte counts are formatted in powers of 1000 with at most one decimal below ten; and a settled row keeps its last measurement frozen instead of hiding the layer — the fill switches to `--muted`, the reveal and width transitions are off, and the track is `aria-hidden` while its text still carries the numbers, so a finished step never reads as success through the bar.
+
 ## Confirmed values (have a file + selector source)
 
 ### Color — light theme
@@ -585,3 +599,9 @@ bodies are never read for a program name. A read row adds the 1-based `offset` a
 requested window (`a.ts:120-159`). `limit` is what the call asked for; the tool
 clamps it to the file, so the row describes the request and not a promise about
 bytes returned.
+
+Continuation content — the progress line and expanded details — shares the row
+label's left baseline through `--activity-text-inset`, which is the existing
+14px marker slot plus the 8px `gap-2` spacing step combined, not a new token.
+Do not write a 24px padding: that measures the marker slot's edge, not the
+label's.

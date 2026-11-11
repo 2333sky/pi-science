@@ -1,12 +1,13 @@
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { Brain, CircleX, ChevronRight } from "lucide-react";
-import type { ProgressAppearance } from "@pi-science/contracts";
+import { selectToolProgressDisplay, type ProgressAppearance } from "@pi-science/contracts";
 import { useTranslation } from "react-i18next";
 import type { AgentMessageBlock, ThinkingBlock, ToolCallBlock } from "../../types/thread";
 import { activityPolicy } from "../../lib/conversation/activity-policy";
 import { ACTIVITY_SWITCH_DEBOUNCE_MS, MIN_ACTIVITY_VISIBLE_MS, selectDisplayedActivity } from "../../lib/conversation/activity-display-policy";
 import type { PresentedActivity } from "../../lib/conversation/activity-narrative";
 import { groupActivityBlocks, type ActivityEntry } from "../../lib/conversation/activity-groups";
+import { formatBytes } from "../../lib/conversation/tool-progress-format";
 import { isLiveLifecycle, type TurnLifecycle } from "../../lib/conversation/turn-presentation";
 import { projectToolActivity } from "../../lib/conversation/projection";
 import { ProgressVisual, useProgressAppearance } from "../progress/ProgressVisual";
@@ -251,7 +252,7 @@ function ThinkingRow({ block }: { block: ThinkingBlock }) {
       {running && <LiveStepElapsed since={block.startedAt} />}
       <ChevronRight size={12} aria-hidden className={cn(styles.chevron, "shrink-0 transition-transform", expanded && "rotate-90")} />
     </button>
-    {expanded && <div id={panelId} className={cn(styles.details, "pb-2 pl-6")}>
+    {expanded && <div id={panelId} className={cn(styles.details, "pb-2")}>
       <div className="whitespace-pre-wrap text-ui-caption italic leading-snug text-muted [overflow-wrap:anywhere]">{text}</div>
     </div>}
   </div>;
@@ -416,11 +417,15 @@ function TraceItem({ block, live }: { block: ToolCallBlock; live: boolean }) {
   const details = expanded ? renderer.expanded(rendererProps) : null;
   const running = live && block.status === "running";
   const duration = running ? null : stepDuration(block);
+  const progressDisplay = selectToolProgressDisplay(block.status, block.progress);
+  // The layer is the row's own measurement, and it outlives the step; while it
+  // is on screen the right edge would repeat it, so the tail yields to it.
+  const showsProgress = useProgressLayerVisible(block, running) && progressLayerRenders(progressDisplay);
   // While the operation streams, its freshest output line fills the right
   // edge of the row and the chevron sits at the far right; once the step
   // completes the tail makes way for the duration chip.
   const liveTail = running && block.partialOutput ? lastStreamLine(block.partialOutput) : null;
-  const secondary = liveTail ?? compact.detail;
+  const secondary = showsProgress ? null : liveTail ?? compact.detail;
   return <div className={cn(styles.entry, styles.tool)} data-running={running}>
     <button type="button" disabled={!hasDetails} aria-expanded={hasDetails ? expanded : undefined} onClick={() => hasDetails && setExpanded((value) => !value)} className={cn(styles.toolButton, "flex min-h-primary max-w-full items-center gap-2 rounded-input py-2 text-left text-ui-label text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default sm:min-h-control")}>
       {running ? <span aria-hidden className="mx-1 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" /> : block.status === "error" ? <CircleX size={14} aria-hidden className="shrink-0 text-error-text" /> : <ActivityCategoryIcon block={block} className="text-muted" />}
@@ -429,7 +434,8 @@ function TraceItem({ block, live }: { block: ToolCallBlock; live: boolean }) {
       {duration && <span aria-hidden="true" className="shrink-0 font-mono text-ui-micro tabular-nums text-muted">{duration}</span>}
       {hasDetails && <ChevronRight size={12} aria-hidden className={cn(styles.chevron, "shrink-0 transition-transform", expanded && "rotate-90")} />}
     </button>
-    {expanded && hasDetails && details && <div className={cn(styles.details, "space-y-2 pb-2 pl-6 text-xs")}>
+    {showsProgress && <ToolProgressLayer display={progressDisplay} settled={!running} />}
+    {expanded && hasDetails && details && <div className={cn(styles.details, "space-y-2 pb-2 text-xs")}>
       {details.map((detail, index) => detail.pre || detail.plain
         ? <Detail key={`${detail.label}:${index}`} label={detail.label} value={detail.value} pre={detail.pre} />
         : <OutputDetail key={`${detail.label}:${index}`} label={detail.label} value={detail.value} fullValue={detail.fullValue} partial={detail.partial} diff={detail.diff} t={t} />)}
@@ -445,6 +451,97 @@ function lastStreamLine(value: string): string | null {
   const tail = lines.at(-1);
   if (!tail) return null;
   return tail.length > 120 ? `…${tail.slice(-120)}` : tail;
+}
+
+const TOOL_PROGRESS_DELAY_MS = 500;
+
+/** A layer only counts as present when it puts rows on screen: a phase without
+ *  a label and without a number renders nothing, so it must not take the
+ *  tail's place on the right edge. */
+function progressLayerRenders(display: ReturnType<typeof selectToolProgressDisplay>): boolean {
+  return display.mode !== "hidden" && !(display.mode === "indeterminate" && !display.label);
+}
+
+/** The row's measured progress appears under it half a second after the step
+ *  starts, so a fast step never flashes a bar. The row owns the timer so the
+ *  layer's arrival and the tail's departure are the same render. A settled row
+ *  keeps the layer it already earned: the same delay decides, so a step too
+ *  short to have shown a bar does not gain one at the end. When the transcript
+ *  dropped the timing, a surviving measurement is the only evidence left. */
+function useProgressLayerVisible(block: ToolCallBlock, running: boolean): boolean {
+  const [mountedAt] = useState(() => Date.now());
+  const [visible, setVisible] = useState(false);
+  const startedAt = useMemo(() => {
+    const parsed = block.startedAt ? Date.parse(block.startedAt) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : mountedAt;
+  }, [block.startedAt, mountedAt]);
+  const endedAt = useMemo(() => {
+    const parsed = block.endedAt ? Date.parse(block.endedAt) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  }, [block.endedAt]);
+  useEffect(() => {
+    if (!running) return;
+    const elapsed = Math.max(0, Date.now() - startedAt);
+    if (elapsed >= TOOL_PROGRESS_DELAY_MS) {
+      setVisible(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setVisible(true), TOOL_PROGRESS_DELAY_MS - elapsed);
+    return () => window.clearTimeout(timer);
+  }, [running, startedAt]);
+  if (running) return visible;
+  if (endedAt === null) return block.progress !== undefined;
+  return endedAt - startedAt >= TOOL_PROGRESS_DELAY_MS;
+}
+
+/** Measured progress sits under the tool row; it renders only after the row's
+ *  visibility timer says the step is long enough to deserve a bar. A settled
+ *  row keeps that layer frozen at the producer's last value: the fill drops to
+ *  the measurement ink, the track leaves the accessibility tree, and the text
+ *  still carries the number, because the row's own marker carries the state. */
+function ToolProgressLayer({ display, settled }: { display: ReturnType<typeof selectToolProgressDisplay>; settled: boolean }) {
+  const { t, i18n } = useTranslation();
+  const fillClass = cn(styles.progressFill, settled && styles.progressFillSettled);
+  if (display.mode === "hidden") return null;
+  if (display.mode === "indeterminate") return display.label
+    ? <div className={styles.progressLayer} data-settled={settled ? "true" : undefined}>
+      <span className={styles.progressLabel}>{display.label}</span>
+    </div>
+    : null;
+  if (display.mode === "percent") {
+    const percent = Math.min(100, Math.floor(display.value));
+    return <div className={styles.progressLayer} data-settled={settled ? "true" : undefined}>
+      <div className={styles.progressText}>
+        <span className={styles.progressLabel}>{display.scopeLabel}</span>
+        <span className={styles.progressPercent} aria-hidden="true">{percent}%</span>
+      </div>
+      <div role="progressbar" aria-hidden={settled ? "true" : undefined} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-label={`${display.scopeLabel} ${percent}%`} className={styles.progressTrack}>
+        <div className={fillClass} style={{ width: `${percent}%` }} />
+      </div>
+    </div>;
+  }
+  // A byte count is formatted here rather than in the adapter, so the contract
+  // keeps the producer's number and every renderer derives the same unit.
+  const bytes = display.unit === "bytes";
+  const unitSuffix = display.unit && !bytes ? ` ${display.unit}` : "";
+  const size = (value: number) => (bytes ? formatBytes(value, i18n.language) : String(value));
+  if (display.mode === "count") return <div className={styles.progressLayer} data-settled={settled ? "true" : undefined}>
+    <span className={styles.progressLabel}>{t("conversation.activity.progressCount", { scope: display.scopeLabel, count: size(display.value), unitSuffix })}</span>
+  </div>;
+  const percent = Math.min(100, Math.floor(display.percent));
+  // An estimate is a text property: the bar shows the share, and only the
+  // sentence says the total may still move.
+  const estimated = display.mode === "estimated";
+  const label = t(estimated ? "conversation.activity.progressEstimated" : "conversation.activity.progressDeterminate", { scope: display.scopeLabel, current: size(display.current), total: size(display.total), unitSuffix });
+  return <div className={styles.progressLayer} data-settled={settled ? "true" : undefined}>
+    <div className={styles.progressText}>
+      <span className={styles.progressLabel}>{label}</span>
+      {!estimated && <span className={styles.progressPercent} aria-hidden="true">{percent}%</span>}
+    </div>
+    <div role="progressbar" aria-hidden={settled ? "true" : undefined} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-valuetext={estimated ? label : undefined} aria-label={estimated ? display.scopeLabel : `${display.scopeLabel} ${percent}%`} className={styles.progressTrack}>
+      <div className={fillClass} style={{ width: `${percent}%` }} />
+    </div>
+  </div>;
 }
 
 const DETAIL_PREVIEW_LIMIT = 8_000;

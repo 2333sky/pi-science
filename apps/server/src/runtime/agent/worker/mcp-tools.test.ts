@@ -12,6 +12,7 @@ import { AgentMcpTools } from "./mcp-tools.js";
 import { InteractionBridge } from "./interaction-bridge.js";
 import { acquireMcpCall } from "../../../mcp/call-scheduler.js";
 import { CredentialStore } from "../../../model-resources/credential-store.js";
+import { normalizeToolProgress, selectToolProgressDisplay } from "@pi-science/contracts";
 
 // These SDK fixtures model policy in their synthetic snapshot. Database-backed
 // authority and publication failures are exercised by mcp-approval.test.ts.
@@ -59,6 +60,7 @@ describe("agent-core managed MCP tools", () => {
           `import { StdioServerTransport } from ${JSON.stringify(import.meta.resolve("@modelcontextprotocol/sdk/server/stdio.js"))};`,
           `const server = new McpServer({ name: "scoped", version: "1" });`,
           `for (const name of ["bar", "other", "forbidden"]) server.registerTool(name, { description: name }, async () => ({ content: [{ type: "text", text: name }] }));`,
+          `server.registerTool("progress", { description: "progress" }, async (extra) => { for (const params of [{ progress: 80, total: 100 }, { progress: 90, total: 200 }, { progress: 91 }]) await extra.sendNotification({ method: "notifications/progress", params: { progressToken: extra._meta.progressToken, ...params } }); await new Promise(resolve => setTimeout(resolve, 50)); return { content: [{ type: "text", text: "done" }] }; });`,
           `await server.connect(new StdioServerTransport());`,
         ].join("\n"),
       );
@@ -99,22 +101,92 @@ describe("agent-core managed MCP tools", () => {
         new InteractionBridge(() => undefined),
         { PATH: process.env.PATH ?? "" },
         undefined,
-        ["read", "mcp__foo__bar", "mcp__foo__forbidden"],
+        ["read", "mcp__foo__bar", "mcp__foo__progress", "mcp__foo__forbidden"],
       );
       expect(mcp.diagnostics).toEqual([]);
       expect(credentials).not.toHaveBeenCalled();
       expect(await readFile(marker, "utf8").catch(() => null)).toBeNull();
-      expect(mcp.tools.map((tool) => tool.name)).toEqual(["mcp__foo__bar"]);
+      expect(mcp.tools.map((tool) => tool.name)).toEqual(["mcp__foo__bar", "mcp__foo__progress"]);
+      const updates = vi.fn();
       expect(
         await mcp.tools[0]!.execute(
           "scoped-call",
           {},
-          () => undefined,
+          updates,
           {} as never,
           {} as never,
           {} as never,
         ),
       ).toMatchObject({ content: [{ type: "text", text: "bar" }] });
+      expect(updates).not.toHaveBeenCalled();
+      const progressResult = await mcp.tools[1]!.execute(
+        "progress-call",
+        {},
+        updates,
+        {} as never,
+        {} as never,
+        {} as never,
+      );
+      expect(progressResult).toMatchObject({ content: [{ type: "text", text: "done" }] });
+      const emitted = updates.mock.calls.map(([update]) => update);
+      expect(emitted).toEqual([
+        {
+          content: [],
+          details: {
+            progress: {
+              version: 1,
+              scopeId: "mcp:foo/progress",
+              scopeLabel: "foo: progress",
+              current: 80,
+              total: 100,
+              totalKind: "reestimated",
+              source: "mcp",
+            },
+          },
+        },
+        {
+          content: [],
+          details: {
+            progress: {
+              version: 1,
+              scopeId: "mcp:foo/progress",
+              scopeLabel: "foo: progress",
+              current: 90,
+              total: 200,
+              totalKind: "reestimated",
+              source: "mcp",
+            },
+          },
+        },
+        {
+          content: [],
+          details: {
+            progress: {
+              version: 1,
+              scopeId: "mcp:foo/progress",
+              scopeLabel: "foo: progress",
+              current: 91,
+              totalKind: "unknown",
+              source: "mcp",
+            },
+          },
+        },
+      ]);
+      // An external server may re-estimate its total, so a rising then falling
+      // percentage must never be shown as a fixed measurement: it draws the
+      // estimated bar instead, and the unknown-total update stays a count.
+      expect(
+        emitted.map(
+          (update) =>
+            selectToolProgressDisplay("running", normalizeToolProgress(update.details.progress))
+              .mode,
+        ),
+      ).toEqual(["estimated", "estimated", "count"]);
+      // The last notification is the value the settled result keeps, so the
+      // row and its restored history end on the same number.
+      expect((progressResult as { details?: { progress?: unknown } }).details?.progress).toEqual(
+        emitted.at(-1)!.details.progress,
+      );
     } finally {
       credentials.mockRestore();
       await mcp?.close();

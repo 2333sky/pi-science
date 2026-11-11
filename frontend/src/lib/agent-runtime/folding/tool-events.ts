@@ -1,4 +1,5 @@
 import type { ThreadBlock, ToolCallBlock } from "../../../types/thread";
+import { mergeToolProgress, normalizeToolProgress } from "@pi-science/contracts";
 import type { PiScienceEvent } from "../../client/pi-science-client";
 import { closeOpenThinking } from "./narration";
 import { eventHasIdentity, numberValue, stringValue } from "./identity";
@@ -23,9 +24,18 @@ export function reduceToolEvent(event: PiScienceEvent, { foldState, blocks, inde
         ? blocks[existingIdx]
         : undefined;
       const rawStatus = stringValue(event.status);
-      const status: ToolCallBlock["status"] = (rawStatus === "running" || rawStatus === "done" || rawStatus === "error" || rawStatus === "waiting-approval" || rawStatus === "unknown")
+      const parsedStatus: ToolCallBlock["status"] = (rawStatus === "running" || rawStatus === "done" || rawStatus === "error" || rawStatus === "waiting-approval" || rawStatus === "unknown")
         ? rawStatus
         : "unknown";
+      // A settled call is final: a late update must never move the row back to
+      // running. A retry carries its own operation/attempt identity, so it
+      // gets its own block instead of reopening this one.
+      const previousStatus = previous?.status;
+      const status: ToolCallBlock["status"] =
+        (previousStatus === "done" || previousStatus === "error") &&
+        parsedStatus !== "done" && parsedStatus !== "error"
+          ? previousStatus
+          : parsedStatus;
       const statusHistory = previous?.statusHistory
         ? [...previous.statusHistory, ...(previous.statusHistory.at(-1) === status ? [] : [status])]
         : [status];
@@ -43,6 +53,7 @@ export function reduceToolEvent(event: PiScienceEvent, { foldState, blocks, inde
       const originalOutputBytes = outputTruncated
         ? numberValue(event.originalOutputBytes) ?? previous?.originalOutputBytes
         : undefined;
+      const progress = mergeToolProgress(previous?.progress, normalizeToolProgress(event.progress));
       const block: ThreadBlock = {
         kind: "tool",
         id: blockId,
@@ -63,6 +74,7 @@ export function reduceToolEvent(event: PiScienceEvent, { foldState, blocks, inde
         output: (event.output as string | undefined) ?? previous?.output,
         details: event.details ?? previous?.details,
         presentation: (event.presentation as ToolCallBlock["presentation"] | undefined) ?? previous?.presentation,
+        ...(progress ? { progress } : {}),
         partialOutput: (event.partialOutput as string | undefined) ?? previous?.partialOutput,
         ...(outputTruncated ? { outputTruncated: true, ...(originalOutputBytes === undefined ? {} : { originalOutputBytes }) } : {}),
         diff: (event.diff as string | undefined) ?? previous?.diff,
