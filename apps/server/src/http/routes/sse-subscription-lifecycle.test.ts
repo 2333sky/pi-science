@@ -1,7 +1,7 @@
 import { get as httpGet, type ClientRequest, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
-import { Readable } from "node:stream";
-import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify from "fastify";
@@ -40,27 +40,11 @@ async function verifyAbandonedReplay(mode: "normal" | "symlink"): Promise<void> 
   mkdirSync(target);
   const tempPath = mode === "symlink" ? join(root, "alias") : target;
   if (mode === "symlink") symlinkSync(target, tempPath, "dir");
-  // The route canonicalizes cwd before subscribing. Publish with the same
-  // identity even when the OS temporary directory is an alias or junction.
-  const workspace = realpathSync(mkdtempSync(join(tempPath, "pi-sse-abandoned-")));
+  // Match the route's async realpath: on Windows the synchronous version can
+  // retain an 8.3 short path while the async version returns its long form.
+  const workspace = await realpath(mkdtempSync(join(tempPath, "pi-sse-abandoned-")));
   mkdirSync(join(workspace, ".pi-science"));
   const app = Fastify();
-  const lifecycle: string[] = [];
-  app.addHook("onRequest", (request, reply, done) => {
-    request.raw.once("close", () =>
-      lifecycle.push(
-        `request.close complete=${request.raw.complete} aborted=${request.raw.aborted}`,
-      ),
-    );
-    reply.raw.once("close", () =>
-      lifecycle.push(`response.close finished=${reply.raw.writableFinished}`),
-    );
-    done();
-  });
-  app.addHook("onSend", (_request, _reply, payload, done) => {
-    if (payload instanceof Readable) payload.once("close", () => lifecycle.push("stream.close"));
-    done(null, payload);
-  });
   const records: SseEventRecord[] = [];
   let subscribedCwd = "";
   let releaseReplay: () => void = () => undefined;
@@ -129,7 +113,6 @@ async function verifyAbandonedReplay(mode: "normal" | "symlink"): Promise<void> 
         workspace,
         subscribedCwd,
         subscribed: hub.hasSubscribers(subscribedCwd, "session"),
-        lifecycle,
       }),
     ).toBe(true);
     for (let sequence = 1; sequence <= 2_001; sequence += 1) {
