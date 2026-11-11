@@ -63,7 +63,9 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
   const shown = useDisplayedActivity(tools, lifecycle);
   const [traceExpanded, setTraceExpanded] = useState(false);
 
-  if (isLiveLifecycle(lifecycle)) {
+  // Keep the queued status row even though `queued` is no longer a live
+  // lifecycle: it reports that the message waits in the queue, not a trace.
+  if (isLiveLifecycle(lifecycle) || lifecycle === "queued") {
     const state = lifecycle === "queued" || lifecycle === "waiting" || lifecycle === "stopping" || shown?.state === "interaction" ? "waiting" : "running";
     // Running tense of the process label. The latest partial thinking block
     // takes the phase while the model is reasoning (no tool has taken over).
@@ -94,7 +96,7 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
     const visualSlot = shown ? "currentActivity" : "thinking";
     // The stream is always open while live: narration and tool lines render
     // chronologically, and the caller pins the status row after the answer.
-    const content = activities.length === 0 ? null : (
+    const content = lifecycle === "queued" || activities.length === 0 ? null : (
       <div id={blocks.length === 1 && blocks[0].kind === "tool" ? `thread-block-${blocks[0].id}` : undefined} data-thread-block-ids={blocks.map((block) => block.id).join(" ")} data-state={state} data-motion={progressAppearance.motion} style={activityStyle(progressAppearance)} className={cn(styles.root, "min-w-0 scroll-mt-4")}>
         <div role="region" className={cn(styles.trace, styles.traceLive)} aria-label={t("conversation.activity.trace")}>
           <ActivityTrace blocks={activityEntries} cwd={cwd} live />

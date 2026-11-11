@@ -8,7 +8,12 @@
  *   - `conversation`: bumped by message/run activity and authoritative
  *     recovery boundaries. It invalidates settled-history and projection work.
  *   - `activity`: the legacy fine-grained activity counter, retained for
- *     existing async guards and compatibility with older call sites.
+ *     existing async guards and compatibility with older call sites. It also
+ *     moves on transport boundaries such as `stream.gap`, so it cannot answer
+ *     "did live traffic take ownership of the turn state?".
+ *   - `turnState`: bumped only when an event actually writes turn lifecycle or
+ *     interaction state. `connect` uses it to decide whether an HTTP snapshot
+ *     may overwrite the reducer's state.
  *   - `presentationMetadata`: bumped by artifacts/stats-only updates. Those
  *     updates may refresh metadata without cancelling a settled resync.
  *   - `localMutation`: bumped by user-initiated mutations (prompt, model,
@@ -23,6 +28,7 @@ export const generations = {
   connection: 0,
   conversation: 0,
   activity: 0,
+  turnState: 0,
   presentationMetadata: 0,
   localMutation: 0,
   historyWindow: 0,
@@ -33,6 +39,11 @@ export function bumpConversationGeneration(): number {
   generations.conversation += 1;
   generations.activity += 1;
   return generations.conversation;
+}
+
+export function bumpTurnStateGeneration(): number {
+  generations.turnState += 1;
+  return generations.turnState;
 }
 
 export function bumpPresentationMetadataGeneration(): number {

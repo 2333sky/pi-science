@@ -9,6 +9,7 @@ import { handleTransportEvent } from "./transport";
 import { applyInteractionEvent } from "./interactions";
 import { applyLifecycleEvent } from "./lifecycle";
 import { applyEventProjection } from "./projection";
+import { isBehindStreamWaterline } from "../folding/versioned-event";
 
 /** One subscription dispatches effects in the same order as the stream. */
 export function registerEventListener(client: PiScienceClient): void {
@@ -35,6 +36,11 @@ export function registerEventListener(client: PiScienceClient): void {
     const transport = handleTransportEvent(client, event, state);
     if (transport) return transport === "deferred" ? false : undefined;
     if (handleMissingSessionEvent(client, event, state)) return;
+    // The fold discards replayed events at/below its waterline, but firing the
+    // side effects first would let a late activity event reopen a settled turn
+    // (or resurrect an answered questionnaire). Skip to the projection so the
+    // fold still accounts for the record and advances its cursor.
+    if (isBehindStreamWaterline(state.thread, event)) return applyEventProjection(event);
     applyInteractionEvent(event);
     // Lifecycle guards deliberately use the snapshot captured before effects.
     applyLifecycleEvent(event, state);

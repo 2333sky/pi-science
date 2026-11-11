@@ -2,7 +2,7 @@
 import type { PiScienceEvent, SessionStats } from "../../client/pi-science-client";
 import { markWorkspaceFilesChanged } from "../file-revision";
 import { resetTurnBuffer } from "../folding/state";
-import { bumpConversationGeneration, bumpPresentationMetadataGeneration, generations, turnState } from "../generations";
+import { bumpConversationGeneration, bumpPresentationMetadataGeneration, bumpTurnStateGeneration, generations, turnState } from "../generations";
 import { resyncCompletedHistory } from "../recovery/settled-history";
 import { loadSessionsInternal } from "../sessions";
 import { runtimeStore } from "../store-access";
@@ -30,6 +30,7 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
   const knownTerminalRun = typeof event.runId === "string" && state.thread.foldState?.terminalRunIds.includes(event.runId);
   if (runStarted && !knownTerminalRun && state.turnLifecycle !== "stopping") {
     bumpConversationGeneration();
+    bumpTurnStateGeneration();
     resetTurnBuffer();
     turnState.errored = false;
     runtimeStore.setState({ working: true, turnLifecycle: "active", status: "ready" });
@@ -37,6 +38,7 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
   } else if (activityEvent) {
     bumpConversationGeneration();
     if (!blocksLateEvents(state.turnLifecycle) && state.turnLifecycle !== "stopping" && !knownTerminalRun) {
+      bumpTurnStateGeneration();
       turnState.errored = false;
       runtimeStore.setState({ working: true, turnLifecycle: state.pendingInteraction || state.pendingQuestionnaire || event.type === "tool.updated" && eventStatus === "waiting-approval" ? "waiting" : "active", status: "ready" });
       if (state.turnLifecycle !== "waiting") ensureTurnWatchdog();
@@ -47,6 +49,7 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
     const failed = status === "error";
     // Compaction ending is not the end of the agent run: generation resumes
     // afterward. Only a run terminal event may settle its activity row.
+    bumpTurnStateGeneration();
     runtimeStore.setState({ working: !failed, turnLifecycle: failed ? "failed" : "active", status: failed ? "error" : "ready" });
     if (failed) disarmTurnWatchdog();
     else ensureTurnWatchdog();
@@ -58,6 +61,7 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
   } else if (event.type === "operation.settled") {
     bumpConversationGeneration();
     if (!blocksLateEvents(state.turnLifecycle)) {
+      bumpTurnStateGeneration();
       const successful = !turnState.errored && event.status !== "failed";
       const cancelled = event.status === "aborted";
       runtimeStore.setState({
@@ -77,6 +81,7 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
     }
     void loadSessionsInternal();
   } else if (event.type === "runtime.paused") {
+    bumpTurnStateGeneration();
     runtimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
     disarmTurnWatchdog();
   } else if (event.type === "session.stats") {
@@ -91,8 +96,12 @@ export function applyLifecycleEvent(event: PiScienceEvent, state: RuntimeState):
   } else if (event.type === "error") {
     bumpConversationGeneration();
     if (event.recoverable === true) {
-      if (!blocksLateEvents(state.turnLifecycle)) runtimeStore.setState({ turnLifecycle: "recovering", status: "connecting" });
+      if (!blocksLateEvents(state.turnLifecycle)) {
+        bumpTurnStateGeneration();
+        runtimeStore.setState({ turnLifecycle: "recovering", status: "connecting" });
+      }
     } else if (!blocksLateEvents(state.turnLifecycle)) {
+      bumpTurnStateGeneration();
       turnState.errored = true;
       runtimeStore.setState({ working: false, turnLifecycle: "failed", status: "error", pendingInteraction: null, pendingInteractionQueue: [], pendingQuestionnaire: null });
       disarmTurnWatchdog();

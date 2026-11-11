@@ -3,7 +3,7 @@ import type { PiScienceEvent } from "../../client/pi-science-client";
 import type { EventFoldState, TextSegment, Thread } from "./types";
 import { activateContentOwner, contentOwnerOf } from "./ownership";
 import { cloneFoldState, withFoldState } from "./state";
-import { eventTextKey, isTerminalRun, numberValue, recordValue, stringValue } from "./identity";
+import { eventTextKey, isTerminalRun, isVersionedEvent, numberValue, recordValue, stringValue } from "./identity";
 import { foldProductEvent } from "./product-event";
 
 function projectEventBody(event: PiScienceEvent): PiScienceEvent[] {
@@ -240,16 +240,38 @@ function drainVersionedPending(state: Thread): Thread {
   return next;
 }
 
+/** True when this versioned event sits at or behind the fold's waterline, so
+ *  folding it cannot change the visible thread. The listener applies lifecycle
+ *  and interaction side effects *before* folding, so it must consult the same
+ *  judgment first — otherwise a replayed settled-era event reopens a finished
+ *  turn even though the fold discards it. Order mirrors the fold exactly:
+ *  stale epoch, then a seen event id, then a sequence at/below the waterline. */
+export function isBehindStreamWaterline(state: Thread, event: PiScienceEvent): boolean {
+  if (!isVersionedEvent(event)) return false;
+  const foldState = state.foldState;
+  if (!foldState) return false;
+  // An epoch change is a recovery boundary: only a *stale* epoch is behind.
+  // The first event of a new epoch must pass so the fold can reset onto it.
+  const streamEpoch = stringValue(event.streamEpoch);
+  if (foldState.streamEpoch && streamEpoch && foldState.streamEpoch !== streamEpoch) {
+    return Boolean(foldState.recoveryEpoch && foldState.recoveryEpoch !== streamEpoch);
+  }
+  if (foldState.seenEventIds.includes(String(event.eventId))) return true;
+  return foldState.lastSequence !== undefined && Number(event.seq) <= foldState.lastSequence;
+}
+
 export function foldVersionedEvent(state: Thread, event: PiScienceEvent): Thread {
+  // Single waterline judgment: the fold drops exactly what the listener skips.
+  if (isBehindStreamWaterline(state, event)) return state;
   const foldState = cloneFoldState(state, event);
   const sessionId = stringValue(event.sessionId);
   const streamEpoch = stringValue(event.streamEpoch);
   if (foldState.sessionId && sessionId && foldState.sessionId !== sessionId) return state;
   if (foldState.streamEpoch && streamEpoch && foldState.streamEpoch !== streamEpoch) {
-    // An epoch change is a recovery boundary, not an ordinary stale event.
+    // A stale epoch was already rejected by isBehindStreamWaterline; reaching
+    // here means this is the first event of a new epoch, so reset onto it.
     // Keep the visible blocks until REST supplies the authoritative snapshot,
     // but clear every identity/materialization that could leak across it.
-    if (foldState.recoveryEpoch && foldState.recoveryEpoch !== streamEpoch) return state;
     foldState.recoveryEpoch = streamEpoch;
     foldState.streamEpoch = streamEpoch;
     foldState.activeTurnId = undefined;
@@ -276,15 +298,11 @@ export function foldVersionedEvent(state: Thread, event: PiScienceEvent): Thread
   if (sessionId) foldState.sessionId = sessionId;
   if (streamEpoch) foldState.streamEpoch = streamEpoch;
 
+  // Seen ids and events at/below the waterline were rejected above; only a
+  // genuinely new position can reach the ordering logic below.
   const eventId = String(event.eventId);
   const sequence = Number(event.seq);
-  if (foldState.seenEventIds.includes(eventId)) return state;
-
   const lastSequence = foldState.lastSequence;
-  if (lastSequence !== undefined && sequence <= lastSequence) {
-    markSeen(foldState, eventId);
-    return withFoldState({ blocks: state.blocks, index: state.index, loaded: true }, foldState);
-  }
   if (lastSequence !== undefined && sequence > lastSequence + 1) {
     if (!foldState.pendingEvents.some((pending) => pending.eventId === eventId)) queueVersionedPending(foldState, event);
     return applyVersionedSpeculative(withFoldState({ blocks: state.blocks, index: state.index, loaded: true }, foldState), event);

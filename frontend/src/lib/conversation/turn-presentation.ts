@@ -105,7 +105,7 @@ function invalidatesExplicitFinal(block: ThreadBlock): boolean {
 
 function buildTurnPresentation(blocks: ThreadBlock[], lifecycle: TurnLifecycle): TurnPresentation {
   const terminal = blocks.find((block) => block.kind === "user" && block.turnStatus) ?? blocks.findLast((block) => "turnStatus" in block && block.turnStatus);
-  const active = lifecycle === "queued" || lifecycle === "active" || lifecycle === "waiting" || lifecycle === "recovering" || lifecycle === "stopping";
+  const active = isLiveLifecycle(lifecycle);
   const user = blocks.find((block): block is UserMessageBlock => block.kind === "user") ?? null;
   const tools = blocks.filter((block): block is ToolCallBlock => block.kind === "tool");
   const executionTools = tools.filter((block) => activityPolicy(block).plane === "execution");
@@ -157,7 +157,9 @@ function buildTurnPresentation(blocks: ThreadBlock[], lifecycle: TurnLifecycle):
 }
 
 /** A turn whose presentation is still in flight (streaming, waiting, or
- *  recovering) — its activity streams open with a pinned status row. */
+ *  recovering) — its activity streams open with a pinned status row.
+ *  `queued` is deliberately absent: a queued message is not an activity stream,
+ *  so reopening a history session must not expand the previous turn's trace. */
 export function isLiveLifecycle(lifecycle: TurnLifecycle): boolean {
-  return lifecycle === "queued" || lifecycle === "active" || lifecycle === "waiting" || lifecycle === "recovering" || lifecycle === "stopping";
+  return lifecycle === "active" || lifecycle === "waiting" || lifecycle === "recovering" || lifecycle === "stopping";
 }

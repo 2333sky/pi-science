@@ -27,6 +27,10 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
     ++generations.promptMonitor;
     ++generations.activity;
     const connectActivityGeneration = generations.activity;
+    // Only events that actually write turn state may claim the restored
+    // session. `activity` also moves on transport noise (stream.gap), which
+    // used to suppress the REST recovery and leave a stale active behind.
+    const connectTurnStateGeneration = generations.turnState;
     const localMutationGeneration = generations.localMutation;
     resetTurnBuffer();
     turnState.errored = false;
@@ -126,7 +130,7 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
       // while those requests were in flight, their reducer state is newer than
       // either HTTP snapshot and must not be overwritten by a stale
       // `is_streaming: false` (or a transient state-read error).
-      const liveActivityArrived = generations.activity !== connectActivityGeneration;
+      const liveTurnStateArrived = generations.turnState !== connectTurnStateGeneration;
       if (messagesResult.status === "fulfilled") {
         // Keep the initial page as one continuous tail. A user-message index
         // can locate a target, but its cursor must never be merged into the
@@ -151,7 +155,7 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
       if (runtimeStateResult.status === "fulfilled") {
         const runtimeState = runtimeStateResult.value;
         rememberRuntimeState(client, targetSessionId, cwd, runtimeState, connectActivityGeneration);
-        if (!liveActivityArrived) {
+        if (!liveTurnStateArrived) {
           // History is presentation evidence; only REST busy/idle determines
           // availability when no newer live event owns the state.
           Object.assign(nextState, restoredActivityState(runtimeState, get(), nextState.thread ?? get().thread));
@@ -165,7 +169,7 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
         nextState.compactionEnabled = runtimeState.compaction_enabled ?? true;
         nextState.compactionThresholdPercent = runtimeState.compaction_threshold_percent ?? null;
       } else {
-        if (!liveActivityArrived) {
+        if (!liveTurnStateArrived) {
           // A failed state read is not proof that a restored session is idle.
           // Keep the composer guarded until bounded authoritative recovery
           // confirms an idle runtime.
@@ -190,8 +194,10 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
       void restorePendingPromptRequests(client, cwd, targetSessionId, get, set);
 
       // Conflicting busy/history snapshots and failed state reads are repaired
-      // within bounded rounds; a final alone never unlocks the composer.
-      if (!liveActivityArrived && nextState.working === true) {
+      // within bounded rounds; a final alone never unlocks the composer. A
+      // live turn-state event does not make an idle REST snapshot authoritative
+      // either, so always let the guarded, idempotent recovery confirm it.
+      if (nextState.working === true) {
         void reconcileRestoredSession(client, targetSessionId, cwd, generation, connectActivityGeneration, localMutationGeneration);
       }
 
@@ -206,7 +212,7 @@ export function createConnectionActions(set: SetState, get: GetState): Pick<Runt
       }
       if (failure) {
         appendRuntimeError(failure, targetSessionId, cwd);
-        if (!liveActivityArrived && nextState.working !== true) {
+        if (!liveTurnStateArrived && nextState.working !== true) {
           void reconcileAfterConnectionLoss(
             client,
             targetSessionId,
