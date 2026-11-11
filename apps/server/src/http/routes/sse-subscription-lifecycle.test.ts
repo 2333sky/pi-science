@@ -1,5 +1,6 @@
 import { get as httpGet, type ClientRequest, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
+import { Readable } from "node:stream";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -44,7 +45,24 @@ async function verifyAbandonedReplay(mode: "normal" | "symlink"): Promise<void> 
   const workspace = realpathSync(mkdtempSync(join(tempPath, "pi-sse-abandoned-")));
   mkdirSync(join(workspace, ".pi-science"));
   const app = Fastify();
+  const lifecycle: string[] = [];
+  app.addHook("onRequest", (request, reply, done) => {
+    request.raw.once("close", () =>
+      lifecycle.push(
+        `request.close complete=${request.raw.complete} aborted=${request.raw.aborted}`,
+      ),
+    );
+    reply.raw.once("close", () =>
+      lifecycle.push(`response.close finished=${reply.raw.writableFinished}`),
+    );
+    done();
+  });
+  app.addHook("onSend", (_request, _reply, payload, done) => {
+    if (payload instanceof Readable) payload.once("close", () => lifecycle.push("stream.close"));
+    done(null, payload);
+  });
   const records: SseEventRecord[] = [];
+  let subscribedCwd = "";
   let releaseReplay: () => void = () => undefined;
   let replayStarted: () => void = () => undefined;
   let releaseResume: () => void = () => undefined;
@@ -66,7 +84,8 @@ async function verifyAbandonedReplay(mode: "normal" | "symlink"): Promise<void> 
     append: async (_cwd, _session, record) => {
       records.push(record);
     },
-    readAfter: async () => {
+    readAfter: async (cwd) => {
+      subscribedCwd = cwd;
       reads += 1;
       if (reads === 1) {
         replayStarted();
@@ -104,7 +123,15 @@ async function verifyAbandonedReplay(mode: "normal" | "symlink"): Promise<void> 
     });
     response.resume();
     await timeout(started, "initial replay");
-    expect(hub.hasSubscribers(workspace, "session")).toBe(true);
+    expect(
+      hub.hasSubscribers(workspace, "session"),
+      JSON.stringify({
+        workspace,
+        subscribedCwd,
+        subscribed: hub.hasSubscribers(subscribedCwd, "session"),
+        lifecycle,
+      }),
+    ).toBe(true);
     for (let sequence = 1; sequence <= 2_001; sequence += 1) {
       await hub.publish(workspace, "session", { type: "status.updated", sequence });
     }
