@@ -84,6 +84,7 @@ export function registerSseRoutes(
         query.lastEventId,
       );
       const stream = new BoundedSseStream();
+      const subscriptionAbort = new AbortController();
       let closed = false;
       let unsubscribe: (() => void) | null = null;
       let heartbeat: NodeJS.Timeout | null = null;
@@ -91,6 +92,7 @@ export function registerSseRoutes(
         if (closed) return;
         closed = true;
         if (heartbeat) clearInterval(heartbeat);
+        subscriptionAbort.abort();
         unsubscribe?.();
         stream.destroy();
       };
@@ -114,6 +116,7 @@ export function registerSseRoutes(
           lastEventId,
           (record) => enqueue(serializeSseEvent(record)),
           Boolean(lastEventId),
+          { signal: subscriptionAbort.signal, onAbandon: cleanup },
         );
         if (closed) unsubscribe();
       } catch (error) {

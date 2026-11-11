@@ -1,5 +1,5 @@
 import type { SseEventRecord } from "../event-store.js";
-import type { Subscriber, EventStore } from "./types.js";
+import type { Subscriber, EventStore, SubscribeOptions, SubscriberAbandonReason } from "./types.js";
 import { MAX_SUBSCRIBER_REPLAY_PENDING } from "./limits.js";
 import { streamKey, recordKey, recordPayload } from "./records.js";
 
@@ -62,65 +62,102 @@ export class ConversationDelivery {
     lastEventId: string | undefined,
     deliver: (record: SseEventRecord) => unknown,
     replay = true,
+    options: SubscribeOptions = {},
   ): Promise<() => void> {
     const key = streamKey(cwd, sessionId);
-    const subscriber: Subscriber = {
+    const set = this.subscribers.get(key) ?? new Set<Subscriber>();
+    let subscriber: Subscriber;
+    let cancelReplay: (() => void) | undefined;
+    const unsubscribe = () => {
+      if (subscriber.cancelled) return;
+      subscriber.cancelled = true;
+      subscriber.pending.length = 0;
+      subscriber.delivered.clear();
+      options.signal?.removeEventListener("abort", unsubscribe);
+      set.delete(subscriber);
+      if (set.size === 0) this.subscribers.delete(key);
+      cancelReplay?.();
+      cancelReplay = undefined;
+    };
+    const abandon = (reason: SubscriberAbandonReason) => {
+      if (subscriber.cancelled) return;
+      unsubscribe();
+      try {
+        options.onAbandon?.(reason);
+      } catch {
+        // A transport cleanup callback must not interrupt event publication.
+      }
+    };
+    subscriber = {
       ready: false,
       pending: [],
       delivered: new Set(),
       cancelled: false,
       deliver,
+      abandon,
     };
-    const set = this.subscribers.get(key) ?? new Set<Subscriber>();
     set.add(subscriber);
     this.subscribers.set(key, set);
-    const unsubscribe = () => {
-      if (subscriber.cancelled) return;
-      subscriber.cancelled = true;
-      subscriber.pending.length = 0;
-      set.delete(subscriber);
-      if (set.size === 0) this.subscribers.delete(key);
-    };
+    if (options.signal?.aborted) {
+      unsubscribe();
+      return unsubscribe;
+    }
+    options.signal?.addEventListener("abort", unsubscribe, { once: true });
     const send = (record: SseEventRecord): boolean => {
       if (subscriber.cancelled) return false;
       const identity = recordKey(record);
       if (subscriber.delivered.has(identity)) return true;
       subscriber.delivered.add(identity);
       if (deliver(record) === false) {
-        unsubscribe();
+        abandon("delivery_failed");
         return false;
       }
       return true;
     };
-    const records = replay ? await this.eventStore.readAfter(cwd, sessionId, lastEventId) : [];
-    let replayBytes = 0;
-    for (const record of records) {
-      if (!send(record)) return unsubscribe;
-      replayBytes += Buffer.byteLength(record.data);
-      if (replayBytes >= 64 * 1024) {
-        // Replay is synchronous delivery into a bounded transport. Give socket
-        // consumers a chance to drain between batches without letting live
-        // events overtake history (subscriber.ready remains false).
-        await new Promise<void>((resolve) => setImmediate(resolve));
-        replayBytes = 0;
+    try {
+      let records: SseEventRecord[] | undefined = [];
+      if (replay) {
+        const read = this.eventStore.readAfter(cwd, sessionId, lastEventId);
+        const cancelled = new Promise<undefined>((resolve) => {
+          cancelReplay = () => resolve(undefined);
+        });
+        if (subscriber.cancelled) cancelReplay?.();
+        records = await Promise.race([read, cancelled]);
+        cancelReplay = undefined;
       }
-    }
-    // A page refresh has no in-memory SSE cursor. Re-deliver interactions that
-    // are still waiting for a browser response so the UI can reconstruct the
-    // prompt without replaying the whole durable conversation.
-    const pendingInteraction = this.pendingInteractions.get(key);
-    if (pendingInteraction) {
-      for (const record of pendingInteraction) {
+      if (!records || subscriber.cancelled) return unsubscribe;
+      let replayBytes = 0;
+      for (const record of records) {
+        if (!send(record)) return unsubscribe;
+        replayBytes += Buffer.byteLength(record.data);
+        if (replayBytes >= 64 * 1024) {
+          // Replay is synchronous delivery into a bounded transport. Give socket
+          // consumers a chance to drain between batches without letting live
+          // events overtake history (subscriber.ready remains false).
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          replayBytes = 0;
+        }
+      }
+      // A page refresh has no in-memory SSE cursor. Re-deliver interactions that
+      // are still waiting for a browser response so the UI can reconstruct the
+      // prompt without replaying the whole durable conversation.
+      const pendingInteraction = this.pendingInteractions.get(key);
+      if (pendingInteraction) {
+        for (const record of pendingInteraction) {
+          if (!send(record)) return unsubscribe;
+        }
+      }
+      subscriber.ready = true;
+      for (const record of subscriber.pending) {
         if (!send(record)) return unsubscribe;
       }
+      subscriber.pending.length = 0;
+      subscriber.delivered.clear();
+      return unsubscribe;
+    } catch (error) {
+      unsubscribe();
+      throw error;
     }
-    subscriber.ready = true;
-    for (const record of subscriber.pending) {
-      if (!send(record)) return unsubscribe;
-    }
-    subscriber.pending.length = 0;
-    subscriber.delivered.clear();
-    return unsubscribe;
   }
   deliver(
     key: string,
@@ -159,13 +196,10 @@ export class ConversationDelivery {
       if (subscriber.ready) {
         if (!canPublish()) return false;
         if (subscriber.deliver(record) === false) {
-          subscriber.cancelled = true;
-          this.subscribers.get(key)?.delete(subscriber);
+          subscriber.abandon("delivery_failed");
         }
       } else if (subscriber.pending.length >= MAX_SUBSCRIBER_REPLAY_PENDING) {
-        subscriber.cancelled = true;
-        subscriber.pending.length = 0;
-        this.subscribers.get(key)?.delete(subscriber);
+        subscriber.abandon("replay_backlog_overflow");
       } else {
         subscriber.pending.push(record);
       }

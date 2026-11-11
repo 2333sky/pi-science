@@ -1,12 +1,20 @@
 import type { ProductInput } from "../product-input.js";
 import type { EventPublishGuard, SseEventRecord } from "../event-store.js";
 
+export type SubscriberAbandonReason = "delivery_failed" | "replay_backlog_overflow";
+
+export type SubscribeOptions = {
+  signal?: AbortSignal;
+  onAbandon?: (reason: SubscriberAbandonReason) => void;
+};
+
 export type Subscriber = {
   ready: boolean;
   pending: SseEventRecord[];
   delivered: Set<string>;
   cancelled: boolean;
   deliver: (record: SseEventRecord) => unknown;
+  abandon: (reason: SubscriberAbandonReason) => void;
 };
 
 export type EventStore = {
