@@ -18,11 +18,13 @@ export function SessionExecutionButton({ cwd, sessionId, active, onToggle }: { c
   if (!sessionId) return null;
   const running = runs.filter((run) => run.status === "pending" || run.status === "running").length;
   const failed = runs.filter((run) => ["failed", "timed_out", "interrupted", "lost"].includes(run.status)).length;
-  const label = running > 0
-    ? t("runs.sessionActive", { count: running })
-    : failed > 0
-      ? t("runs.sessionFailed", { count: failed })
-      : t("runs.sessionButton", { count: runs.length });
+  const label = running > 0 && failed > 0
+    ? t("runs.sessionRunningFailed", { running, count: failed })
+    : running > 0
+      ? t("runs.sessionActive", { count: running })
+      : failed > 0
+        ? t("runs.sessionFailed", { count: failed })
+        : t("runs.sessionButton", { count: runs.length });
 
   return (
     <button
