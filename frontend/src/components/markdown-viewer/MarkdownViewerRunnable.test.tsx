@@ -280,16 +280,29 @@ describe("MarkdownViewer chat run outputs", () => {
     expect(screen.queryByText("✓")).toBeNull();
   });
 
-  it("renders kernel outputs when stdout is empty", async () => {
+  it("renders stdout and a display_data image from the same run", async () => {
+    const { container } = renderResult({
+      ok: true,
+      stdout: "hello from stdout\n",
+      result: null,
+      error: null,
+      outputs: [{ output_type: "display_data", data: { "image/png": "iVBORw0KGgo=" } }],
+    });
+    await waitFor(() => expect(screen.getByText(/hello from stdout/)).toBeInTheDocument());
+    expect(container.querySelector('img[src^="data:image/png;base64,"]')).not.toBeNull();
+    expect(screen.queryByText("✓")).toBeNull();
+  });
+
+  it("does not repeat a trailing expression that is already a structured output", async () => {
     renderResult({
       ok: true,
       stdout: "",
-      result: null,
+      result: "from-output-42",
       error: null,
-      outputs: [{ output_type: "stream", name: "stdout", text: "from-outputs\n" }],
+      outputs: [{ output_type: "execute_result", data: { "text/plain": "from-output-42" } }],
     });
-    await waitFor(() => expect(screen.getByText("from-outputs")).toBeInTheDocument());
-    expect(screen.queryByText("✓")).toBeNull();
+    await waitFor(() => expect(screen.getByText("from-output-42")).toBeInTheDocument());
+    expect(screen.getAllByText("from-output-42")).toHaveLength(1);
   });
 
   it("shows stderr that the old renderer swallowed", async () => {

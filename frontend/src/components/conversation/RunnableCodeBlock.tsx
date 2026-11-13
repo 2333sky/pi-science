@@ -62,12 +62,14 @@ export function RunnableCodeBlock({ code, language, preClassName, children, runn
             </span>
           </div>
           <div className="max-h-[420px] overflow-y-auto px-3 py-2 leading-5">
-            {/* Kernel cell outputs carry text and rich mime together; rendering them
-                through StoredOutputs keeps one copy of each instead of duplicating stdout. */}
+            {/* stdout/stderr and rich outputs are separate channels in a kernel result:
+                a cell can print text and also emit a display_data image. Render both.
+                A trailing expression lands in both `result` and `outputs`, so the
+                result/mime branches are only used when there are no structured outputs. */}
+            {result.stdout && <pre className="whitespace-pre-wrap break-all text-text">{result.stdout}</pre>}
+            {result.stderr && <pre className="whitespace-pre-wrap break-all text-warn-text">{result.stderr}</pre>}
             {outputs ? <StoredOutputs outputs={outputs} /> : (
               <>
-                {result.stdout && <pre className="whitespace-pre-wrap break-all text-text">{result.stdout}</pre>}
-                {result.stderr && <pre className="whitespace-pre-wrap break-all text-warn">{result.stderr}</pre>}
                 {result.result && !mime && <pre className="whitespace-pre-wrap break-all text-text">{result.result}</pre>}
                 {mime && <div className="mt-2"><NotebookMimeOutput mime={mime} label={t("conversation.codeOutput")} /></div>}
               </>
