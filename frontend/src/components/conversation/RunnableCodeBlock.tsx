@@ -1,11 +1,13 @@
-import { Loader2, Play, X } from "lucide-react";
+import { ArrowUpRight, Loader2, Play, X } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import type { CellResult } from "../../lib/notebook";
 import { CodeBlockFrame } from "../markdown-viewer/CodeBlockFrame";
+import { NotebookMimeOutput } from "../notebook/NotebookMimeOutput";
+import { StoredOutputs } from "../notebook/NotebookOutputs";
 
 /** Chat code block with a Run affordance in the code banner: executes python
  *  on the workspace kernel bridge and shows stdout/result/error inline. */
-export function RunnableCodeBlock({ code, language, preClassName, children, running, result, onRun, onCloseResult }: {
+export function RunnableCodeBlock({ code, language, preClassName, children, running, result, onRun, onCloseResult, onOpenRun }: {
   code: string;
   language?: string | null;
   preClassName?: string;
@@ -14,8 +16,12 @@ export function RunnableCodeBlock({ code, language, preClassName, children, runn
   result: CellResult | null;
   onRun: () => void;
   onCloseResult: () => void;
+  onOpenRun?: (executionId: string) => void;
 }) {
   const { t } = useTranslation();
+  const outputs = result?.outputs?.length ? result.outputs : null;
+  const mime = result?.mime && Object.keys(result.mime).length > 0 ? result.mime : null;
+  const executionId = result?.execution_id;
 
   return (
     <div className="relative">
@@ -44,15 +50,30 @@ export function RunnableCodeBlock({ code, language, preClassName, children, runn
         <div data-quote-exclude="" className="mb-3 rounded-input bg-surface-2 font-mono text-[12px]">
           <div className="flex items-center justify-between gap-2 border-b border-faint px-3 py-1.5 font-sans text-[10px] uppercase tracking-wider text-muted">
             <span>{t("conversation.codeOutput")}</span>
-            <button type="button" aria-label={t("conversation.closeOutput")} onClick={onCloseResult} className="text-muted hover:text-text">
-              <X size={11} />
-            </button>
+            <span className="flex items-center gap-2">
+              {executionId && onOpenRun && (
+                <button type="button" onClick={() => onOpenRun(executionId)} className="flex items-center gap-0.5 normal-case tracking-normal text-muted hover:text-text">
+                  {t("conversation.viewRun")} <ArrowUpRight size={10} />
+                </button>
+              )}
+              <button type="button" aria-label={t("conversation.closeOutput")} onClick={onCloseResult} className="text-muted hover:text-text">
+                <X size={11} />
+              </button>
+            </span>
           </div>
-          <div className="max-h-48 overflow-y-auto px-3 py-2 leading-5">
-            {result.stdout && <pre className="whitespace-pre-wrap break-all text-text">{result.stdout}</pre>}
-            {result.result && <pre className="whitespace-pre-wrap break-all text-text">{result.result}</pre>}
+          <div className="max-h-[420px] overflow-y-auto px-3 py-2 leading-5">
+            {/* Kernel cell outputs carry text and rich mime together; rendering them
+                through StoredOutputs keeps one copy of each instead of duplicating stdout. */}
+            {outputs ? <StoredOutputs outputs={outputs} /> : (
+              <>
+                {result.stdout && <pre className="whitespace-pre-wrap break-all text-text">{result.stdout}</pre>}
+                {result.stderr && <pre className="whitespace-pre-wrap break-all text-warn">{result.stderr}</pre>}
+                {result.result && !mime && <pre className="whitespace-pre-wrap break-all text-text">{result.result}</pre>}
+                {mime && <div className="mt-2"><NotebookMimeOutput mime={mime} label={t("conversation.codeOutput")} /></div>}
+              </>
+            )}
             {result.error && <pre className="whitespace-pre-wrap break-all text-error-text">{result.error}</pre>}
-            {!result.stdout && !result.result && !result.error && <span className="text-ok-text">✓</span>}
+            {result.ok && !outputs && !mime && !result.stdout && !result.stderr && !result.result && !result.error && <span className="text-ok-text">✓</span>}
           </div>
         </div>
       )}
