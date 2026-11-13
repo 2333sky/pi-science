@@ -161,7 +161,7 @@ export function MoleculeView({ filename, text }: { filename: string; text: strin
         ))}
       </div>
       <div className="relative min-h-0 flex-1">
-        <div ref={containerRef} className="absolute inset-0" aria-label={t("molecule.viewerLabel")} />
+        <div ref={containerRef} role="img" className="absolute inset-0" aria-label={t("molecule.viewerLabel")} aria-busy={rendering} />
         {(rendering || error) && (
           <div className={`ui-popover absolute bottom-3 left-3 z-10 max-w-[70%] rounded-input bg-surface/95 px-3 py-1.5 text-xs text-muted backdrop-blur ${error && !rendering ? "pointer-events-auto" : "pointer-events-none"}`}>
             {rendering ? t("molecule.rendering") : <>{error} <button type="button" className="ml-2 text-link underline" onClick={() => setRetry((value) => value + 1)}>{t("molecule.retry")}</button></>}

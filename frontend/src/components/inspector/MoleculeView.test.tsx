@@ -46,6 +46,16 @@ describe("MoleculeView", () => {
     expect(screen.getByText("Mol*")).toBeInTheDocument();
   });
 
+  it("exposes the canvas as a named image that reports its busy state", async () => {
+    render(<MoleculeView filename="protein.pdb" text="ATOM" />);
+
+    const canvas = screen.getByRole("img", { name: "3D molecule viewer" });
+    expect(canvas).toHaveAttribute("aria-busy", "true");
+
+    await screen.findByText("42 atoms");
+    expect(canvas).toHaveAttribute("aria-busy", "false");
+  });
+
   it("disposes the viewer when the preview unmounts", async () => {
     const { unmount } = render(<MoleculeView filename="protein.pdb" text="ATOM" />);
     await waitFor(() => expect(viewerMocks.create).toHaveBeenCalledOnce());

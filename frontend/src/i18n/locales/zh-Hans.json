@@ -1371,6 +1371,8 @@
   "runs.noFilesRead": "未记录文件读取。",
   "runs.noFilesWritten": "未记录文件写入。",
   "runs.noArtifacts": "未关联产物。",
+  "runs.sessionFailed_one": "当前会话有 {{count}} 条失败执行",
+  "runs.sessionFailed_other": "当前会话有 {{count}} 条失败执行",
   "runs.sessionButton_one": "当前会话有 {{count}} 条执行记录",
   "runs.sessionButton_other": "当前会话有 {{count}} 条执行记录",
   "runs.sessionActive_one": "{{count}} 项执行正在运行",
