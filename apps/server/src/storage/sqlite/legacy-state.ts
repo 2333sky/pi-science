@@ -8,12 +8,14 @@ import { JobRepository } from "./repositories/job-repository.js";
 import { EnvironmentRepository } from "./repositories/environment-repository.js";
 import { fingerprintPaths, WorkspaceRepository } from "./repositories/workspace-repository.js";
 import type { SqliteStateStore } from "./state-store.js";
+import type { ExecutionRepository } from "../../runtime/executions/execution-repository.js";
 
 export interface LegacyStateImportOptions {
   store: SqliteStateStore;
   workspaces: WorkspaceRepository;
   environments: EnvironmentRepository;
   jobs: JobRepository;
+  executions: ExecutionRepository;
   managedRoot: string;
   logger?: (message: string, details?: Record<string, unknown>) => void;
 }
@@ -45,6 +47,10 @@ export async function importLegacyState(options: LegacyStateImportOptions): Prom
   const known = await options.workspaces.listKnown({ includeMissing: false });
   const jobResult = await options.jobs.importLegacy(known.map((location) => location.path));
   options.logger?.("SQLite legacy job import complete", jobResult);
+  const executionResult = await options.executions.importLegacy(
+    known.map((location) => location.path),
+  );
+  options.logger?.("SQLite legacy execution import complete", executionResult);
 }
 
 async function managedWorkspacePaths(root: string): Promise<string[]> {
@@ -56,17 +62,27 @@ async function managedWorkspacePaths(root: string): Promise<string[]> {
         if (!(await stat(path)).isDirectory()) continue;
         const [project, legacy] = await Promise.all([
           readProject(path),
-          stat(legacyMetadataRoot(path)).then((value) => value.isDirectory()).catch(() => false),
+          stat(legacyMetadataRoot(path))
+            .then((value) => value.isDirectory())
+            .catch(() => false),
         ]);
         if (project || legacy) paths.push(resolve(path));
-      } catch { /* ignore stale or non-workspace entries */ }
+      } catch {
+        /* ignore stale or non-workspace entries */
+      }
     }
-  } catch { /* managed root may not exist yet */ }
+  } catch {
+    /* managed root may not exist yet */
+  }
   return paths;
 }
 
 async function readText(path: string): Promise<string | null> {
-  try { return await readFile(path, "utf8"); } catch { return null; }
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 async function readJsonArray(path: string): Promise<string[]> {
@@ -74,8 +90,12 @@ async function readJsonArray(path: string): Promise<string[]> {
   if (text === null) return [];
   try {
     const value = JSON.parse(text);
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.length > 0) : [];
-  } catch { return []; }
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function parseEnvironmentRegistry(text: string): EnvironmentRevision[] {
@@ -83,23 +103,30 @@ function parseEnvironmentRegistry(text: string): EnvironmentRevision[] {
     const value = JSON.parse(text) as { schema_version?: unknown; revisions?: unknown };
     if (value.schema_version !== 1 || !Array.isArray(value.revisions)) return [];
     return value.revisions.filter(isEnvironmentRevision);
-  } catch { return []; }
+  } catch {
+    return [];
+  }
 }
 
 function isEnvironmentRevision(value: unknown): value is EnvironmentRevision {
   if (!value || typeof value !== "object") return false;
   const row = value as Record<string, unknown>;
-  return typeof row.environment_id === "string"
-    && typeof row.revision_id === "string"
-    && typeof row.name === "string"
-    && typeof row.display_name === "string"
-    && (row.language === "python" || row.language === "r")
-    && (row.status === "creating" || row.status === "ready" || row.status === "failed" || row.status === "archived")
-    && typeof row.prefix === "string"
-    && Array.isArray(row.packages)
-    && row.packages.every((item) => typeof item === "string")
-    && typeof row.platform === "string"
-    && typeof row.created_at === "string";
+  return (
+    typeof row.environment_id === "string" &&
+    typeof row.revision_id === "string" &&
+    typeof row.name === "string" &&
+    typeof row.display_name === "string" &&
+    (row.language === "python" || row.language === "r") &&
+    (row.status === "creating" ||
+      row.status === "ready" ||
+      row.status === "failed" ||
+      row.status === "archived") &&
+    typeof row.prefix === "string" &&
+    Array.isArray(row.packages) &&
+    row.packages.every((item) => typeof item === "string") &&
+    typeof row.platform === "string" &&
+    typeof row.created_at === "string"
+  );
 }
 
 function fingerprint(value: string): string {

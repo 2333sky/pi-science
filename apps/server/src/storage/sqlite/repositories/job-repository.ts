@@ -5,17 +5,32 @@ import type { JobOwnership, JobRecord, JobStatus } from "../../../runtime/jobs/j
 import { metadataRoot } from "../../persistence.js";
 import type { SqliteStateStore } from "../state-store.js";
 import { WorkspaceRepository } from "./workspace-repository.js";
+import {
+  executionRecordFromStart,
+  executionRecordInsert,
+  type StartExecutionInput,
+} from "../../../runtime/executions/execution-repository.js";
 
 export class JobRepository {
   private readonly workspaces: WorkspaceRepository;
 
-  constructor(private readonly store: SqliteStateStore, workspaces?: WorkspaceRepository) {
+  constructor(
+    private readonly store: SqliteStateStore,
+    workspaces?: WorkspaceRepository,
+  ) {
     this.workspaces = workspaces ?? new WorkspaceRepository(store);
   }
 
-  async save(record: JobRecord): Promise<JobRecord> {
+  async save(record: JobRecord, executionInput?: StartExecutionInput): Promise<JobRecord> {
     const location = await this.workspaces.rememberWorkspace(record.cwd);
-    await this.store.run(upsertSql(), jobParams(record, location.project_id, location.path));
+    const executionId = record.execution_id;
+    const input = executionId ? (executionInput ?? jobExecutionInput(record)) : undefined;
+    await this.store.batch([
+      { sql: upsertSql(), params: jobParams(record, location.project_id, location.path) },
+      ...(executionId && input
+        ? [executionRecordInsert(executionRecordFromStart(record.cwd, executionId, input))]
+        : []),
+    ]);
     return (await this.get(record.cwd, record.job_id))!;
   }
 
@@ -40,7 +55,11 @@ export class JobRepository {
     if (!location) return [];
     const rows = await this.store.all<JobRow>(
       "SELECT * FROM jobs WHERE project_id = ? AND workspace_path = ? ORDER BY created_at DESC LIMIT ?",
-      [location.project_id, location.path, Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.floor(limit)))],
+      [
+        location.project_id,
+        location.path,
+        Math.max(1, Math.min(Number.MAX_SAFE_INTEGER, Math.floor(limit))),
+      ],
     );
     return rows.map((row) => toRecord(row, location.path));
   }
@@ -64,42 +83,89 @@ export class JobRepository {
     const result = await this.store.run(
       `UPDATE jobs SET status = 'running', started_at = ?, updated_at = ?
         WHERE job_id = ? AND status = 'pending' AND owner_token IS ? AND owner_generation IS ?`,
-      [startedAt, startedAt, record.job_id, ownership?.token ?? null, ownership?.generation ?? null],
+      [
+        startedAt,
+        startedAt,
+        record.job_id,
+        ownership?.token ?? null,
+        ownership?.generation ?? null,
+      ],
     );
     if (Number(result.changes) === 0) return this.getById(record.job_id);
     return this.getById(record.job_id);
   }
 
-  async heartbeat(record: JobRecord, ownership: JobOwnership, now: number): Promise<JobRecord | null> {
+  async heartbeat(
+    record: JobRecord,
+    ownership: JobOwnership,
+    now: number,
+  ): Promise<JobRecord | null> {
     const heartbeatAt = timestamp(ownership.heartbeat_at) ?? now;
     const leaseAt = timestamp(ownership.lease_expires_at) ?? now + 30_000;
     const leaseDuration = Math.max(100, leaseAt - heartbeatAt);
-    const nextOwnership = { ...ownership, heartbeat_at: new Date(now).toISOString(), lease_expires_at: new Date(now + leaseDuration).toISOString() };
+    const nextOwnership = {
+      ...ownership,
+      heartbeat_at: new Date(now).toISOString(),
+      lease_expires_at: new Date(now + leaseDuration).toISOString(),
+    };
     const result = await this.store.run(
       `UPDATE jobs SET ownership_json = ?, lease_expires_at = ?, updated_at = ?
         WHERE job_id = ? AND status IN ('pending', 'running') AND owner_token = ? AND owner_generation = ?`,
-      [JSON.stringify(nextOwnership), timestamp(nextOwnership.lease_expires_at), now, record.job_id, ownership.token, ownership.generation],
+      [
+        JSON.stringify(nextOwnership),
+        timestamp(nextOwnership.lease_expires_at),
+        now,
+        record.job_id,
+        ownership.token,
+        ownership.generation,
+      ],
     );
     if (Number(result.changes) === 0) return this.getById(record.job_id);
     return this.getById(record.job_id);
   }
 
-  async setChild(record: JobRecord, ownership: JobOwnership, now: number): Promise<JobRecord | null> {
+  async setChild(
+    record: JobRecord,
+    ownership: JobOwnership,
+    now: number,
+  ): Promise<JobRecord | null> {
     const result = await this.store.run(
       `UPDATE jobs SET ownership_json = ?, owner_token = ?, owner_generation = ?, lease_expires_at = ?, updated_at = ?
         WHERE job_id = ? AND status IN ('pending', 'running') AND owner_token = ? AND owner_generation = ?`,
-      [JSON.stringify(ownership), ownership.token, ownership.generation, timestamp(ownership.lease_expires_at), now, record.job_id, ownership.token, ownership.generation],
+      [
+        JSON.stringify(ownership),
+        ownership.token,
+        ownership.generation,
+        timestamp(ownership.lease_expires_at),
+        now,
+        record.job_id,
+        ownership.token,
+        ownership.generation,
+      ],
     );
     return Number(result.changes) === 0 ? this.getById(record.job_id) : this.getById(record.job_id);
   }
 
-  async cancel(cwd: string, jobId: string, endedAt: number, diagnostic?: string): Promise<JobRecord | null> {
+  async cancel(
+    cwd: string,
+    jobId: string,
+    endedAt: number,
+    diagnostic?: string,
+  ): Promise<JobRecord | null> {
     const location = await this.workspaces.getByPath(cwd);
     if (!location) return null;
     const result = await this.store.run(
       `UPDATE jobs SET status = 'cancelled', ended_at = ?, stderr = CASE WHEN ? IS NULL THEN stderr ELSE ? END, updated_at = ?
         WHERE job_id = ? AND project_id = ? AND workspace_path = ? AND status IN ('pending', 'running')`,
-      [endedAt, diagnostic ?? null, diagnostic ?? null, endedAt, jobId, location.project_id, location.path],
+      [
+        endedAt,
+        diagnostic ?? null,
+        diagnostic ?? null,
+        endedAt,
+        jobId,
+        location.project_id,
+        location.path,
+      ],
     );
     if (Number(result.changes) === 0) return this.get(cwd, jobId);
     return this.get(cwd, jobId);
@@ -111,7 +177,14 @@ export class JobRepository {
     const result = await this.store.run(
       `UPDATE jobs SET status = 'failed', return_code = NULL, ended_at = ?, stderr = ?, updated_at = ?
         WHERE job_id = ? AND status IN ('pending', 'running') AND owner_token IS ? AND owner_generation IS ?`,
-      [endedAt, record.stderr ? `${record.stderr}\n${diagnostic}` : diagnostic, endedAt, record.job_id, ownerToken, ownerGeneration],
+      [
+        endedAt,
+        record.stderr ? `${record.stderr}\n${diagnostic}` : diagnostic,
+        endedAt,
+        record.job_id,
+        ownerToken,
+        ownerGeneration,
+      ],
     );
     return Number(result.changes) === 0 ? this.getById(record.job_id) : this.getById(record.job_id);
   }
@@ -121,7 +194,19 @@ export class JobRepository {
     const result = await this.store.run(
       `UPDATE jobs SET status = ?, return_code = ?, stdout = ?, stderr = ?, stdout_truncated = ?, stderr_truncated = ?, ended_at = ?, updated_at = ?
         WHERE job_id = ? AND status IN ('pending', 'running') AND owner_token = ? AND owner_generation = ?`,
-      [record.status, record.return_code ?? null, record.stdout, record.stderr, record.stdout_truncated ? 1 : 0, record.stderr_truncated ? 1 : 0, timestamp(record.ended_at) ?? now, now, record.job_id, ownership?.token ?? null, ownership?.generation ?? null],
+      [
+        record.status,
+        record.return_code ?? null,
+        record.stdout,
+        record.stderr,
+        record.stdout_truncated ? 1 : 0,
+        record.stderr_truncated ? 1 : 0,
+        timestamp(record.ended_at) ?? now,
+        now,
+        record.job_id,
+        ownership?.token ?? null,
+        ownership?.generation ?? null,
+      ],
     );
     return Number(result.changes) === 0 ? this.getById(record.job_id) : this.getById(record.job_id);
   }
@@ -130,31 +215,63 @@ export class JobRepository {
     const current = await this.getById(record.job_id);
     if (!current || current.status !== "cancelled") return current;
     const stderr = mergeDiagnosticText(record.stderr, current.stderr);
-    await this.store.run("UPDATE jobs SET stderr = ?, ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE job_id = ? AND status = 'cancelled'", [stderr, timestamp(record.ended_at) ?? now, now, record.job_id]);
+    await this.store.run(
+      "UPDATE jobs SET stderr = ?, ended_at = COALESCE(ended_at, ?), updated_at = ? WHERE job_id = ? AND status = 'cancelled'",
+      [stderr, timestamp(record.ended_at) ?? now, now, record.job_id],
+    );
     return this.getById(record.job_id);
   }
 
-  async importLegacy(workspaces: readonly string[]): Promise<{ rows: number; skipped: number; errors: string[] }> {
+  async importLegacy(
+    workspaces: readonly string[],
+  ): Promise<{ rows: number; skipped: number; errors: string[] }> {
     let rows = 0;
     let skipped = 0;
     const errors: string[] = [];
     for (const workspace of workspaces) {
       const dir = join(metadataRoot(workspace), "jobs");
       let names: string[];
-      try { names = await readdir(dir); } catch { continue; }
+      try {
+        names = await readdir(dir);
+      } catch {
+        continue;
+      }
       for (const name of names.filter((item) => item.endsWith(".json"))) {
         const path = join(dir, name);
         let text: string;
-        try { text = await readFile(path, "utf8"); } catch (error) { errors.push(`${path}: ${String(error)}`); continue; }
+        try {
+          text = await readFile(path, "utf8");
+        } catch (error) {
+          errors.push(`${path}: ${String(error)}`);
+          continue;
+        }
         const fingerprint = createHash("sha256").update(text).digest("hex");
         const source = `job:${resolve(path)}`;
-        if (await importAlreadyApplied(this.store, source, fingerprint)) { skipped += 1; continue; }
+        if (await importAlreadyApplied(this.store, source, fingerprint)) {
+          skipped += 1;
+          continue;
+        }
         let parsed: unknown;
-        try { parsed = JSON.parse(text); } catch { errors.push(`${path}: invalid JSON`); await markImport(this.store, source, fingerprint, 0); continue; }
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          errors.push(`${path}: invalid JSON`);
+          await markImport(this.store, source, fingerprint, 0);
+          continue;
+        }
         const record = normalizeLegacyRecord(parsed, workspace);
-        if (!record) { errors.push(`${path}: invalid job record`); await markImport(this.store, source, fingerprint, 0); continue; }
-        try { await this.save(record); rows += 1; await markImport(this.store, source, fingerprint, 1); }
-        catch (error) { errors.push(`${path}: ${String(error)}`); }
+        if (!record) {
+          errors.push(`${path}: invalid job record`);
+          await markImport(this.store, source, fingerprint, 0);
+          continue;
+        }
+        try {
+          await this.save(record);
+          rows += 1;
+          await markImport(this.store, source, fingerprint, 1);
+        } catch (error) {
+          errors.push(`${path}: ${String(error)}`);
+        }
       }
     }
     return { rows, skipped, errors };
@@ -214,7 +331,11 @@ function upsertSql(): string {
       updated_at = excluded.updated_at`;
 }
 
-function jobParams(record: JobRecord, projectId: string, workspacePath: string): Array<string | number | null> {
+function jobParams(
+  record: JobRecord,
+  projectId: string,
+  workspacePath: string,
+): Array<string | number | null> {
   const ownership = record.ownership;
   return [
     record.job_id,
@@ -259,7 +380,9 @@ function toRecord(row: JobRow, workspacePath = row.workspace_path): JobRecord {
     surface: row.surface,
     status: row.status,
     created_at: new Date(Number(row.created_at)).toISOString(),
-    ...(row.started_at === null ? {} : { started_at: new Date(Number(row.started_at)).toISOString() }),
+    ...(row.started_at === null
+      ? {}
+      : { started_at: new Date(Number(row.started_at)).toISOString() }),
     ...(row.ended_at === null ? {} : { ended_at: new Date(Number(row.ended_at)).toISOString() }),
     return_code: row.return_code,
     stdout: row.stdout,
@@ -273,12 +396,42 @@ function toRecord(row: JobRow, workspacePath = row.workspace_path): JobRecord {
   };
 }
 
+function jobExecutionInput(record: JobRecord): StartExecutionInput {
+  const surface =
+    record.surface === "ssh" || record.surface.startsWith("ssh:")
+      ? "ssh"
+      : record.surface === "hpc" || record.surface.startsWith("hpc:")
+        ? "hpc"
+        : record.surface.startsWith("research")
+          ? "research"
+          : "local";
+  return {
+    execution_id: record.execution_id,
+    kind: "job",
+    surface,
+    producer: "node-job-coordinator",
+    created_at: record.created_at,
+    correlation: { job_id: record.job_id },
+    request: {
+      command: record.command,
+      cwd: record.execution_cwd ?? record.cwd,
+      requirement: record.requirement,
+    },
+    runtime: record.environment,
+  };
+}
+
 function normalizeLegacyRecord(value: unknown, workspace: string): JobRecord | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   if (typeof row.job_id !== "string" || !/^job_[A-Za-z0-9]{16}$/.test(row.job_id)) return null;
   const status = row.status;
-  if (!["pending", "running", "succeeded", "failed", "cancelled", "timed_out"].includes(String(status))) return null;
+  if (
+    !["pending", "running", "succeeded", "failed", "cancelled", "timed_out"].includes(
+      String(status),
+    )
+  )
+    return null;
   return {
     job_id: row.job_id,
     ...(typeof row.execution_id === "string" ? { execution_id: row.execution_id } : {}),
@@ -296,15 +449,27 @@ function normalizeLegacyRecord(value: unknown, workspace: string): JobRecord | n
     stdout_truncated: row.stdout_truncated === true,
     stderr_truncated: row.stderr_truncated === true,
     artifact_ids: Array.isArray(row.artifact_ids) ? row.artifact_ids.map(String) : [],
-    environment: row.environment && typeof row.environment === "object" ? row.environment as Record<string, unknown> : {},
-    requirement: row.requirement && typeof row.requirement === "object" ? row.requirement as JobRecord["requirement"] : {},
-    ...(row.ownership && typeof row.ownership === "object" ? { ownership: row.ownership as JobOwnership } : {}),
+    environment:
+      row.environment && typeof row.environment === "object"
+        ? (row.environment as Record<string, unknown>)
+        : {},
+    requirement:
+      row.requirement && typeof row.requirement === "object"
+        ? (row.requirement as JobRecord["requirement"])
+        : {},
+    ...(row.ownership && typeof row.ownership === "object"
+      ? { ownership: row.ownership as JobOwnership }
+      : {}),
   };
 }
 
 function parseJson<T>(value: string | null, fallback: T): T {
   if (!value) return fallback;
-  try { return JSON.parse(value) as T; } catch { return fallback; }
+  try {
+    return JSON.parse(value) as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function timestamp(value: string | undefined | null): number | null {
@@ -313,12 +478,24 @@ function timestamp(value: string | undefined | null): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function importAlreadyApplied(store: SqliteStateStore, source: string, fingerprint: string): Promise<boolean> {
-  const row = await store.get<{ source_fingerprint: string }>("SELECT source_fingerprint FROM legacy_imports WHERE source = ?", [source]);
+async function importAlreadyApplied(
+  store: SqliteStateStore,
+  source: string,
+  fingerprint: string,
+): Promise<boolean> {
+  const row = await store.get<{ source_fingerprint: string }>(
+    "SELECT source_fingerprint FROM legacy_imports WHERE source = ?",
+    [source],
+  );
   return row?.source_fingerprint === fingerprint;
 }
 
-async function markImport(store: SqliteStateStore, source: string, fingerprint: string, rowCount: number): Promise<void> {
+async function markImport(
+  store: SqliteStateStore,
+  source: string,
+  fingerprint: string,
+  rowCount: number,
+): Promise<void> {
   await store.run(
     `INSERT INTO legacy_imports (source, source_fingerprint, imported_at, row_count) VALUES (?, ?, ?, ?)
      ON CONFLICT(source) DO UPDATE SET source_fingerprint = excluded.source_fingerprint, imported_at = excluded.imported_at, row_count = excluded.row_count`,

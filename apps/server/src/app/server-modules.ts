@@ -18,7 +18,6 @@ import type { RuntimeCatalogService } from "../runtime/agent/runtime-catalog.js"
 import { AgentCoreCatalogService } from "../runtime/agent/agent-core-catalog.js";
 import { SessionRepository } from "../runtime/node/session-repository.js";
 import { SettingsStore } from "../storage/settings-store.js";
-import { ModelResourceService } from "../model-resources/model-resource-service.js";
 import { JobCoordinator } from "../runtime/jobs/job-coordinator.js";
 import type { ServerConfig } from "../config/config.js";
 import { WorkspaceEnvironmentService } from "../runtime/workspace/workspace-environment.js";
@@ -42,7 +41,6 @@ export interface ServerModules {
   readonly sessionRepository: SessionRepository;
   readonly runtimeCatalog: Pick<RuntimeCatalogService, "getCatalog">;
   readonly settings: SettingsStore;
-  readonly modelResources: ModelResourceService;
   readonly jobs: JobCoordinator;
   readonly environments: WorkspaceEnvironmentService;
   readonly kernels: NodeKernelManager;
@@ -80,7 +78,7 @@ export function createServerModules(
   const jobRepository = new JobRepository(stateStore, workspaces);
   const eventStore = new DurableEventStore();
   const events = new ConversationEventHub(eventStore);
-  const executions = new ExecutionRepository();
+  const executions = new ExecutionRepository(sqliteEnabled ? stateStore : undefined);
   const sessionRepository = new SessionRepository();
   const runtimeCatalog = new AgentCoreCatalogService();
   const environments = new WorkspaceEnvironmentService(
@@ -95,7 +93,6 @@ export function createServerModules(
     environments,
   });
   const settings = new SettingsStore();
-  const modelResources = new ModelResourceService({ settings, runtimeCatalog });
   const sessionServer: SessionServerOptions &
     Required<
       Pick<
@@ -121,6 +118,7 @@ export function createServerModules(
     repository: new AgentSessionRepository(),
     registry: new AgentSessionRegistry(),
     turns: new DurableTurnLifecycle(events),
+    executions,
   });
   const sessions = new NodeSessionService(
     events,
@@ -128,7 +126,7 @@ export function createServerModules(
     environments,
     null,
     eventStore,
-    modelResources,
+    null,
     sessionServer,
     agentCore,
   );
@@ -171,7 +169,6 @@ export function createServerModules(
     sessionRepository,
     runtimeCatalog,
     settings,
-    modelResources,
     jobs,
     memory,
     memoryBackground,

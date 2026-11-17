@@ -17,6 +17,7 @@ import {
   executionIdFor,
   executionRepository,
   type ExecutionRepository,
+  type StartExecutionInput,
 } from "../executions/execution-repository.js";
 import {
   detectJobCapabilities,
@@ -329,7 +330,7 @@ export class JobCoordinator {
       requirement,
       ownership,
     };
-    await this.executions.start(cwd, {
+    const executionInput: StartExecutionInput = {
       execution_id: executionId,
       kind: "job",
       surface: executionSurface(surface),
@@ -342,18 +343,23 @@ export class JobCoordinator {
         requirement,
       },
       runtime: record.environment,
-    });
+    };
     try {
-      await this.save(record);
+      if (this.repository) await this.save(record, executionInput);
+      else {
+        await this.executions.start(cwd, executionInput);
+        await this.save(record);
+      }
     } catch (error) {
       this.leases.release(ownership);
-      await this.executions
-        .finish(cwd, executionId, {
-          status: "failed",
-          producer: "node-job-coordinator",
-          result: { error: String(error) },
-        })
-        .catch(() => undefined);
+      if (!this.repository)
+        await this.executions
+          .finish(cwd, executionId, {
+            status: "failed",
+            producer: "node-job-coordinator",
+            result: { error: String(error) },
+          })
+          .catch(() => undefined);
       throw error;
     }
     const task = this.run(record, environment);
@@ -506,9 +512,9 @@ export class JobCoordinator {
     if (isAbsolute(rel) || rel.startsWith("..")) throw new Error("Job path escapes the workspace");
     return target;
   }
-  private async save(record: JobRecord) {
+  private async save(record: JobRecord, executionInput?: StartExecutionInput) {
     if (this.repository) {
-      await this.repository.save(record);
+      await this.repository.save(record, executionInput);
       return;
     }
     // Register before persisting the first job so a crash cannot hide durable work.
@@ -967,6 +973,7 @@ export class JobCoordinator {
   }
 
   private async finishExecution(record: JobRecord): Promise<void> {
+    if (this.repository) return;
     if (!isTerminal(record.status)) return;
     const executionId =
       record.execution_id ?? executionIdFor("job", resolve(record.cwd), record.job_id);
@@ -1008,7 +1015,7 @@ export class JobCoordinator {
         await this.executions.finish(record.cwd, executionId, input);
       }
     } catch (error) {
-      this.log("Job execution projection failed; will retry on reconciliation", {
+      this.log("File-backed Job execution projection failed; recovery will retry", {
         job_id: record.job_id,
         execution_id: executionId,
         error: String(error),

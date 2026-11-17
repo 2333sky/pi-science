@@ -35,7 +35,7 @@ import { createServerModules, type ServerModules } from "./server-modules.js";
 import { registerEnvironmentRoutes } from "../http/routes/environment-routes.js";
 import { serveFrontend } from "../http/frontend-static.js";
 import { isArtifactSurfaceablePath } from "../runtime/artifacts/artifact-surface-policy.js";
-import { AiTitleService, CoreTitleRuntimeFactory } from "../runtime/title/ai-title-service.js";
+import { AiTitleService } from "../runtime/title/ai-title-service.js";
 import { importLegacyState } from "../storage/sqlite/legacy-state.js";
 import {
   internalAuthCookie,
@@ -53,7 +53,6 @@ export function buildApp(
     sessionRepository,
     runtimeCatalog,
     settings,
-    modelResources,
     mcp,
     jobs,
     memory,
@@ -238,13 +237,12 @@ export function buildApp(
     registerSessionReadRoutes(app, sessionRepository, nodeSessionService);
   if (config.nodeSse || config.nodePiManager) registerSseRoutes(app, nodeSessionService, events);
   if (config.nodeFiles) registerFileReadRoutes(app);
-  const titleRuntimes = new CoreTitleRuntimeFactory(undefined, environments);
   if (config.nodePiManager)
     registerNodeSessionRoutes(
       app,
       nodeSessionService,
       sessionRepository,
-      new AiTitleService(titleRuntimes),
+      new AiTitleService(),
       undefined,
       sqliteEnabled ? { mcp, events } : undefined,
       modules,
@@ -269,13 +267,12 @@ export function buildApp(
       app,
       nodeSessionService,
       settings,
-      modelResources,
       runtimeCatalog,
       sqliteEnabled ? mcp : undefined,
     );
   if (sqliteEnabled) registerMcpRoutes(app, mcp, config.nodeSettings !== false);
   if (config.nodeSettings !== false) {
-    registerModelResourceRoutes(app, modelResources, nodeSessionService);
+    registerModelResourceRoutes(app, nodeSessionService, settings);
   }
   if (config.nodeExecutions !== false) registerExecutionRoutes(app, jobs, modules.executions);
   if (config.nodeExecutions !== false)
@@ -304,6 +301,7 @@ export function buildApp(
           workspaces,
           environments: environmentRepository,
           jobs: jobRepository,
+          executions: modules.executions,
           managedRoot: rootDir(),
           logger: (message, details) => app.log.info({ ...details }, message),
         });
@@ -329,7 +327,6 @@ export function buildApp(
     for (const stop of [
       () => memoryBackground.stop(),
       () => nodeSessionService.shutdownAll(),
-      () => titleRuntimes.shutdownAll(),
       () => jobs.shutdown(),
       () => kernels.shutdownAll(),
       () => notebooks.shutdown(),

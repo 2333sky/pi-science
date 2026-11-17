@@ -37,7 +37,6 @@ import {
 } from "./session-stats-projector.js";
 import { WorkspaceEnvironmentService } from "../workspace/workspace-environment.js";
 import { ensureProject } from "../../project/project-registry.js";
-import type { ModelResourceService } from "../../model-resources/model-resource-service.js";
 
 type RuntimeFailure = { error: string; code: string };
 type StatsEventStore = {
@@ -96,10 +95,7 @@ export class NodeSessionService {
     > = new WorkspaceEnvironmentService(),
     _retiredReview: unknown = null,
     private readonly statsEventStore: StatsEventStore = new DurableEventStore(),
-    private readonly modelResources: Pick<
-      ModelResourceService,
-      "ensureMigrated" | "isModelAvailable"
-    > | null = null,
+    _retiredModelResources: unknown = null,
     agentCoreServer: SessionServerOptions = {},
     agentCore?: AgentCoreSessionService,
   ) {

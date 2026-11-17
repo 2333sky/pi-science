@@ -21,6 +21,8 @@ import {
   workspaceFile,
 } from "../../storage/persistence.js";
 import { emitExecutionEvent } from "./execution-events.js";
+import type { SqliteStateStore } from "../../storage/sqlite/state-store.js";
+import type { SqlStatement } from "../../storage/sqlite/protocol.js";
 
 const EXECUTION_LOG = "execution-events-v1.jsonl";
 const TERMINAL_STATUSES = new Set<ExecutionStatus>([
@@ -95,6 +97,8 @@ export class ExecutionRepository {
   // processes and external edits remain visible; own writes update incrementally.
   private snapshots = new Map<string, ExecutionSnapshot>();
 
+  constructor(private readonly store?: SqliteStateStore) {}
+
   private retain(path: string, snapshot: ExecutionSnapshot): void {
     this.snapshots.delete(path);
     if (snapshot.records.size > 100_000) return;
@@ -133,6 +137,20 @@ export class ExecutionRepository {
   }
 
   private async records(cwd: string): Promise<ExecutionRecord[]> {
+    if (this.store) {
+      const rows = await this.store.all<{ record_json: string }>(
+        "SELECT record_json FROM execution_records WHERE workspace_path = ?",
+        [resolve(cwd)],
+      );
+      return rows.flatMap((row) => {
+        try {
+          const parsed = executionRecordSchema.safeParse(JSON.parse(row.record_json));
+          return parsed.success ? [parsed.data] : [];
+        } catch {
+          return [];
+        }
+      });
+    }
     return [...(await this.snapshot(cwd)).records.values()];
   }
 
@@ -141,11 +159,29 @@ export class ExecutionRepository {
   }
 
   async events(cwd: string): Promise<ExecutionEvent[]> {
+    if (this.store) return [];
     const rows = await readJsonLines<unknown>(this.path(cwd));
     return rows.flatMap((row) => {
       const parsed = executionEventSchema.safeParse(row);
       return parsed.success ? [parsed.data] : [];
     });
+  }
+
+  async importLegacy(workspaces: readonly string[]): Promise<{ records: number }> {
+    if (!this.store) return { records: 0 };
+    let records = 0;
+    for (const cwd of workspaces) {
+      const rows = await readJsonLines<unknown>(this.path(cwd));
+      const events = rows.flatMap((row) => {
+        const parsed = executionEventSchema.safeParse(row);
+        return parsed.success ? [parsed.data] : [];
+      });
+      const reduced = reduceExecutionEvents(events);
+      if (!reduced.length) continue;
+      await this.store.batch(reduced.map((record) => executionRecordInsert(record, true)));
+      records += reduced.length;
+    }
+    return { records };
   }
 
   async list(cwd: string, options: ExecutionQuery = {}): Promise<ExecutionRecord[]> {
@@ -230,11 +266,33 @@ export class ExecutionRepository {
   }
 
   async get(cwd: string, executionId: string): Promise<ExecutionRecord | null> {
+    if (this.store) {
+      const row = await this.store.get<{ record_json: string }>(
+        "SELECT record_json FROM execution_records WHERE execution_id = ? AND workspace_path = ?",
+        [executionId, resolve(cwd)],
+      );
+      if (!row) return null;
+      try {
+        const parsed = executionRecordSchema.safeParse(JSON.parse(row.record_json));
+        return parsed.success ? parsed.data : null;
+      } catch {
+        return null;
+      }
+    }
     return structuredClone((await this.snapshot(cwd)).records.get(executionId) ?? null);
   }
 
   async start(cwd: string, input: StartExecutionInput): Promise<ExecutionRecord> {
     const executionId = input.execution_id ?? `exec_${randomUUID().replaceAll("-", "")}`;
+    if (this.store) {
+      const record = executionRecordFromStart(cwd, executionId, input);
+      const result = await this.store.run(...statementArgs(executionRecordInsert(record)));
+      const saved = await this.get(cwd, executionId);
+      if (!saved) throw new Error(`Execution start was not persisted: ${executionId}`);
+      if (Number(result.changes) > 0)
+        emitExecutionEvent(cwd, eventFromRecord(record, "execution.started"));
+      return saved;
+    }
     await this.append(
       cwd,
       executionId,
@@ -261,6 +319,30 @@ export class ExecutionRepository {
     executionId: string,
     input: FinishExecutionInput,
   ): Promise<ExecutionRecord | null> {
+    if (this.store) {
+      return this.store.serialized(`execution:${executionId}`, async () => {
+        const current = await this.get(cwd, executionId);
+        if (!current) return null;
+        if (
+          TERMINAL_STATUSES.has(current.status) &&
+          (current.status === input.status ||
+            current.kind !== "job" ||
+            !input.authoritative_job_id ||
+            current.correlation.job_id !== input.authoritative_job_id)
+        )
+          return current;
+        const event = eventFromFinish(current, input);
+        const records = new Map([[current.execution_id, current]]);
+        applyExecutionEvent(records, event);
+        const next = records.get(executionId)!;
+        await this.store!.run(
+          "UPDATE execution_records SET record_json = ?, updated_at = ? WHERE execution_id = ? AND workspace_path = ?",
+          [JSON.stringify(next), Date.now(), executionId, resolve(cwd)],
+        );
+        emitExecutionEvent(cwd, event);
+        return next;
+      });
+    }
     const current = await this.get(cwd, executionId);
     if (!current) return null;
     if (
@@ -353,6 +435,105 @@ export class ExecutionRepository {
       emitExecutionEvent(cwd, appended);
     }
   }
+}
+
+export function executionRecordFromStart(
+  cwd: string,
+  executionId: string,
+  input: StartExecutionInput,
+): ExecutionRecord {
+  const startedAt = input.created_at ?? new Date().toISOString();
+  return executionRecordSchema.parse({
+    schema_version: 1,
+    execution_id: executionId,
+    kind: input.kind,
+    surface: input.surface,
+    status: "running",
+    workspace_id: resolve(cwd),
+    created_at: startedAt,
+    started_at: startedAt,
+    producer: input.producer,
+    correlation: input.correlation ?? {},
+    request: input.request ?? {},
+    runtime: input.runtime ?? {},
+    result: {},
+    files: { read: input.files?.read ?? [], written: input.files?.written ?? [] },
+    artifacts: input.artifacts ?? [],
+  });
+}
+
+export function executionRecordInsert(record: ExecutionRecord, replace = false): SqlStatement {
+  const createdAt = Date.parse(record.created_at);
+  return {
+    sql: `INSERT INTO execution_records
+      (execution_id, workspace_path, record_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(execution_id) DO ${
+        replace
+          ? "UPDATE SET workspace_path = excluded.workspace_path, record_json = excluded.record_json, created_at = excluded.created_at, updated_at = excluded.updated_at"
+          : "NOTHING"
+      }`,
+    params: [
+      record.execution_id,
+      record.workspace_id,
+      JSON.stringify(record),
+      Number.isFinite(createdAt) ? createdAt : Date.now(),
+      Date.now(),
+    ],
+  };
+}
+
+function statementArgs(statement: SqlStatement): [string, NonNullable<SqlStatement["params"]>] {
+  return [statement.sql, statement.params ?? []];
+}
+
+function eventFromRecord(record: ExecutionRecord, type: ExecutionEventType): ExecutionEvent {
+  return executionEventSchema.parse({
+    schema_version: 1,
+    event_id: `event_${randomUUID().replaceAll("-", "")}`,
+    execution_id: record.execution_id,
+    sequence: 1,
+    event_type: type,
+    kind: record.kind,
+    surface: record.surface,
+    workspace_id: record.workspace_id,
+    created_at: new Date().toISOString(),
+    producer: record.producer,
+    payload: {
+      started_at: record.started_at,
+      correlation: record.correlation,
+      request: record.request,
+      runtime: record.runtime,
+      files: record.files,
+      artifacts: record.artifacts,
+    },
+  });
+}
+
+function eventFromFinish(current: ExecutionRecord, input: FinishExecutionInput): ExecutionEvent {
+  return executionEventSchema.parse({
+    schema_version: 1,
+    event_id: `event_${randomUUID().replaceAll("-", "")}`,
+    execution_id: current.execution_id,
+    sequence: 2,
+    event_type: eventTypeForStatus(input.status),
+    kind: current.kind,
+    surface: current.surface,
+    workspace_id: current.workspace_id,
+    created_at: new Date().toISOString(),
+    producer: input.producer,
+    payload: {
+      status: input.status,
+      ended_at: input.ended_at ?? new Date().toISOString(),
+      result: input.result ?? {},
+      files: { read: input.files?.read ?? [], written: input.files?.written ?? [] },
+      artifacts: input.artifacts ?? [],
+      ...(input.usage ? { usage: input.usage } : {}),
+      ...(current.kind === "job" && input.authoritative_job_id === current.correlation.job_id
+        ? { replace_result: true }
+        : {}),
+    },
+  });
 }
 
 export function reduceExecutionEvents(events: ExecutionEvent[]): ExecutionRecord[] {

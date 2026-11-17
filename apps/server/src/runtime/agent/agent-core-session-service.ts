@@ -45,12 +45,17 @@ import {
   shutdownAll,
 } from "./session/lifecycle.js";
 import { scheduleWatchdog, probe, recover } from "./session/supervision.js";
+import {
+  executionRepository,
+  type ExecutionRepository,
+} from "../executions/execution-repository.js";
 
 export interface AgentCoreSessionDependencies {
   manager: AgentRuntimeManager;
   repository: AgentSessionRepository;
   registry: AgentSessionRegistry;
   turns: DurableTurnLifecycle;
+  executions?: ExecutionRepository;
 }
 
 /** Public session API and owner of per-instance locks/lifecycle state. */
@@ -91,6 +96,7 @@ export class AgentCoreSessionService {
         environments: this.environments,
         server: this.server,
         turns: this.turns,
+        executions: dependencies?.executions ?? executionRepository,
         approvalRetirements: this.approvalRetirements,
         live: this.live,
         opening: this.opening,

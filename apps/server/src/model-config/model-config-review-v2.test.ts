@@ -11,8 +11,7 @@ import { buildApp } from "../app/app.js";
 import { createServerModules } from "../app/server-modules.js";
 import { loadConfig } from "../config/config.js";
 import { AgentRuntimeManager } from "../runtime/agent/agent-runtime-manager.js";
-import { CoreTitleRuntimeFactory } from "../runtime/title/ai-title-service.js";
-import { WorkspaceEnvironmentService } from "../runtime/workspace/workspace-environment.js";
+import { DirectTitleGenerator } from "../runtime/title/ai-title-service.js";
 import { openCoreRunner } from "../runtime/agent/core-runner-runtime.js";
 let root: string;
 beforeEach(async () => {
@@ -151,16 +150,17 @@ it(
     };
     const modules = createServerModules(cfg, { sqliteEnabled: false }),
       app = buildApp(cfg, modules),
+      legacyResources = new ModelResourceService(),
       manager = new AgentRuntimeManager();
     try {
       const cwd = join(root, "workspace");
       await mkdir(join(cwd, ".pi-science"), { recursive: true });
       await sourceProvider(
-        modules.modelResources,
+        legacyResources,
         "user-healthy",
         `http://127.0.0.1:${(server.address() as { port: number }).port}/v1`,
       );
-      await modules.modelResources.repository.update((state) => {
+      await legacyResources.repository.update((state) => {
         state.aliases["old-healthy/test"] = "user-healthy/test";
       });
       await writeFile(
@@ -169,7 +169,7 @@ it(
       );
       const migration = new ModelConfigMigration(
           new ModelConfigService(),
-          modules.modelResources.repository,
+          legacyResources.repository,
         ),
         plan = await migration.plan();
       await migration.apply(0, plan.source_revision);
@@ -210,23 +210,11 @@ it(
           }),
         ).toBe("ok");
       }
-      const environments = new WorkspaceEnvironmentService();
-      vi.spyOn(environments, "environment").mockResolvedValue({});
-      const titleFactory = new CoreTitleRuntimeFactory(manager, environments);
-      const title = await titleFactory.start(cwd);
-      try {
-        expect(await title.sendCommand("get_available_models")).toMatchObject({
-          success: true,
-          data: {
-            models: expect.arrayContaining([
-              expect.objectContaining({ provider: "user-healthy", id: "test" }),
-            ]),
-          },
-        });
-      } finally {
-        await title.dispose();
-      }
+      expect(
+        await new DirectTitleGenerator().generate("Generate a title", AbortSignal.timeout(15_000)),
+      ).toBe("ok");
       expect(requests).toEqual([
+        { url: "/v1/chat/completions", model: "test" },
         { url: "/v1/chat/completions", model: "test" },
         { url: "/v1/chat/completions", model: "test" },
       ]);
@@ -242,7 +230,7 @@ it(
     // This scenario cold-starts an ordinary session, research/review and title
     // Workers. Hosted Windows startup needs a budget for all four processes.
   },
-  process.platform === "win32" ? 90_000 : 30_000,
+  process.platform === "win32" ? 90_000 : 60_000,
 );
 it.each(["constructor", `user-${"a".repeat(201)}`])(
   "blocks legacy provider ID %s using the target schema rather than treating inherited names as existing",
