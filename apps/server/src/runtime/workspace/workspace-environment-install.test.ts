@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -40,7 +40,11 @@ it("creates a canonical package-manager root inside the granted cache before ent
 });
 
 it("binds complete pip revisions, rejects stale approvals, and restores the previous revision", async () => {
-  const home = await mkdtemp(join(tmpdir(), "pi-science-pip-revisions-"));
+  const root = await mkdtemp(join(tmpdir(), "pi-science-pip-revisions-"));
+  const state = join(root, "state");
+  const home = join(root, "alias");
+  await mkdir(state);
+  await symlink(state, home, process.platform === "win32" ? "junction" : "dir");
   vi.stubEnv("PI_SCIENCE_HOME", home);
   const { SqliteStateStore } = await import("../../storage/sqlite/state-store.js");
   const { EnvironmentRepository } = await import(
@@ -64,6 +68,7 @@ it("binds complete pip revisions, rejects stale approvals, and restores the prev
     const python = environmentPythonExecutable(target);
     await mkdir(dirname(python), { recursive: true });
     await writeFile(python, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    inventories.set(await realpath(target), [["numpy", "2.2.0"]]);
   };
   const service = new WorkspaceEnvironmentService(undefined, process.execPath, repository);
   vi.mocked(runEnvironmentProcess).mockImplementation(
@@ -92,12 +97,14 @@ it("binds complete pip revisions, rejects stale approvals, and restores the prev
             })),
           }),
         );
-        inventories.set(target, [
+        inventories.set(await realpath(target), [
           ["numpy", corruptInventory ? "3.0.0" : "2.2.0"],
           ...packages.map((name) => [name, "1.0"]),
         ]);
       } else if (options?.stdout) {
-        options.stdout(JSON.stringify(inventories.get(target) ?? [["numpy", "2.2.0"]]));
+        const inventory = inventories.get(await realpath(target));
+        if (!inventory) throw new Error(`No Python inventory seeded for ${target}`);
+        options.stdout(JSON.stringify(inventory));
       }
     },
   );
@@ -177,7 +184,7 @@ it("binds complete pip revisions, rejects stale approvals, and restores the prev
   } finally {
     await store.close();
     vi.unstubAllEnvs();
-    await rm(home, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
   }
 });
 
