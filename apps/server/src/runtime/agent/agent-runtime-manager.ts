@@ -1,6 +1,9 @@
 import { workspaceIdentity } from "./workspace-session-identity.js";
 import { pathIsInside } from "../../support/platform-utils.js";
-import { withWorkspaceAdmission, WorkspaceLifecycleBusyError } from "../workspace/workspace-lifecycle.js";
+import {
+  withWorkspaceAdmission,
+  WorkspaceLifecycleBusyError,
+} from "../workspace/workspace-lifecycle.js";
 import { join, resolve } from "node:path";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import { metadataRoot } from "../../storage/persistence.js";
@@ -12,7 +15,10 @@ import { bindSubagentDispatch } from "./subagent-dispatch.js";
 // Includes pending starts and workers belonging to every app-owned manager.
 const capacity = new Set<symbol>();
 const processOwners = new Map<string, symbol>();
-const workspaceRuntimes = new Map<AgentCoreRuntimeClient, { manager: AgentRuntimeManager; key: string; hasActiveTasks: () => boolean }>();
+const workspaceRuntimes = new Map<
+  AgentCoreRuntimeClient,
+  { manager: AgentRuntimeManager; key: string; hasActiveTasks: () => boolean }
+>();
 function workerLimit(): number {
   const value = Number(process.env.PI_SCIENCE_AGENT_MAX_WORKERS ?? 16);
   return Number.isSafeInteger(value) && value > 0 ? value : 16;
@@ -35,8 +41,16 @@ export async function hasActiveWorkspaceRuntimes(cwd: string): Promise<boolean> 
     if (!pathIsInside(workspaceIdentity(cwd), workspaceIdentity(runtime.cwd), true)) continue;
     if (owner.hasActiveTasks()) return true;
     if (runtime.isClosed) continue;
-    const state = await runtime.sendCommand("get_state").catch(() => null); const data = state?.data;
-    if (!state?.success || !data || data.busy || data.pendingInteraction || Array.isArray(data.queues) && data.queues.length > 0) return true;
+    const state = await runtime.sendCommand("get_state").catch(() => null);
+    const data = state?.data;
+    if (
+      !state?.success ||
+      !data ||
+      data.busy ||
+      data.pendingInteraction ||
+      (Array.isArray(data.queues) && data.queues.length > 0)
+    )
+      return true;
   }
   return false;
 }
@@ -56,7 +70,10 @@ export class AgentRuntimeManager {
     private readonly onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>,
     private readonly executionDatabasePath?: string,
   ) {}
-  private readonly retirements = new Map<string, { runtime: AgentCoreRuntimeClient; drain?: () => Promise<void> }>();
+  private readonly retirements = new Map<
+    string,
+    { runtime: AgentCoreRuntimeClient; drain?: () => Promise<void> }
+  >();
   private readonly pendingStops = new Map<string, Promise<void>>();
   private readonly runtimes = new Map<string, AgentCoreRuntimeClient>();
   private readonly pendingStarts = new Map<string, Promise<AgentCoreRuntimeClient>>();
@@ -68,11 +85,22 @@ export class AgentRuntimeManager {
     return withWorkspaceAdmission(options.cwd, () => this.startAdmitted(key, options));
   }
 
-  private async startAdmitted(key: string, options: AgentRuntimeStartOptions): Promise<AgentCoreRuntimeClient> {
+  private async startAdmitted(
+    key: string,
+    options: AgentRuntimeStartOptions,
+  ): Promise<AgentCoreRuntimeClient> {
     const cwd = await validateWorkspaceCwd(options.cwd);
-    if (this.retirements.has(key) || [...this.retirements.values()].some(({ runtime }) => runtime.cwd === cwd && runtime.sessionId === options.sessionId)) throw new Error("Previous worker capability revocation must finish before restart");
+    if (
+      this.retirements.has(key) ||
+      [...this.retirements.values()].some(
+        ({ runtime }) => runtime.cwd === cwd && runtime.sessionId === options.sessionId,
+      )
+    )
+      throw new Error("Previous worker capability revocation must finish before restart");
     const requestedRoot = resolve(options.sessionsRoot);
-    const acceptedRoots = [options.cwd, cwd].map((workspace) => join(metadataRoot(workspace), "agent-sessions"));
+    const acceptedRoots = [options.cwd, cwd].map((workspace) =>
+      join(metadataRoot(workspace), "agent-sessions"),
+    );
     if (!acceptedRoots.includes(requestedRoot)) {
       throw new Error("agent sessions root must be workspace-local");
     }
@@ -86,10 +114,15 @@ export class AgentRuntimeManager {
     if (existing && !existing.isClosed) return existing;
     const pending = this.pendingStarts.get(ownerKey);
     if (pending) return pending;
-    const started = this.startOnce(key, { ...options, cwd, sessionsRoot: join(metadataRoot(cwd), "agent-sessions") }, ownerKey);
+    const started = this.startOnce(
+      key,
+      { ...options, cwd, sessionsRoot: join(metadataRoot(cwd), "agent-sessions") },
+      ownerKey,
+    );
     this.pendingStarts.set(ownerKey, started);
-    try { return await started; }
-    finally {
+    try {
+      return await started;
+    } finally {
       if (this.pendingStarts.get(ownerKey) === started) this.pendingStarts.delete(ownerKey);
     }
   }
@@ -102,10 +135,12 @@ export class AgentRuntimeManager {
   async stop(key: string): Promise<void> {
     const pending = this.pendingStops.get(key);
     if (pending) return pending;
-    const retirement = this.retirements.get(key) ?? (() => {
-      const runtime = this.runtimes.get(key);
-      return runtime ? { runtime, drain: this.dispatchDrains.get(runtime) } : undefined;
-    })();
+    const retirement =
+      this.retirements.get(key) ??
+      (() => {
+        const runtime = this.runtimes.get(key);
+        return runtime ? { runtime, drain: this.dispatchDrains.get(runtime) } : undefined;
+      })();
     if (!retirement) return;
     this.retirements.set(key, retirement);
     const stopped = (async () => {
@@ -115,54 +150,90 @@ export class AgentRuntimeManager {
       this.retirements.delete(key);
     })();
     this.pendingStops.set(key, stopped);
-    try { await stopped; } finally { this.pendingStops.delete(key); }
+    try {
+      await stopped;
+    } finally {
+      this.pendingStops.delete(key);
+    }
   }
 
   async shutdownAll(): Promise<void> {
     await Promise.allSettled(this.pendingStarts.values());
     const entries = [...this.runtimes.entries()];
     for (const [key, runtime] of entries) this.forget(key, runtime);
-    await Promise.allSettled(entries.map(async ([, runtime]) => {
-      await runtime.shutdown();
-      await this.dispatchDrains.get(runtime)?.();
-    }));
+    await Promise.allSettled(
+      entries.map(async ([, runtime]) => {
+        await runtime.shutdown();
+        await this.dispatchDrains.get(runtime)?.();
+      }),
+    );
     await Promise.allSettled([...this.retirements.keys()].map((key) => this.stop(key)));
     await Promise.allSettled([...this.dispatchDrains.values()].map((drain) => drain()));
   }
 
-  get processCount(): number { return this.runtimes.size; }
+  get processCount(): number {
+    return this.runtimes.size;
+  }
 
-  hasActiveTasks(runtime: AgentCoreRuntimeClient): boolean { return workspaceRuntimes.get(runtime)?.hasActiveTasks() ?? false; }
+  hasActiveTasks(runtime: AgentCoreRuntimeClient): boolean {
+    return workspaceRuntimes.get(runtime)?.hasActiveTasks() ?? false;
+  }
 
-  private async startOnce(key: string, options: AgentRuntimeStartOptions, ownerKey: string): Promise<AgentCoreRuntimeClient> {
+  private async startOnce(
+    key: string,
+    options: AgentRuntimeStartOptions,
+    ownerKey: string,
+  ): Promise<AgentCoreRuntimeClient> {
     // Typed so the caller can tell a definite pre-dispatch rejection from an
     // ambiguous transport failure. The two need opposite retry treatment.
-    if (capacity.size >= workerLimit()) throw new AgentRuntimeCapacityError("Agent worker capacity limit reached");
-    const slot = Symbol(key); capacity.add(slot);
-    const requestedOwner = options.sessionId ? sessionKey(options.cwd, options.sessionId) : undefined;
+    if (capacity.size >= workerLimit())
+      throw new AgentRuntimeCapacityError("Agent worker capacity limit reached");
+    const slot = Symbol(key);
+    capacity.add(slot);
+    const requestedOwner = options.sessionId
+      ? sessionKey(options.cwd, options.sessionId)
+      : undefined;
     if (requestedOwner && processOwners.has(requestedOwner)) {
       capacity.delete(slot);
       throw new Error("Agent session is already owned by another manager");
     }
     if (requestedOwner) processOwners.set(requestedOwner, slot);
     let runtime: AgentCoreRuntimeClient;
-    try { runtime = await AgentCoreRuntimeClient.start({
-      ...options,
-      executionDatabasePath: this.executionDatabasePath ? resolve(this.executionDatabasePath) : undefined,
-      deferActivation: true,
-    }); }
-    catch (error) { capacity.delete(slot); if (requestedOwner) processOwners.delete(requestedOwner); throw error; }
+    try {
+      runtime = await AgentCoreRuntimeClient.start({
+        ...options,
+        executionDatabasePath: this.executionDatabasePath
+          ? resolve(this.executionDatabasePath)
+          : undefined,
+        deferActivation: true,
+      });
+    } catch (error) {
+      capacity.delete(slot);
+      if (requestedOwner) processOwners.delete(requestedOwner);
+      throw error;
+    }
     const release = () => {
       capacity.delete(slot);
-      for (const [identity, owner] of processOwners) if (owner === slot) processOwners.delete(identity);
+      for (const [identity, owner] of processOwners)
+        if (owner === slot) processOwners.delete(identity);
     };
     runtime.once("exit", release);
     const dispatchDrain = bindSubagentDispatch(this, runtime, options);
     let drained: Promise<void> | undefined;
-    const drain = () => drained ??= (async () => { await dispatchDrain(); await this.onWorkerExit?.(options.cwd, runtime.sessionId); })().catch((error) => { drained = undefined; throw error; });
+    const drain = () =>
+      (drained ??= (async () => {
+        await dispatchDrain();
+        await this.onWorkerExit?.(options.cwd, runtime.sessionId);
+      })().catch((error) => {
+        drained = undefined;
+        throw error;
+      }));
     this.dispatchDrains.set(runtime, drain);
     runtime.once("exit", () => {
-      const done = () => { this.dispatchDrains.delete(runtime); workspaceRuntimes.delete(runtime); };
+      const done = () => {
+        this.dispatchDrains.delete(runtime);
+        workspaceRuntimes.delete(runtime);
+      };
       void drain().then(done, done);
     });
     const canonical = sessionKey(options.cwd, runtime.sessionId);
@@ -177,7 +248,12 @@ export class AgentRuntimeManager {
       throw new Error(`session ${runtime.sessionId} is already owned by another worker`);
     }
     this.runtimes.set(key, runtime);
-    workspaceRuntimes.set(runtime, { manager: this, key, hasActiveTasks: () => dispatchDrain.isBusy() || runtime.isClosed && this.dispatchDrains.has(runtime) });
+    workspaceRuntimes.set(runtime, {
+      manager: this,
+      key,
+      hasActiveTasks: () =>
+        dispatchDrain.isBusy() || (runtime.isClosed && this.dispatchDrains.has(runtime)),
+    });
     this.owners.set(ownerKey, key);
     this.owners.set(canonical, key);
     runtime.once("exit", () => this.forget(key, runtime));
@@ -187,7 +263,10 @@ export class AgentRuntimeManager {
       try {
         const activated = await runtime.sendCommand("activate");
         if (!activated.success) throw new Error(activated.error ?? "Unable to activate worker");
-      } catch (error) { await this.stop(key); throw error; }
+      } catch (error) {
+        await this.stop(key);
+        throw error;
+      }
     }
     return runtime;
   }
@@ -218,7 +297,14 @@ export class AgentRuntimeManager {
       const state = await runtime.sendCommand("get_state");
       const data = state.data;
       const queued = Array.isArray(data?.queues) && data?.queues.length > 0;
-      if (!state.success || !data || data.busy || queued || data?.pendingInteraction || workspaceRuntimes.get(runtime)?.hasActiveTasks()) {
+      if (
+        !state.success ||
+        !data ||
+        data.busy ||
+        queued ||
+        data?.pendingInteraction ||
+        workspaceRuntimes.get(runtime)?.hasActiveTasks()
+      ) {
         this.scheduleIdleCheck(key, runtime);
         return;
       }

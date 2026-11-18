@@ -212,7 +212,9 @@ export class SessionRuntime {
       throw new Error("agent sessions root must be workspace-local");
     const models = agentModels(options.settings);
     const environment = toolEnvironment(options.env ?? {});
-    const executions = executionStore ? new ExecutionRepository(executionStore) : executionRepository;
+    const executions = executionStore
+      ? new ExecutionRepository(executionStore)
+      : executionRepository;
     const executionEnv = new NodeExecutionEnv({ cwd: options.cwd, shellEnv: environment });
     const repo = new JsonlSessionRepo({ fileSystem: executionEnv, sessionsRoot: requiredRoot });
     const interactions = new InteractionBridge(emit, acquireApproval);
@@ -438,10 +440,12 @@ export class SessionRuntime {
               ),
               sandboxIdentity,
             ),
-            budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories, async () => {
-              await executionStore?.start();
-              return executions;
-            })),
+            budgets.wrap(
+              sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories, async () => {
+                await executionStore?.start();
+                return executions;
+              }),
+            ),
             workspaceFileTool(
               createEditTool(),
               options.cwd,

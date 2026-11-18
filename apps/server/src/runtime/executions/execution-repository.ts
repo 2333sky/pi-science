@@ -119,7 +119,7 @@ export class ExecutionRepository {
     const before = await fileSignature(path);
     const cached = this.snapshots.get(path);
     if (cached && cached.signature === before) return cached;
-    const events = await this.readLegacyEvents(cwd);
+    const events = await this.events(cwd);
     const records = new Map(
       reduceExecutionEvents(events).map((record) => [record.execution_id, record]),
     );
@@ -184,7 +184,7 @@ export class ExecutionRepository {
         [source],
       );
       if (imported?.source_fingerprint === signature) continue;
-      const reduced = [...(await this.snapshot(cwd)).records.values()];
+      const reduced = reduceExecutionEvents(await this.readLegacyEvents(cwd));
       const results = await this.store.batch([
         ...reduced.map(executionRecordInsert),
         {
