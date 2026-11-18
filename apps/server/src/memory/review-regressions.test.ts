@@ -1,7 +1,7 @@
 import { SessionRepository } from "../runtime/node/session-repository.js";
 import { ExecutionRepository } from "../runtime/executions/execution-repository.js";
 import { afterEach, beforeEach, it, expect, vi } from "vitest";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { SqliteStateStore } from "../storage/sqlite/state-store.js";
@@ -265,6 +265,76 @@ it("bounds Agent search previews while keeping full read and human pagination", 
   );
   expect((await call("browse")).total).toBe(30);
 });
+it("keeps the task recall slot when higher-ranked Profile records are present", async () => {
+  await configure((settings) => {
+    settings.recall.maxItemsPerTurn = 1;
+  });
+  const task = (await call("write", { content: content() })).record;
+  const profile = (
+    await call("write", {
+      content: { ...content(), scope: "profile", title: "Reply style", body: "Use concise replies" },
+    })
+  ).record;
+  const profileOnly = await call("recall", { q: "reply style use concise replies", scope: "profile" });
+  expect(profileOnly.records.map((record: { id: string }) => record.id)).toEqual([profile.id]);
+  const result = await call("recall", { q: "reply style use concise replies" });
+  expect(result.records.map((record: { id: string }) => record.id)).toEqual([profile.id, task.id]);
+});
+
+it("skips unavailable message evidence for this recall and recovers on the next", async () => {
+  const findPath = vi.spyOn(memory.sessions, "findPath").mockResolvedValue("transcript");
+  const messages = vi.spyOn(memory.sessions, "messages").mockResolvedValue([
+    { id: "message", role: "user", content: [] },
+  ]);
+  const validated = await memory.validateContent(root, ctx, {
+    ...content(),
+    sources: [{ kind: "message", locator: "session@message" }],
+  });
+  const record = (await call("write", { content: validated })).record;
+  expect(record.status).toBe("active");
+
+  findPath.mockRejectedValueOnce(Object.assign(new Error("transient I/O error"), { code: "EIO" }));
+  expect((await memory.recall(root, ctx, { q: "concise" })).records).toEqual([]);
+  // Transcript readers can also return an empty result when their read fails.
+  messages.mockResolvedValueOnce([]);
+  expect((await memory.recall(root, ctx, { q: "concise" })).records).toEqual([]);
+  expect((await call("read", { id: record.id })).record).toMatchObject({
+    status: "active",
+    revision: record.revision,
+    contentHash: record.contentHash,
+  });
+  expect((await memory.recall(root, ctx, { q: "concise" })).records.map((row) => row.id)).toEqual([
+    record.id,
+  ]);
+});
+
+it("distinguishes a partially written Artifact catalog from a confirmed evidence change", async () => {
+  const path = join(root, ".pi-science", "artifacts.jsonl");
+  const artifact = { artifact_id: "artifact", version: 1, sha256: "a".repeat(64) };
+  await writeFile(path, JSON.stringify(artifact));
+  const validated = await memory.validateContent(root, ctx, {
+    ...content(),
+    sources: [{ kind: "artifact", locator: artifact.artifact_id, version: "1" }],
+  });
+  const record = (await call("write", { content: validated })).record;
+  expect(record.status).toBe("active");
+
+  await writeFile(path, '{"artifact_id":');
+  expect((await memory.recall(root, ctx, { q: "concise" })).records).toEqual([]);
+  expect((await call("read", { id: record.id })).record.status).toBe("active");
+
+  await writeFile(path, JSON.stringify(artifact));
+  expect((await memory.recall(root, ctx, { q: "concise" })).records.map((row) => row.id)).toEqual([
+    record.id,
+  ]);
+  await writeFile(path, JSON.stringify({ ...artifact, sha256: "b".repeat(64) }));
+  expect((await memory.recall(root, ctx, { q: "concise" })).records).toEqual([]);
+  expect((await call("read", { id: record.id })).record).toMatchObject({
+    status: "needs_review",
+    reviewStatus: "stale",
+  });
+});
+
 it("pins accepted memory sources and invalidates transitive dependents on change", async () => {
   const original = (
     await call("write", {

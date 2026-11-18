@@ -75,9 +75,10 @@ content revision and hash. Validation traverses a bounded, cycle-checked evidenc
 chain; upstream edits, archive/rejection or deletion invalidate active dependents
 transitively. Approval rechecks these pins atomically; old unpinned references
 require a new revision rather than silently binding to current evidence.
-File/Artifact digests are checked again on approval and automatic recall; changed
-or missing evidence removes the record from automatic recall and flags it for
-review. Literature can be cited through a local file or published Artifact;
+File and Artifact digests are checked again on approval and automatic recall.
+A confirmed evidence change or deletion flags the record for review. If evidence
+cannot be verified during recall, the record is skipped for that generation and
+can be recalled again once verification succeeds. Literature can be cited through a local file or published Artifact;
 remote citation strings are not silently treated as verified evidence.
 
 ## Scope and recall
@@ -97,8 +98,9 @@ trigger a new Agent generation; tools can explicitly search/read Artifact memory
 Chinese character unigrams/bigrams and preserved ASCII/code identifiers feed
 FTS5/BM25 and Jaccard ranking, combined with reciprocal-rank fusion. Owner,
 project, status, category and Artifact constraints restrict eligible candidates;
-hidden records cannot consume result slots. Defaults cap task recall at six,
-Profile at twelve/approximately 1,600 tokens, and total context at approximately
+hidden records cannot consume result slots. Profile records are selected separately
+from task results. Defaults cap task recall at six, Profile at twelve/approximately
+1,600 tokens, and total context at approximately
 2,500 tokens. The token bound uses a conservative character estimate. Recall is
 ephemeral lower-priority reference data, inserted before the actual conversation
 through the Harness context transform. Raw memory never enters the system prompt

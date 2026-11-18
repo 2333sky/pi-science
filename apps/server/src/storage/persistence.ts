@@ -202,16 +202,24 @@ async function lockOwnerIsAlive(lockPath: string): Promise<boolean> {
   try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code === "EPERM"; }
 }
 
-export async function readJsonLines<T>(path: string): Promise<T[]> {
+export async function readJsonLines<T>(
+  path: string,
+  { strict = false }: { strict?: boolean } = {},
+): Promise<T[]> {
   try {
     const text = await readFile(path, "utf8");
     const result: T[] = [];
     for (const line of text.split(/\r?\n/)) {
       if (!line.trim()) continue;
-      try { result.push(JSON.parse(line) as T); } catch { /* tolerate a torn tail */ }
+      try { result.push(JSON.parse(line) as T); }
+      catch (error) {
+        if (strict) throw error;
+        // Tolerate a torn tail for readers that accept partial results.
+      }
     }
     return result;
-  } catch {
+  } catch (error) {
+    if (strict) throw error;
     return [];
   }
 }
