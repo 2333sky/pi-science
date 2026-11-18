@@ -17,6 +17,8 @@ import {
   workerEventSchema,
   type AgentRuntimeStartOptions,
   type WorkerCommand,
+  type EnvironmentOperation,
+  type EnvironmentBinding,
 } from "./worker/protocol.js";
 import { devWorkerEntry } from "./worker/dev-build.js";
 import {
@@ -29,6 +31,12 @@ import {
   type CommandParams,
   type CommandResult,
 } from "./worker/command-contract.js";
+
+export type HandleEnvironmentOperation = (
+  cwd: string,
+  operation: EnvironmentOperation,
+  signal: AbortSignal,
+) => Promise<EnvironmentBinding | null>;
 
 type Pending = {
   command: string;
@@ -171,6 +179,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
   private closed = false;
   private currentSessionId = "";
   private stderrTail = "";
+  private readonly environmentRequests = new Map<string, AbortController>();
   private readonly approvalLeases = new Map<
     string,
     { controller: AbortController; release?: () => void }
@@ -181,6 +190,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
     readonly child: ChildProcess,
     readonly cwd: string,
     timeoutMs: number,
+    private readonly handleEnvironment?: HandleEnvironmentOperation,
   ) {
     super();
     this.timeoutMs = timeoutMs;
@@ -197,6 +207,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
   static async start(
     options: AgentRuntimeStartOptions,
     timeoutMs = DEFAULT_TIMEOUT_MS,
+    handleEnvironment?: HandleEnvironmentOperation,
   ): Promise<AgentCoreRuntimeClient> {
     // Bind all Worker callers (sessions, titles, research and subagents) at one
     // trusted boundary. Parent tasks may retain their already validated revision.
@@ -212,8 +223,17 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
       if (isAllowedModelEnvRef(name) && process.env[name] !== undefined)
         modelEnvironment[name] = process.env[name]!;
     }
+    const workspaceOwner =
+      (!options.executionScope || options.executionScope === "workspace") &&
+      !options.executionGrantId &&
+      !options.sandboxCandidateId &&
+      !options.delegatedAgent &&
+      !options.parentSessionId &&
+      !options.budgetNodeId;
+    const environmentOperations = workspaceOwner ? handleEnvironment : undefined;
     const launch = {
       ...options,
+      environmentOperations: !!environmentOperations,
       executionDatabasePath: options.executionDatabasePath ?? configPath("state.sqlite"),
       settings: {
         ...options.settings,
@@ -236,7 +256,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
       execArgv: entry.execArgv,
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
-    const client = new AgentCoreRuntimeClient(child, options.cwd, timeoutMs);
+    const client = new AgentCoreRuntimeClient(child, options.cwd, timeoutMs, environmentOperations);
     try {
       const result = await client.request(
         { type: "initialize", options: { ...launch, env: env as Record<string, string> } },
@@ -376,6 +396,38 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
       return;
     }
     const value = decoded.data;
+    if (value.type === "environment_cancel") {
+      this.environmentRequests.get(value.id)?.abort();
+      return;
+    }
+    if (value.type === "environment_request") {
+      if (this.closed || this.environmentRequests.has(value.id)) return;
+      const controller = new AbortController();
+      this.environmentRequests.set(value.id, controller);
+      void (async () => {
+        try {
+          if (!this.handleEnvironment || !this.currentSessionId)
+            throw new Error("Workspace environment operations are unavailable for this session");
+          const binding = await this.handleEnvironment(
+            this.cwd,
+            value.operation,
+            controller.signal,
+          );
+          await this.send({ type: "environment_result", id: value.id, result: { binding } });
+        } catch (error) {
+          if (!this.closed && !controller.signal.aborted) {
+            await this.send({
+              type: "environment_result",
+              id: value.id,
+              result: { error: String(error) },
+            }).catch(() => undefined);
+          }
+        } finally {
+          this.environmentRequests.delete(value.id);
+        }
+      })();
+      return;
+    }
     if (value.type === "approval_acquire") {
       if (this.approvalLeases.has(value.id) || this.closed) return;
       const lease: { controller: AbortController; release?: () => void } = {
@@ -420,6 +472,8 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
   private handleExit(code: number | null, signal: NodeJS.Signals | null, cause?: Error): void {
     if (this.closed) return;
     this.closed = true;
+    for (const controller of this.environmentRequests.values()) controller.abort();
+    this.environmentRequests.clear();
     for (const id of this.approvalLeases.keys()) this.releaseApproval(id);
     const error = new AgentRuntimeExitedError(
       cause?.message ??

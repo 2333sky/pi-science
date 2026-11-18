@@ -22,7 +22,7 @@ import { openHiddenTask, runHiddenPrompt } from "./hidden-agent-task.js";
 import { AgentCoreSessionService } from "./agent-core-session-service.js";
 import { AgentSessionRegistry } from "./agent-session-registry.js";
 import { ConversationEventHub } from "../events/conversation-event-hub.js";
-import { readFile } from "node:fs/promises";
+import { readFile, realpath } from "node:fs/promises";
 
 const cleanup: Array<() => Promise<unknown>> = [];
 beforeEach(() => vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host"));
@@ -2009,3 +2009,88 @@ it("keeps an idle parent and its workspace active while a background child is ru
     vi.stubEnv("PI_SCIENCE_IDLE_RUNTIME_MS", "0");
   }
 }, 45_000);
+
+it("approves an exact pip request over Worker IPC and refreshes the next Bash invocation", async () => {
+  const results: string[] = [];
+  const fixture = await modelFixture((body) => {
+    const tools = body.messages.filter((message) => message.role === "tool");
+    if (!tools.length)
+      return {
+        name: "bash",
+        args: { command: "python -m pip install SymPy", description: "Install SymPy" },
+      };
+    if (tools.length === 1) {
+      results.push(tools[0]!.content);
+      const command =
+        process.platform === "win32"
+          ? 'echo "Python from $PI_SCIENCE_ENVIRONMENT_REVISION_ID"'
+          : "python --version";
+      return { name: "bash", args: { command, description: "Verify Python" } };
+    }
+    results.push(tools[1]!.content);
+    return "The workspace uses the updated Python.";
+  });
+  const workspace = await realpath(fixture.cwd);
+  const old = {
+    revisionId: "rev_base",
+    environmentId: "env_python",
+    prefix: join(fixture.cwd, "runtime-a"),
+  };
+  const next = { ...old, revisionId: "rev_next", prefix: join(fixture.cwd, "runtime-b") };
+  await mkdir(join(next.prefix, "bin"), { recursive: true });
+  await writeFile(
+    join(next.prefix, "bin", "python"),
+    "#!/bin/sh\nprintf 'Python from %s\\n' \"$PI_SCIENCE_ENVIRONMENT_REVISION_ID\"\n",
+    { mode: 0o755 },
+  );
+  let binding = old;
+  const handler = vi.fn(async (cwd, operation) => {
+    expect(await realpath(cwd)).toBe(workspace);
+    if (operation.action === "install") {
+      expect(operation).toEqual({
+        action: "install",
+        packages: ["sympy"],
+        expectedRevisionId: "rev_base",
+      });
+      binding = next;
+    }
+    return binding;
+  });
+  const manager = new AgentRuntimeManager(undefined, undefined, handler);
+  cleanup.push(() => manager.shutdownAll());
+  const { metadataRoot } = await import("../../storage/persistence.js");
+  const runtime = await manager.start("pip-parent", {
+    cwd: workspace,
+    sessionsRoot: join(metadataRoot(workspace), "agent-sessions"),
+    model: fixture.model,
+    thinking: "off",
+    allowedTools: ["bash"],
+    skillPolicy: { mode: "none" },
+  });
+  let approval: Promise<void> | undefined;
+  expect(
+    await runHiddenPrompt(
+      runtime,
+      "Install SymPy and confirm Python changed",
+      "pip-primary",
+      Date.now() + 35_000,
+      (event) => {
+        if (event.type !== "interaction.requested") return;
+        expect(event).toMatchObject({
+          kind: "permission",
+          method: "confirm",
+          message: expect.stringContaining("Packages: sympy"),
+        });
+        expect(binding).toBe(old);
+        approval = runtime.sendNotification("extension_ui_response", {
+          id: event.id,
+          confirmed: true,
+        });
+      },
+    ),
+  ).toBe("The workspace uses the updated Python.");
+  await approval;
+  expect(results[0]).toContain('"environment_revision_id":"rev_next"');
+  expect(results[1]).toContain("Python from rev_next");
+  expect(handler.mock.calls.filter(([, op]) => op.action === "install")).toHaveLength(1);
+}, 50_000);

@@ -3,12 +3,14 @@ import { SqliteStateStore } from "../../../storage/sqlite/state-store.js";
 import type { RuntimeResult } from "../agent-runtime-types.js";
 import { workerRequestSchema, type WorkerEvent } from "./protocol.js";
 import { SessionRuntime } from "./session-runtime.js";
+import { EnvironmentBridge } from "./environment-bridge.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 
 let runtime: SessionRuntime | undefined;
 let executionStore: SqliteStateStore | undefined;
 let shuttingDown = false;
 const approvals = new ApprovalBridge(send);
+const environments = new EnvironmentBridge(send);
 
 function send(message: WorkerEvent): void {
   if (process.connected) process.send?.(message);
@@ -37,6 +39,10 @@ async function handle(input: unknown): Promise<void> {
     return;
   }
   const message = decoded.data;
+  if (message.type === "environment_result") {
+    environments.receive(message);
+    return;
+  }
   if (message.type === "approval_granted") {
     approvals.grant(message.id);
     return;
@@ -60,6 +66,7 @@ async function handle(input: unknown): Promise<void> {
         },
         approvals.acquire,
         executionStore,
+        message.options.environmentOperations ? environments.request : undefined,
       );
       send({ type: "ready", sessionId: runtime.sessionId });
       send({

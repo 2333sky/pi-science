@@ -70,6 +70,7 @@ import { citeEvidenceTool, readSourceEvidenceTool } from "./citation-evidence-to
 import { todoHarnessTool } from "./todo-tool.js";
 import { SubagentBridge, subagentHarnessTool, subagentControlTool } from "./subagent-tool.js";
 import { InteractionBridge } from "./interaction-bridge.js";
+import type { RequestEnvironment } from "./environment-bridge.js";
 import type { AcquireApproval } from "../approval-queue.js";
 import { questionnaireHarnessTool } from "./questionnaire-tool.js";
 import { webTools } from "../../../web/tools.js";
@@ -199,6 +200,7 @@ export class SessionRuntime {
     fatal: (error: unknown) => void,
     acquireApproval?: AcquireApproval,
     executionStore?: SqliteStateStore,
+    requestEnvironment?: RequestEnvironment,
   ): Promise<SessionRuntime> {
     if (options.initialApproval) initialSessionApprovalSchema.parse(options.initialApproval);
     const runtimeEpoch = randomUUID();
@@ -441,10 +443,21 @@ export class SessionRuntime {
               sandboxIdentity,
             ),
             budgets.wrap(
-              sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories, async () => {
-                await executionStore?.start();
-                return executions;
-              }),
+              sandboxBashTool(
+                sandboxIdentity,
+                environment,
+                currentSkillDirectories,
+                async () => {
+                  await executionStore?.start();
+                  return executions;
+                },
+                requestEnvironment
+                  ? {
+                      request: requestEnvironment,
+                      confirm: interactions.confirmPermission.bind(interactions),
+                    }
+                  : undefined,
+              ),
             ),
             workspaceFileTool(
               createEditTool(),

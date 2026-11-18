@@ -65,7 +65,7 @@ function runningJob(cwd: string): JobRecord {
 describe("SQLite state store", () => {
   it("starts the worker, applies migrations, and rolls back a failed batch", async () => {
     const state = await store();
-    expect(state.diagnostics()).toMatchObject({ status: "ready", schema_version: 9 });
+    expect(state.diagnostics()).toMatchObject({ status: "ready", schema_version: 10 });
 
     await expect(
       state.batch([
@@ -103,7 +103,7 @@ describe("SQLite state store", () => {
 
       reopened = new SqliteStateStore({ path });
       await expect(reopened.start()).resolves.toBeUndefined();
-      expect(reopened.diagnostics().schema_version).toBe(9);
+      expect(reopened.diagnostics().schema_version).toBe(10);
     } finally {
       await reopened?.close();
       await initial.close();

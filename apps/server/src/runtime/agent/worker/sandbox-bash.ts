@@ -1,3 +1,4 @@
+import { delimiter, join } from "node:path";
 import { createHash } from "node:crypto";
 import { withTaskDescription } from "./task-description.js";
 import {
@@ -25,6 +26,14 @@ import { ToolProgressCollector } from "./progress/collector.js";
 import { DEFAULT_PROGRESS_ADAPTERS } from "./progress/registry.js";
 import { readToolProgressStream } from "./tool-progress-stream.js";
 
+import type { RequestEnvironment } from "./environment-bridge.js";
+import type { InteractionBridge } from "./interaction-bridge.js";
+import { parsePythonInstallCommand } from "./python-install-command.js";
+
+type EnvironmentOperations = {
+  request: RequestEnvironment;
+  confirm: InteractionBridge["confirmPermission"];
+};
 type Tool = AgentHarnessTool<{ env: NodeExecutionEnv }>;
 /** Require a display description and run upstream Bash with the selected OS backend. */
 export function sandboxBashTool(
@@ -32,12 +41,13 @@ export function sandboxBashTool(
   hostEnvironment: Record<string, string> = toolEnvironment(process.env),
   skillDirectories: () => Promise<string[]> = async () => [],
   getExecutions: () => Promise<ExecutionRepository> = async () => executionRepository,
+  environments?: EnvironmentOperations,
 ): Tool {
   const original = createBashTool();
   return {
     ...original,
     parameters: withTaskDescription(original.parameters),
-    description: `Use for running programs, scripts, tests, builds, scientific computations and operations that require a shell. When available, prefer the dedicated ls tool for directory browsing, glob for finding files by name, grep for searching file contents, and read for inspecting a known file. Keep routine file inspection in those tools rather than combining ls/find/rg/grep/cat into a Bash command for convenience. Use Bash when the task requires program execution or shell processing beyond those tools' supported operations. A dedicated tool's access_denied result is not a reason to retry the same access through Bash.\n${original.description}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts. Progress is read automatically from tqdm bars, \`pv --format '%b/%s '\`, \`rsync --info=progress2\` and \`dd status=progress\`. Any other program can report its own count by writing a complete line starting with <<pi-progress>> followed by a space and a JSON object such as {"version":1,"scopeId":"process-files:1","scopeLabel":"Processing files","current":72,"total":100,"unit":"files","totalKind":"fixed"}. Ready-made helpers for Python, R and shell live in the repository's demos/tool-progress directory.`,
+    description: `Use for running programs, scripts, tests, builds, scientific computations and operations that require a shell. When available, prefer the dedicated ls tool for directory browsing, glob for finding files by name, grep for searching file contents, and read for inspecting a known file. Keep routine file inspection in those tools rather than combining ls/find/rg/grep/cat into a Bash command for convenience. Use Bash when the task requires program execution or shell processing beyond those tools' supported operations. A dedicated tool's access_denied result is not a reason to retry the same access through Bash.\n${original.description}${environments ? "\nFor Python dependencies, use a separate python -m pip install <package> call to request confirmation for a workspace environment change. Quote package specs containing extras or comparison operators." : ""}\nSandbox paths: use "$TMPDIR" or Python tempfile for temporary files within this call; they are removed afterwards. For cross-call intermediates use a normal workspace directory such as data/work/. Do not hard-code /tmp or hidden .tmp/. Skill resource directories, when granted, are read-only; place helper outputs in the workspace or "$TMPDIR". HTTP downloads must check failure status and use timeouts. Progress is read automatically from tqdm bars, \`pv --format '%b/%s '\`, \`rsync --info=progress2\` and \`dd status=progress\`. Any other program can report its own count by writing a complete line starting with <<pi-progress>> followed by a space and a JSON object such as {"version":1,"scopeId":"process-files:1","scopeLabel":"Processing files","current":72,"total":100,"unit":"files","totalKind":"fixed"}. Ready-made helpers for Python, R and shell live in the repository's demos/tool-progress directory.`,
     async execute(id, params, update, ctx, invocation, context) {
       const confined =
         !!identity.executionGrantId ||
@@ -48,7 +58,29 @@ export function sandboxBashTool(
         throw new Error(
           "Candidate execution requires a server-bound candidate or generic execution grant",
         );
-      const revision = hostEnvironment.PI_SCIENCE_ENVIRONMENT_REVISION_ID;
+      const values = params as { command: string; timeout?: number };
+      const timeout = values.timeout ?? 600;
+      if (!Number.isFinite(timeout) || timeout <= 0)
+        throw new Error("Invalid timeout: must be a finite number of seconds");
+      const operations = !confined && !identity.delegatedAgent ? environments : undefined;
+      const packages = operations ? parsePythonInstallCommand(values.command) : null;
+      const current = await operations?.request({ action: "binding" }, context.abortSignal);
+      const environment = { ...hostEnvironment };
+      if (current) {
+        const previousPrefix = environment.PI_SCIENCE_ENVIRONMENT_PREFIX;
+        const previousBin = previousPrefix ? join(previousPrefix, "bin") : undefined;
+        environment.PATH = [
+          join(current.prefix, "bin"),
+          ...(environment.PATH ?? "")
+            .split(delimiter)
+            .filter((entry) => entry && entry !== previousBin),
+        ].join(delimiter);
+        environment.CONDA_PREFIX = current.prefix;
+        environment.PI_SCIENCE_ENVIRONMENT_PREFIX = current.prefix;
+        environment.PI_SCIENCE_ENVIRONMENT_REVISION_ID = current.revisionId;
+        environment.PI_SCIENCE_ENVIRONMENT_ID = current.environmentId;
+      }
+      const revision = environment.PI_SCIENCE_ENVIRONMENT_REVISION_ID;
       const policy = confined
         ? await executionGrantPolicy(identity, revision, "bash")
         : await skillResourcePolicy(
@@ -61,10 +93,9 @@ export function sandboxBashTool(
             await skillDirectories(),
           );
       const binding = confined ? { directory: policy.cwd } : undefined;
-      const values = params as { command: string; timeout?: number };
-      const timeout = values.timeout ?? 600;
-      if (!Number.isFinite(timeout) || timeout <= 0)
-        throw new Error("Invalid timeout: must be a finite number of seconds");
+      const evidencePolicy = packages
+        ? { admission_policy_id: policy.id }
+        : { sandbox_policy_id: policy.id };
       const run = async () => {
         context.abortSignal?.throwIfAborted();
         if (binding) await executionGrantPolicy(identity, revision, "bash");
@@ -77,6 +108,7 @@ export function sandboxBashTool(
         let prepared: PreparedSandbox | undefined;
         let env: NodeExecutionEnv | undefined;
         let started = false;
+        let installationTimeout: AbortSignal | undefined;
         let outcome: { exitCode?: number | null; errorCode?: string } = {};
         let before: Awaited<ReturnType<typeof snapshotSandboxOutputs>> | undefined;
         const outputs = async () => {
@@ -130,22 +162,66 @@ export function sandboxBashTool(
               ...(identity.candidateId ? { candidate_id: identity.candidateId } : {}),
             },
             request: {
+              ...(packages ? { operation: "environment_install", source: "pypi", packages } : {}),
               ...(policy.executionGrant ? { execution_grant_id: policy.executionGrant.id } : {}),
               command: ["/bin/bash", "-c", values.command],
               timeout_seconds: Math.min(timeout, 600),
             },
             runtime: {
-              sandbox: policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host",
-              sandbox_policy_id: policy.id,
-              execution_mode: policy.mode,
+              sandbox: packages || policy.mode === "required" ? SANDBOX_RUNTIME : "trusted-host",
+              ...evidencePolicy,
+              execution_mode: packages ? "required" : policy.mode,
               ...(revision ? { environment_revision_id: revision } : {}),
             },
           });
           started = true;
+          if (packages && operations) {
+            if (!current)
+              throw new Error("Bind a managed Python environment before installing packages");
+            update({ content: [], details: { approval: "waiting" } });
+            const approved = await operations.confirm(
+              "Install Python packages",
+              `Workspace: ${identity.cwd}\nSource: PyPI\nPackages: ${packages.join(", ")}\nCurrent revision: ${current.revisionId}\nThe next Notebook call will restart any open kernel if the revision changes.`,
+              context.abortSignal,
+              id,
+            );
+            update({ content: [], details: { approval: "resolved" } });
+            context.abortSignal?.throwIfAborted();
+            if (!approved) throw new Error("Python package installation was declined");
+            installationTimeout = AbortSignal.timeout(Math.ceil(Math.min(timeout, 600) * 1000));
+            const signal = context.abortSignal
+              ? AbortSignal.any([installationTimeout, context.abortSignal])
+              : installationTimeout;
+            const installed = await operations.request(
+              { action: "install", packages, expectedRevisionId: current.revisionId },
+              signal,
+            );
+            if (!installed)
+              throw new Error("Installation did not return a workspace environment binding");
+            const details = {
+              execution_id: executionId,
+              packages,
+              previous_revision_id: current.revisionId,
+              environment_revision_id: installed.revisionId,
+            };
+            await executions.finish(identity.cwd, executionId, {
+              status: "succeeded",
+              producer: "bash",
+              result: { ...details, ...evidencePolicy },
+            });
+            const message =
+              installed.revisionId === current.revisionId
+                ? "The requested Python packages are already installed."
+                : "Python packages installed. Subsequent Bash and Notebook calls use the new revision. Open Notebook kernels restart on their next call and clear in-memory state.";
+            return {
+              content: [{ type: "text" as const, text: `${message}\n${JSON.stringify(details)}` }],
+              details,
+            };
+          }
           const dependencies = [
             ...new Set([
-              ...(hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX
-                ? [hostEnvironment.PI_SCIENCE_ENVIRONMENT_PREFIX]
+              ...(environment.PI_SCIENCE_ENVIRONMENT_PREFIX
+                ? [environment.PI_SCIENCE_ENVIRONMENT_PREFIX]
                 : []),
               ...bashDependencies(),
             ]),
@@ -159,7 +235,14 @@ export function sandboxBashTool(
                   Math.min(timeout, 600),
                   undefined,
                   undefined,
-                  {},
+                  current
+                    ? {
+                        CONDA_PREFIX: current.prefix,
+                        PI_SCIENCE_ENVIRONMENT_PREFIX: current.prefix,
+                        PI_SCIENCE_ENVIRONMENT_REVISION_ID: current.revisionId,
+                        PI_SCIENCE_ENVIRONMENT_ID: current.environmentId,
+                      }
+                    : {},
                   { cwd: identity.cwd, sessionId: identity.sessionId },
                 )
               : undefined;
@@ -180,7 +263,7 @@ export function sandboxBashTool(
           before = await snapshotSandboxOutputs(identity.cwd, policy);
           const safeOriginal = createBashTool({
             prepare(execution) {
-              execution.env = prepared?.env ?? toolEnvironment(hostEnvironment);
+              execution.env = prepared?.env ?? toolEnvironment(environment);
               execution.inheritEnv = false;
             },
           });
@@ -283,6 +366,7 @@ export function sandboxBashTool(
             error instanceof Error ? error.message : String(error),
           ).text;
           const timedOut =
+            installationTimeout?.aborted ||
             outcome.errorCode === "timeout" ||
             (context.abortSignal?.reason instanceof Error &&
               context.abortSignal.reason.message === "Execution time budget exhausted");
@@ -297,7 +381,7 @@ export function sandboxBashTool(
               producer: "bash",
               result: {
                 error: message,
-                sandbox_policy_id: policy.id,
+                ...evidencePolicy,
                 ...(outcome.exitCode !== undefined ? { exit_code: outcome.exitCode } : {}),
                 ...(outcome.errorCode ? { execution_error_code: outcome.errorCode } : {}),
                 ...(evidence.failures.length ? { artifact_publish_errors: evidence.failures } : {}),

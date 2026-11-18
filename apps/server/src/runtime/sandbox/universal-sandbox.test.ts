@@ -235,7 +235,10 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
       registerKernelExecutionRoutes(
         app,
         { internalToken: "test-secret", upstreamTimeoutMs: 1000 } as ServerConfig,
-        { ensure: async () => options.environment } as unknown as WorkspaceEnvironmentService,
+        {
+          ensure: async () => options.environment,
+          binding: async () => ({ revision_id: options.environment.revision_id }),
+        } as unknown as WorkspaceEnvironmentService,
         manager,
       );
       try {
@@ -244,7 +247,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
           url: `/api/kernels/execute?cwd=${encodeURIComponent(cwd)}`,
           payload: { language: "python", notebook_id: options.notebookId, code: "1+1" },
         });
-        expect(response.statusCode).toBe(200);
+        expect(response.statusCode, response.body).toBe(200);
         expect(response.json()).toMatchObject({ ok: true, result: "2" });
         const execution = await executionRepository.get(cwd, response.json().execution_id);
         expect(execution?.runtime.sandbox_policy_id).toBe(
@@ -532,7 +535,10 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
       registerKernelExecutionRoutes(
         app,
         { internalToken: "test-secret", upstreamTimeoutMs: 1000 } as ServerConfig,
-        { ensure: async () => environment(cwd) } as unknown as WorkspaceEnvironmentService,
+        {
+          ensure: async () => environment(cwd),
+          binding: async () => ({ revision_id: environment(cwd).revision_id }),
+        } as unknown as WorkspaceEnvironmentService,
         manager,
       );
       registerNotebookRoutes(app, {} as NotebookService, "test-secret");
@@ -559,7 +565,7 @@ describe.skipIf(process.env.PI_SCIENCE_SANDBOX_TEST !== "1" || process.platform 
             code: "value=41\nprint(open('../input/value.txt').read())\nopen('result.txt','w').write('output')",
           },
         });
-        expect(allowed.statusCode).toBe(200);
+        expect(allowed.statusCode, allowed.body).toBe(200);
         expect(allowed.json()).toMatchObject({ ok: true, stdout: "approved\n" });
         const execution = await executionRepository.get(cwd, allowed.json().execution_id);
         expect(execution?.runtime).toMatchObject({

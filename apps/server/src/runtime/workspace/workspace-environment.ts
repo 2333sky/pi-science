@@ -1,12 +1,38 @@
 import { spawn, spawnSync } from "node:child_process";
 import { constants, existsSync } from "node:fs";
-import { access, chmod, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { createHash, randomUUID } from "node:crypto";
 import { delimiter, join, resolve, sep } from "node:path";
-import { configPath, metadataRoot, readJson, withFileWriteLock, withWorkspaceWriteLock, writeJsonAtomic } from "../../storage/persistence.js";
+import {
+  configPath,
+  metadataRoot,
+  readJson,
+  withFileWriteLock,
+  withWorkspaceWriteLock,
+  writeJsonAtomic,
+} from "../../storage/persistence.js";
 import type { EnvironmentRepository } from "../../storage/sqlite/repositories/environment-repository.js";
 import { operatorFetch } from "../../network/operator-fetch.js";
 import { runEnvironmentProcess } from "../sandbox/environment-process.js";
+import {
+  installPythonWheels,
+  resolvedPythonPackages,
+  type PythonWheelArtifact,
+} from "../sandbox/python-wheel-install.js";
+import { readCondaExplicit } from "./conda-explicit.js";
+import { normalizePythonPackageSpecs } from "./python-package-spec.js";
 
 export type EnvironmentLanguage = "python" | "r";
 export type EnvironmentStatus = "creating" | "ready" | "failed" | "archived";
@@ -25,11 +51,23 @@ export interface EnvironmentRevision {
   supersedes_revision_id?: string;
   /** Versioned content fingerprints of package metadata; detects out-of-band prefix mutation (e.g. direct pip install). */
   integrity_snapshot?: string[];
+  pip_packages?: string[];
+  resolved_python_packages?: string[];
+  pip_wheels?: PythonWheelArtifact[];
+  build_owner_pid?: number;
   failure?: { stage: string; message: string };
 }
 
-interface EnvironmentRegistry { schema_version: 1; revisions: EnvironmentRevision[] }
-interface ProjectEnvironmentBinding { schema_version: 1; environment_id: string; revision_id: string; bound_at: string }
+interface EnvironmentRegistry {
+  schema_version: 1;
+  revisions: EnvironmentRevision[];
+}
+interface ProjectEnvironmentBinding {
+  schema_version: 1;
+  environment_id: string;
+  revision_id: string;
+  bound_at: string;
+}
 
 export interface WorkspaceEnvironmentStatus {
   ready: boolean;
@@ -42,6 +80,7 @@ export interface WorkspaceEnvironmentStatus {
   revision_id?: string;
   display_name?: string;
   packages?: string[];
+  pip_packages?: string[];
   manager?: "micromamba" | "legacy-venv";
   legacy?: boolean;
   npm: { local_prefix: string; global_prefix: string; cache: string };
@@ -87,14 +126,43 @@ const DEFAULT_ENVIRONMENT_ID = "env_python_standard";
 // New workspaces must be able to run scientific code out of the box, so the
 // default package set equals the python-science preset (shared constant) and
 // the R default mirrors the pre-refactor conda layout that r-irkernel needs.
-const PYTHON_SCIENCE_PACKAGES = ["python=3.12", "pip", "ipykernel", "numpy", "pandas", "scipy", "matplotlib", "seaborn"];
+const PYTHON_SCIENCE_PACKAGES = [
+  "python=3.12",
+  "pip",
+  "ipykernel",
+  "numpy",
+  "pandas",
+  "scipy",
+  "matplotlib",
+  "seaborn",
+];
 export const DEFAULT_PACKAGES = PYTHON_SCIENCE_PACKAGES;
-export const DEFAULT_R_PACKAGES = ["python=3.12", "pip", "ipykernel", "r-base=4.4", "r-irkernel", "r-tidyverse", "r-ggplot2"];
+export const DEFAULT_R_PACKAGES = [
+  "python=3.12",
+  "pip",
+  "ipykernel",
+  "r-base=4.4",
+  "r-irkernel",
+  "r-tidyverse",
+  "r-ggplot2",
+];
 
 export const ENVIRONMENT_PRESETS = {
-  "python-minimal": { name: "Python Minimal", language: "python", packages: ["python=3.12", "pip"] },
-  "python-data": { name: "Python Data", language: "python", packages: ["python=3.12", "pip", "numpy", "pandas", "matplotlib"] },
-  "python-science": { name: "Python Science", language: "python", packages: PYTHON_SCIENCE_PACKAGES },
+  "python-minimal": {
+    name: "Python Minimal",
+    language: "python",
+    packages: ["python=3.12", "pip"],
+  },
+  "python-data": {
+    name: "Python Data",
+    language: "python",
+    packages: ["python=3.12", "pip", "numpy", "pandas", "matplotlib"],
+  },
+  "python-science": {
+    name: "Python Science",
+    language: "python",
+    packages: PYTHON_SCIENCE_PACKAGES,
+  },
   "r-minimal": { name: "R Minimal", language: "r", packages: ["r-base=4.4"] },
 } as const;
 
@@ -121,7 +189,11 @@ export function micromambaDownloadUrl(platform: string): string {
  * Prefer the conventional Scripts location, but keep the prefix-root layout
  * usable for health checks, kernels, jobs, and child-process PATH setup.
  */
-export function environmentPythonExecutable(prefix: string, platform = process.platform, exists: (path: string) => boolean = existsSync): string {
+export function environmentPythonExecutable(
+  prefix: string,
+  platform = process.platform,
+  exists: (path: string) => boolean = existsSync,
+): string {
   if (platform !== "win32") return join(prefix, "bin", "python");
   const scriptsPython = join(prefix, "Scripts", "python.exe");
   return exists(scriptsPython) ? scriptsPython : join(prefix, "python.exe");
@@ -132,21 +204,44 @@ function environmentProvisionTimeoutMs(): number {
   return configured > 0 ? configured : DEFAULT_ENVIRONMENT_PROVISION_TIMEOUT_MS;
 }
 
-function withOperationTimeout<T>(operation: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+function withOperationTimeout<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  label: string,
+): Promise<T> {
   return new Promise<T>((resolveOperation, rejectOperation) => {
-    const timer = setTimeout(() => rejectOperation(Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), { code: "environment_provision_timeout" })), timeoutMs);
+    const timer = setTimeout(
+      () =>
+        rejectOperation(
+          Object.assign(new Error(`${label} timed out after ${timeoutMs}ms`), {
+            code: "environment_provision_timeout",
+          }),
+        ),
+      timeoutMs,
+    );
     operation.then(resolveOperation, rejectOperation).finally(() => clearTimeout(timer));
   });
 }
 
 function environmentPaths(prefix: string, platform = process.platform) {
   const bin = platform === "win32" ? join(prefix, "Scripts") : join(prefix, "bin");
-  return { virtualEnv: prefix, bin, python: environmentPythonExecutable(prefix, platform), pip: join(bin, platform === "win32" ? "pip.exe" : "pip") };
+  return {
+    virtualEnv: prefix,
+    bin,
+    python: environmentPythonExecutable(prefix, platform),
+    pip: join(bin, platform === "win32" ? "pip.exe" : "pip"),
+  };
 }
 
-function environmentExecutable(prefix: string, language: EnvironmentLanguage, platform = process.platform): string {
+function environmentExecutable(
+  prefix: string,
+  language: EnvironmentLanguage,
+  platform = process.platform,
+): string {
   const paths = environmentPaths(prefix, platform);
-  return language === "r" ? join(paths.bin, platform === "win32" ? "Rscript.exe" : "Rscript") : paths.python;
+  return language === "r"
+    ? join(paths.bin, platform === "win32" ? "Rscript.exe" : "Rscript")
+    : paths.python;
 }
 
 function nodeToolsRoot(workspace: string): string {
@@ -183,14 +278,20 @@ async function dirSize(target: string): Promise<number | null> {
     while (stack.length) {
       const dir = stack.pop()!;
       let entries;
-      try { entries = await readdir(dir, { withFileTypes: true }); } catch { continue; }
+      try {
+        entries = await readdir(dir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
       for (const entry of entries) {
         const full = join(dir, entry.name);
         try {
           const entryInfo = await stat(full);
           if (entryInfo.isDirectory()) stack.push(full);
           else total += entryInfo.size;
-        } catch { /* skip unreadable entries */ }
+        } catch {
+          /* skip unreadable entries */
+        }
       }
     }
     return total;
@@ -199,21 +300,41 @@ async function dirSize(target: string): Promise<number | null> {
   }
 }
 
-async function exists(path: string): Promise<boolean> { try { await access(path); return true; } catch { return false; } }
-async function executable(path: string): Promise<boolean> { try { await access(path, constants.X_OK); return true; } catch { return false; } }
-function delay(ms: number): Promise<void> { return new Promise((resolveDelay) => setTimeout(resolveDelay, ms)); }
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function executable(path: string): Promise<boolean> {
+  try {
+    await access(path, constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function delay(ms: number): Promise<void> {
+  return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
+}
 
 const INTEGRITY_SNAPSHOT_VERSION = "v2";
 
 async function fileDigest(path: string): Promise<string> {
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+  return createHash("sha256")
+    .update(await readFile(path))
+    .digest("hex");
 }
 
 async function directoryDigest(root: string): Promise<string> {
   const digest = createHash("sha256");
   const walk = async (directory: string, relativeRoot = ""): Promise<void> => {
     let entries;
-    try { entries = await readdir(directory, { withFileTypes: true }); } catch {
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
       digest.update(`unreadable:${relativeRoot}\n`);
       return;
     }
@@ -225,7 +346,11 @@ async function directoryDigest(root: string): Promise<string> {
         await walk(fullPath, relativePath);
       } else if (entry.isFile()) {
         digest.update(`file:${relativePath}\n`);
-        try { digest.update(await readFile(fullPath)); } catch { digest.update("unreadable"); }
+        try {
+          digest.update(await readFile(fullPath));
+        } catch {
+          digest.update("unreadable");
+        }
         digest.update("\n");
       }
     }
@@ -237,13 +362,32 @@ async function directoryDigest(root: string): Promise<string> {
 /** Legacy name-only snapshot used by revisions written before v2 content fingerprints. */
 async function legacyIntegritySnapshot(prefix: string): Promise<string[]> {
   const parts: string[] = [];
-  try { parts.push(...(await readdir(join(prefix, "conda-meta"))).filter((name) => name.endsWith(".json")).sort()); } catch { /* not a conda prefix */ }
+  try {
+    parts.push(
+      ...(await readdir(join(prefix, "conda-meta")))
+        .filter((name) => name.endsWith(".json"))
+        .sort(),
+    );
+  } catch {
+    /* not a conda prefix */
+  }
   try {
     const libDir = process.platform === "win32" ? join(prefix, "Lib") : join(prefix, "lib");
     const pythonLib = (await readdir(libDir)).find((name) => /^python3\.\d+$/.test(name));
-    if (pythonLib) parts.push(...(await readdir(join(libDir, pythonLib, "site-packages"))).filter((name) => name.endsWith(".dist-info")).sort());
-  } catch { /* no Python site-packages */ }
-  try { parts.push(...(await readdir(join(prefix, "library"))).sort()); } catch { /* no R library */ }
+    if (pythonLib)
+      parts.push(
+        ...(await readdir(join(libDir, pythonLib, "site-packages")))
+          .filter((name) => name.endsWith(".dist-info"))
+          .sort(),
+      );
+  } catch {
+    /* no Python site-packages */
+  }
+  try {
+    parts.push(...(await readdir(join(prefix, "library"))).sort());
+  } catch {
+    /* no R library */
+  }
   return parts;
 }
 
@@ -256,20 +400,30 @@ async function integritySnapshot(prefix: string): Promise<string[]> {
   try {
     const root = join(prefix, "conda-meta");
     for (const name of (await readdir(root)).filter((item) => item.endsWith(".json")).sort()) {
-      parts.push(`${INTEGRITY_SNAPSHOT_VERSION}:conda-meta/${name}:${await fileDigest(join(root, name))}`);
+      parts.push(
+        `${INTEGRITY_SNAPSHOT_VERSION}:conda-meta/${name}:${await fileDigest(join(root, name))}`,
+      );
     }
-  } catch { /* not a conda prefix */ }
+  } catch {
+    /* not a conda prefix */
+  }
 
   try {
     const libDir = process.platform === "win32" ? join(prefix, "Lib") : join(prefix, "lib");
     const pythonLib = (await readdir(libDir)).find((name) => /^python3\.\d+$/.test(name));
     if (pythonLib) {
       const root = join(libDir, pythonLib, "site-packages");
-      for (const name of (await readdir(root)).filter((item) => item.endsWith(".dist-info")).sort()) {
-        parts.push(`${INTEGRITY_SNAPSHOT_VERSION}:python-dist-info/${name}:${await directoryDigest(join(root, name))}`);
+      for (const name of (await readdir(root))
+        .filter((item) => item.endsWith(".dist-info"))
+        .sort()) {
+        parts.push(
+          `${INTEGRITY_SNAPSHOT_VERSION}:python-dist-info/${name}:${await directoryDigest(join(root, name))}`,
+        );
       }
     }
-  } catch { /* no Python site-packages */ }
+  } catch {
+    /* no Python site-packages */
+  }
 
   const rLibraryRoots = [
     ["library", join(prefix, "library")],
@@ -282,91 +436,142 @@ async function integritySnapshot(prefix: string): Promise<string[]> {
         const packageInfo = await stat(packagePath).catch(() => null);
         if (!packageInfo) continue;
         if (!packageInfo.isDirectory()) {
-          parts.push(`${INTEGRITY_SNAPSHOT_VERSION}:r-library/${label}/${name}:${await fileDigest(packagePath)}`);
+          parts.push(
+            `${INTEGRITY_SNAPSHOT_VERSION}:r-library/${label}/${name}:${await fileDigest(packagePath)}`,
+          );
           continue;
         }
         const description = join(packagePath, "DESCRIPTION");
         const descriptionDigest = await fileDigest(description).catch(() => "missing");
         parts.push(`${INTEGRITY_SNAPSHOT_VERSION}:r-library/${label}/${name}:${descriptionDigest}`);
       }
-    } catch { /* no R library */ }
+    } catch {
+      /* no R library */
+    }
   }
   return parts.sort();
 }
 
 function isVersionedIntegritySnapshot(snapshot: readonly string[]): boolean {
-  return snapshot.length > 0 && snapshot.every((item) => item.startsWith(`${INTEGRITY_SNAPSHOT_VERSION}:`));
+  return (
+    snapshot.length > 0 &&
+    snapshot.every((item) => item.startsWith(`${INTEGRITY_SNAPSHOT_VERSION}:`))
+  );
 }
 
 function snapshotDriftError(revisionId: string): string {
   return `Environment revision ${revisionId} was modified outside Pi-Science (for example by a direct pip install into the shared prefix). Roll back or create a new revision via the packages API instead of mutating the prefix.`;
 }
-function bindingPath(cwd: string): string { return join(metadataRoot(cwd), "environment.json"); }
-function registryPath(): string { return configPath(join("environments", "registry.json")); }
-function environmentRoot(): string { return configPath(join("micromamba", "envs")); }
+function bindingPath(cwd: string): string {
+  return join(metadataRoot(cwd), "environment.json");
+}
+function registryPath(): string {
+  return configPath(join("environments", "registry.json"));
+}
+function environmentRoot(): string {
+  return configPath(join("micromamba", "envs"));
+}
 
 function isInheritedRuntimeState(key: string): boolean {
   const normalized = key.toUpperCase();
-  return normalized === "VIRTUAL_ENV"
-    || normalized === "UV_PROJECT_ENVIRONMENT"
-    || normalized === "PIP_REQUIRE_VIRTUALENV"
-    || normalized === "PI_SCIENCE_PYTHON_EXECUTABLE"
-    || normalized === "PYTHONHOME"
-    || normalized === "PIP_PREFIX"
-    || normalized === "CONDA_DEFAULT_ENV"
-    || normalized === "CONDA_EXE"
-    || normalized === "CONDA_PYTHON_EXE"
-    || normalized === "CONDA_SHLVL"
-    || normalized === "CONDA_PROMPT_MODIFIER"
-    || normalized === "CONDARC"
-    || normalized === "CONDA_CHANNELS"
-    || normalized === "CONDA_DEFAULT_CHANNELS"
-    || normalized === "CONDA_SUBDIR"
-    || normalized === "CONDA_PKGS_DIRS"
-    || normalized === "CONDA_BLD_PATH"
-    || normalized === "MAMBA_ROOT_PREFIX"
-    || normalized === "MAMBA_EXE"
-    || normalized === "MAMBA_NO_RC"
-    || normalized === "MAMBARC"
-    || /^CONDA_PREFIX(?:_\d+)?$/.test(normalized);
+  return (
+    normalized === "VIRTUAL_ENV" ||
+    normalized === "UV_PROJECT_ENVIRONMENT" ||
+    normalized === "PIP_REQUIRE_VIRTUALENV" ||
+    normalized === "PI_SCIENCE_PYTHON_EXECUTABLE" ||
+    normalized === "PYTHONHOME" ||
+    normalized === "PIP_PREFIX" ||
+    normalized === "CONDA_DEFAULT_ENV" ||
+    normalized === "CONDA_EXE" ||
+    normalized === "CONDA_PYTHON_EXE" ||
+    normalized === "CONDA_SHLVL" ||
+    normalized === "CONDA_PROMPT_MODIFIER" ||
+    normalized === "CONDARC" ||
+    normalized === "CONDA_CHANNELS" ||
+    normalized === "CONDA_DEFAULT_CHANNELS" ||
+    normalized === "CONDA_SUBDIR" ||
+    normalized === "CONDA_PKGS_DIRS" ||
+    normalized === "CONDA_BLD_PATH" ||
+    normalized === "MAMBA_ROOT_PREFIX" ||
+    normalized === "MAMBA_EXE" ||
+    normalized === "MAMBA_NO_RC" ||
+    normalized === "MAMBARC" ||
+    /^CONDA_PREFIX(?:_\d+)?$/.test(normalized)
+  );
 }
 
 function safeName(value: string): string {
-  const name = value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
-  if (!name || name.length > 64) throw new Error("Environment name must contain 1-64 letters, digits, dots, dashes, or underscores");
+  const name = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!name || name.length > 64)
+    throw new Error(
+      "Environment name must contain 1-64 letters, digits, dots, dashes, or underscores",
+    );
   return name;
 }
 
 function cleanPackageSpecs(packages: readonly string[]): string[] {
   const cleaned = [...new Set(packages.map((item) => item.trim()).filter(Boolean))];
-  if (cleaned.some((item) => item.startsWith("-"))) throw new Error("Package specs must not start with '-'");
+  if (cleaned.some((item) => item.startsWith("-")))
+    throw new Error("Package specs must not start with '-'");
   return cleaned;
 }
 
-export function defaultPythonExecutable(environment: NodeJS.ProcessEnv = process.env, platform = process.platform): string {
+export function defaultPythonExecutable(
+  environment: NodeJS.ProcessEnv = process.env,
+  platform = process.platform,
+): string {
   return environment.PYTHON || (platform === "win32" ? "python" : "python3");
 }
 
-export function workspaceEnvironmentVariables(status: WorkspaceEnvironmentStatus, inherited: NodeJS.ProcessEnv = process.env, platform = process.platform): NodeJS.ProcessEnv {
+export function workspaceEnvironmentVariables(
+  status: WorkspaceEnvironmentStatus,
+  inherited: NodeJS.ProcessEnv = process.env,
+  platform = process.platform,
+): NodeJS.ProcessEnv {
   const paths = environmentPaths(status.prefix, platform);
   const npmGlobal = status.npm.global_prefix;
   const npmBin = platform === "win32" ? npmGlobal : join(npmGlobal, "bin");
   const pnpmHome = pnpmHomeFor(status.workspace);
   const corepackHome = corepackHomeFor(status.workspace);
-  const inheritedPath = platform === "win32" ? Object.entries(inherited).find(([key]) => key.toLowerCase() === "path")?.[1] ?? "" : inherited.PATH ?? "";
-  const base = Object.fromEntries(Object.entries(inherited).filter(([key]) => key.toLowerCase() !== "path" && !isInheritedRuntimeState(key)));
+  const inheritedPath =
+    platform === "win32"
+      ? (Object.entries(inherited).find(([key]) => key.toLowerCase() === "path")?.[1] ?? "")
+      : (inherited.PATH ?? "");
+  const base = Object.fromEntries(
+    Object.entries(inherited).filter(
+      ([key]) => key.toLowerCase() !== "path" && !isInheritedRuntimeState(key),
+    ),
+  );
   return {
     ...base,
-    PATH: [paths.bin, ...(platform === "win32" ? [status.prefix] : []), npmBin, pnpmHome, inheritedPath].filter(Boolean).join(platform === "win32" ? ";" : delimiter),
+    PATH: [
+      paths.bin,
+      ...(platform === "win32" ? [status.prefix] : []),
+      npmBin,
+      pnpmHome,
+      inheritedPath,
+    ]
+      .filter(Boolean)
+      .join(platform === "win32" ? ";" : delimiter),
     CONDA_PREFIX: status.manager === "micromamba" ? status.prefix : undefined,
     PI_SCIENCE_ENVIRONMENT_ID: status.environment_id,
     PI_SCIENCE_ENVIRONMENT_REVISION_ID: status.revision_id,
     PI_SCIENCE_ENVIRONMENT_PREFIX: status.prefix,
-    PYTHONNOUSERSITE: "1", PIP_USER: "0",
-    npm_config_prefix: npmGlobal, NPM_CONFIG_PREFIX: npmGlobal,
-    npm_config_cache: status.npm.cache, NPM_CONFIG_CACHE: status.npm.cache, npm_config_update_notifier: "false",
-    PNPM_HOME: pnpmHome, COREPACK_HOME: corepackHome,
-    PYTHONHOME: undefined, PIP_PREFIX: undefined,
+    PYTHONNOUSERSITE: "1",
+    PIP_USER: "0",
+    npm_config_prefix: npmGlobal,
+    NPM_CONFIG_PREFIX: npmGlobal,
+    npm_config_cache: status.npm.cache,
+    NPM_CONFIG_CACHE: status.npm.cache,
+    npm_config_update_notifier: "false",
+    PNPM_HOME: pnpmHome,
+    COREPACK_HOME: corepackHome,
+    PYTHONHOME: undefined,
+    PIP_PREFIX: undefined,
   };
 }
 
@@ -376,30 +581,40 @@ export class WorkspaceEnvironmentService {
 
   constructor(
     private readonly basePython = defaultPythonExecutable(),
-    private readonly micromambaExecutable = process.env.PI_SCIENCE_MICROMAMBA_EXECUTABLE || "micromamba",
+    private readonly micromambaExecutable = process.env.PI_SCIENCE_MICROMAMBA_EXECUTABLE ||
+      "micromamba",
     private readonly environmentRepository?: EnvironmentRepository,
   ) {}
 
   async list(): Promise<EnvironmentRevision[]> {
-    return (await this.registry()).revisions.slice().sort((a, b) => b.created_at.localeCompare(a.created_at));
+    return (await this.registry()).revisions
+      .slice()
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
   }
 
   async deleteRevision(revisionId: string): Promise<EnvironmentRevision | null> {
     const revision = (await this.list()).find((item) => item.revision_id === revisionId);
     if (!revision) return null;
     if (revision.status !== "failed" && revision.status !== "archived") {
-      throw Object.assign(new Error(`Only failed or archived environment revisions can be deleted: ${revisionId}`), { code: "environment_not_deletable" });
+      throw Object.assign(
+        new Error(`Only failed or archived environment revisions can be deleted: ${revisionId}`),
+        { code: "environment_not_deletable" },
+      );
     }
     const root = resolve(environmentRoot());
     const prefix = resolve(revision.prefix);
-    if (!prefix.startsWith(`${root}${sep}`)) throw new Error(`Environment prefix is outside the managed root: ${revision.prefix}`);
+    if (!prefix.startsWith(`${root}${sep}`))
+      throw new Error(`Environment prefix is outside the managed root: ${revision.prefix}`);
     await rm(prefix, { recursive: true, force: true });
     if (this.environmentRepository) await this.environmentRepository.remove(revisionId);
     else {
       const path = registryPath();
       await withFileWriteLock(path, async () => {
         const registry = await this.registry();
-        await writeJsonAtomic(path, { schema_version: 1, revisions: registry.revisions.filter((item) => item.revision_id !== revisionId) } satisfies EnvironmentRegistry);
+        await writeJsonAtomic(path, {
+          schema_version: 1,
+          revisions: registry.revisions.filter((item) => item.revision_id !== revisionId),
+        } satisfies EnvironmentRegistry);
       });
     }
     return revision;
@@ -414,17 +629,23 @@ export class WorkspaceEnvironmentService {
     }));
   }
 
-
   async binding(cwdValue: string): Promise<ProjectEnvironmentBinding | null> {
     const value = await readJson<unknown>(bindingPath(cwdValue), null);
     if (!value || typeof value !== "object") return null;
     const row = value as Record<string, unknown>;
-    return row.schema_version === 1 && typeof row.environment_id === "string" && typeof row.revision_id === "string" && typeof row.bound_at === "string" ? row as unknown as ProjectEnvironmentBinding : null;
+    return row.schema_version === 1 &&
+      typeof row.environment_id === "string" &&
+      typeof row.revision_id === "string" &&
+      typeof row.bound_at === "string"
+      ? (row as unknown as ProjectEnvironmentBinding)
+      : null;
   }
 
   async bind(cwdValue: string, revisionId: string): Promise<WorkspaceEnvironmentStatus> {
     const cwd = resolve(cwdValue);
-    const revision = (await this.list()).find((item) => item.revision_id === revisionId && item.status === "ready");
+    const revision = (await this.list()).find(
+      (item) => item.revision_id === revisionId && item.status === "ready",
+    );
     if (!revision) throw new Error(`Ready environment revision not found: ${revisionId}`);
     await this.verifyRevisionIntegrity(revision);
     return withWorkspaceWriteLock(cwd, () => this.bindUnlocked(cwd, revision));
@@ -435,23 +656,57 @@ export class WorkspaceEnvironmentService {
     const binding = await this.binding(workspace);
     if (binding) {
       const revision = (await this.list()).find((item) => item.revision_id === binding.revision_id);
-      if (!revision) return this.statusFor(workspace, environmentRoot(), "micromamba", { error: `Bound environment revision is missing: ${binding.revision_id}` });
+      if (!revision)
+        return this.statusFor(workspace, environmentRoot(), "micromamba", {
+          error: `Bound environment revision is missing: ${binding.revision_id}`,
+        });
       const runtimeExecutable = environmentExecutable(revision.prefix, revision.language);
       let driftError: string | undefined;
-      if (revision.status === "ready" && revision.integrity_snapshot && await executable(runtimeExecutable)) {
+      if (
+        revision.status === "ready" &&
+        revision.integrity_snapshot &&
+        (await executable(runtimeExecutable))
+      ) {
         const current = isVersionedIntegritySnapshot(revision.integrity_snapshot)
           ? await integritySnapshot(revision.prefix)
           : await legacyIntegritySnapshot(revision.prefix);
-        if (current.join("\n") !== revision.integrity_snapshot.join("\n")) driftError = snapshotDriftError(revision.revision_id);
+        if (current.join("\n") !== revision.integrity_snapshot.join("\n"))
+          driftError = snapshotDriftError(revision.revision_id);
       }
-      const ready = revision.status === "ready" && !driftError && await executable(runtimeExecutable);
-      return this.statusFor(workspace, revision.prefix, "micromamba", { ready, environment_id: revision.environment_id, revision_id: revision.revision_id, display_name: revision.display_name, packages: [...revision.packages], ...(!ready ? { error: driftError ?? revision.failure?.message ?? (revision.status === "ready" ? `Environment executable is missing: ${runtimeExecutable}` : `Environment is ${revision.status}`) } : {}) });
+      const ready =
+        revision.status === "ready" && !driftError && (await executable(runtimeExecutable));
+      return this.statusFor(workspace, revision.prefix, "micromamba", {
+        ready,
+        environment_id: revision.environment_id,
+        revision_id: revision.revision_id,
+        display_name: revision.display_name,
+        packages: [...revision.packages],
+        ...(revision.pip_packages ? { pip_packages: [...revision.pip_packages] } : {}),
+        ...(!ready
+          ? {
+              error:
+                driftError ??
+                revision.failure?.message ??
+                (revision.status === "ready"
+                  ? `Environment executable is missing: ${runtimeExecutable}`
+                  : `Environment is ${revision.status}`),
+            }
+          : {}),
+      });
     }
     const legacy = environmentPaths(join(workspace, ".venv"));
-    if (await exists(join(legacy.virtualEnv, "pyvenv.cfg")) && await executable(legacy.python)) return this.statusFor(workspace, legacy.virtualEnv, "legacy-venv", { ready: true, legacy: true });
+    if ((await exists(join(legacy.virtualEnv, "pyvenv.cfg"))) && (await executable(legacy.python)))
+      return this.statusFor(workspace, legacy.virtualEnv, "legacy-venv", {
+        ready: true,
+        legacy: true,
+      });
     if (await exists(legacy.virtualEnv)) {
       const info = await stat(legacy.virtualEnv);
-      return this.statusFor(workspace, legacy.virtualEnv, "legacy-venv", { error: info.isDirectory() ? "The workspace .venv is incomplete. Remove or repair it before migration." : "The workspace .venv path exists but is not a directory." });
+      return this.statusFor(workspace, legacy.virtualEnv, "legacy-venv", {
+        error: info.isDirectory()
+          ? "The workspace .venv is incomplete. Remove or repair it before migration."
+          : "The workspace .venv path exists but is not a directory.",
+      });
     }
     return this.statusFor(workspace, environmentRoot(), "micromamba", { ready: false });
   }
@@ -467,14 +722,24 @@ export class WorkspaceEnvironmentService {
       operation = this.provision(cwd).finally(() => this.provisioning.delete(cwd));
       this.provisioning.set(cwd, operation);
     }
-    return withOperationTimeout(operation, environmentProvisionTimeoutMs(), `Workspace environment provisioning for ${cwd}`);
+    return withOperationTimeout(
+      operation,
+      environmentProvisionTimeoutMs(),
+      `Workspace environment provisioning for ${cwd}`,
+    );
   }
 
   async nodeStatus(cwdValue: string): Promise<NodeWorkspaceStatus> {
     const workspace = resolve(cwdValue);
     const packageJson = join(workspace, "package.json");
     const packageJsonExists = await exists(packageJson);
-    const lockfileCandidates = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "bun.lock"];
+    const lockfileCandidates = [
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+      "bun.lockb",
+      "bun.lock",
+    ];
     let lockfile: { exists: boolean; name: string | null } = { exists: false, name: null };
     for (const name of lockfileCandidates) {
       if (await exists(join(workspace, name))) {
@@ -489,7 +754,10 @@ export class WorkspaceEnvironmentService {
     const pnpmHome = pnpmHomeFor(workspace);
     const corepackHome = corepackHomeFor(workspace);
     const [npmPrefixSize, npmCacheSize, pnpmHomeSize, corepackHomeSize] = await Promise.all([
-      dirSize(npmPrefix), dirSize(npmCache), dirSize(pnpmHome), dirSize(corepackHome),
+      dirSize(npmPrefix),
+      dirSize(npmCache),
+      dirSize(pnpmHome),
+      dirSize(corepackHome),
     ]);
     return {
       workspace,
@@ -516,8 +784,10 @@ export class WorkspaceEnvironmentService {
     };
   }
 
-
-  async environment(cwdValue: string, inherited: NodeJS.ProcessEnv = process.env): Promise<NodeJS.ProcessEnv> {
+  async environment(
+    cwdValue: string,
+    inherited: NodeJS.ProcessEnv = process.env,
+  ): Promise<NodeJS.ProcessEnv> {
     return workspaceEnvironmentVariables(await this.ensure(cwdValue), inherited);
   }
 
@@ -528,69 +798,190 @@ export class WorkspaceEnvironmentService {
       throw new Error(`Preset ${input.preset} is for ${preset.language} environments`);
     }
     const language = input.language ?? preset?.language ?? "python";
-    const packages = cleanPackageSpecs(input.packages?.length ? input.packages : preset?.packages ?? (language === "r" ? DEFAULT_R_PACKAGES : DEFAULT_PACKAGES));
-    const previous = input.supersedes_revision_id ? (await this.list()).find((item) => item.revision_id === input.supersedes_revision_id) : undefined;
-    if (input.supersedes_revision_id && !previous) throw new Error(`Environment revision not found: ${input.supersedes_revision_id}`);
+    const packages = cleanPackageSpecs(
+      input.packages?.length
+        ? input.packages
+        : (preset?.packages ?? (language === "r" ? DEFAULT_R_PACKAGES : DEFAULT_PACKAGES)),
+    );
+    const previous = input.supersedes_revision_id
+      ? (await this.list()).find((item) => item.revision_id === input.supersedes_revision_id)
+      : undefined;
+    if (input.supersedes_revision_id && !previous)
+      throw new Error(`Environment revision not found: ${input.supersedes_revision_id}`);
+    if (previous?.pip_packages?.length)
+      throw new Error("Use workspace package installation to extend a revision with pip packages");
     const key = `${previous?.environment_id ?? name}\0${packages.join("\0")}`;
     const current = this.creating.get(key);
     if (current) return current;
-    const operation = this.createRevision({ environment_id: previous?.environment_id ?? `env_${name}_${randomUUID().slice(0, 8)}`, name, display_name: input.display_name?.trim() || name, language, packages, ...(previous ? { supersedes_revision_id: previous.revision_id } : {}) }).finally(() => this.creating.delete(key));
+    const operation = this.createRevision({
+      environment_id: previous?.environment_id ?? `env_${name}_${randomUUID().slice(0, 8)}`,
+      name,
+      display_name: input.display_name?.trim() || name,
+      language,
+      packages,
+      ...(previous ? { supersedes_revision_id: previous.revision_id } : {}),
+    }).finally(() => this.creating.delete(key));
     this.creating.set(key, operation);
     return operation;
   }
-/** Install packages into the currently bound revision by creating a new immutable revision. */
-  async installPackages(cwdValue: string, packages: string[]): Promise<WorkspaceEnvironmentStatus> {
-    const cleaned = cleanPackageSpecs(packages);
+  /** Install packages into the currently bound revision by creating a new immutable revision. */
+  async installPackages(
+    cwdValue: string,
+    input:
+      | string[]
+      | {
+          manager: "pip" | "conda";
+          packages: string[];
+          expectedRevisionId: string;
+          signal?: AbortSignal;
+        },
+  ): Promise<WorkspaceEnvironmentStatus> {
+    const options = Array.isArray(input) ? { manager: "conda" as const, packages: input } : input;
+    const cleaned =
+      options.manager === "pip"
+        ? normalizePythonPackageSpecs(options.packages)
+        : cleanPackageSpecs(options.packages);
     if (cleaned.length === 0) throw new Error("No packages requested");
     const cwd = resolve(cwdValue);
     return withWorkspaceWriteLock(cwd, async () => {
+      const signal = "signal" in options ? options.signal : undefined;
+      signal?.throwIfAborted();
       const currentStatus = await this.status(cwd);
+      if (
+        "expectedRevisionId" in options &&
+        options.expectedRevisionId !== currentStatus.revision_id
+      ) {
+        throw new Error(
+          "The workspace environment changed. Request installation again against its current revision.",
+        );
+      }
       if (!currentStatus.revision_id || !currentStatus.environment_id) {
-        throw new Error("Workspace has no bound environment revision; create or bind one first");
+        throw new Error(currentStatus.error ?? "Workspace has no ready bound environment revision");
       }
-      const current = (await this.list()).find((item) => item.revision_id === currentStatus.revision_id);
-      if (!current) {
-        throw new Error(`Bound environment revision not found: ${currentStatus.revision_id}`);
+      const current = (await this.list()).find(
+        (item) => item.revision_id === currentStatus.revision_id,
+      );
+      if (!current || current.status !== "ready")
+        throw new Error("The bound revision is unavailable");
+      const pip = options.manager === "pip";
+      if (pip && current.language !== "python")
+        throw new Error("PyPI installation requires a Python environment");
+      const original = pip ? (current.pip_packages ?? []) : current.packages;
+      const combined = [...new Set([...original, ...cleaned])];
+      if (combined.length === original.length) return currentStatus;
+      const pipPackages = pip ? combined : current.pip_packages;
+      if (!pipPackages?.length) {
+        const revision = await this.create({
+          name: current.name,
+          display_name: current.display_name,
+          language: current.language,
+          packages: combined,
+          supersedes_revision_id: current.revision_id,
+        });
+        return this.bindUnlocked(cwd, revision);
       }
-      if (current.status !== "ready") {
-        throw new Error(`Bound environment revision is not ready: ${current.status}`);
-      }
-      const missing = cleaned.filter((packageSpec) => !current.packages.includes(packageSpec));
-      if (missing.length === 0) return currentStatus;
-      const combined = [...new Set([...current.packages, ...missing])];
-      const revision = await this.create({
-        name: current.name,
-        display_name: current.display_name,
-        language: current.language,
-        packages: combined,
-        supersedes_revision_id: current.revision_id,
-      });
+      if (!currentStatus.ready)
+        throw new Error(currentStatus.error ?? "The bound Python environment is not ready");
+      const condaExplicit = pip ? await readCondaExplicit(current.prefix) : undefined;
+      const constraints = await resolvedPythonPackages(
+        currentStatus.python,
+        current.prefix,
+        signal,
+      );
+      const revision = await this.createRevision(
+        {
+          environment_id: current.environment_id,
+          name: current.name,
+          display_name: current.display_name,
+          language: current.language,
+          packages: pip ? current.packages : combined,
+          pip_packages: pipPackages,
+          supersedes_revision_id: current.revision_id,
+        },
+        { condaExplicit, constraints, signal },
+      );
+      signal?.throwIfAborted();
       return this.bindUnlocked(cwd, revision);
     });
   }
 
+  async recoverInterruptedInstalls(): Promise<number> {
+    return withFileWriteLock(configPath(join("environments", "recover-installs")), async () => {
+      let recovered = 0;
+      for (const revision of await this.list()) {
+        const pid = revision.build_owner_pid;
+        if (
+          revision.status !== "creating" ||
+          !revision.pip_packages?.length ||
+          !pid ||
+          !Number.isSafeInteger(pid) ||
+          pid < 1
+        )
+          continue;
+        try {
+          process.kill(pid, 0);
+          continue;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ESRCH") continue;
+        }
 
-/** Promote a staging (creating) revision to ready after its health check passes. */
+        const prefix = join(environmentRoot(), revision.revision_id);
+        if (
+          !/^rev_[a-f0-9]{32}$/.test(revision.revision_id) ||
+          resolve(revision.prefix) !== resolve(prefix)
+        )
+          continue;
+        await rm(prefix, { recursive: true, force: true });
+        await this.upsert({
+          ...revision,
+          status: "failed",
+          build_owner_pid: undefined,
+          failure: {
+            stage: "recovery",
+            message: "Package installation was interrupted when the server stopped.",
+          },
+        });
+        recovered++;
+      }
+      return recovered;
+    });
+  }
+
+  /** Promote a staging (creating) revision to ready after its health check passes. */
   async promote(revisionId: string): Promise<EnvironmentRevision> {
     const revision = (await this.list()).find((item) => item.revision_id === revisionId);
     if (!revision) throw new Error(`Environment revision not found: ${revisionId}`);
-    if (revision.status !== "creating") throw new Error(`Only creating revisions can be promoted: ${revision.status}`);
+    if (revision.build_owner_pid)
+      throw new Error("An active or interrupted package install cannot be promoted");
+    if (revision.status !== "creating")
+      throw new Error(`Only creating revisions can be promoted: ${revision.status}`);
     await this.runHealthCheck(revision.prefix, revision.language);
     const promoted: EnvironmentRevision = { ...revision, status: "ready" };
     await this.upsert(promoted);
     return promoted;
   }
 
-/** Roll the workspace back to the previous ready revision in the chain. */
+  /** Roll the workspace back to the previous ready revision in the chain. */
   async rollback(cwdValue: string): Promise<WorkspaceEnvironmentStatus> {
     const cwd = resolve(cwdValue);
-    const current = await this.status(cwd);
-    if (!current.revision_id) throw new Error("Workspace has no bound environment revision");
-    const currentRevision = (await this.list()).find((item) => item.revision_id === current.revision_id);
-    if (!currentRevision?.supersedes_revision_id) throw new Error("No previous revision to roll back to");
-    const previous = (await this.list()).find((item) => item.revision_id === currentRevision.supersedes_revision_id && item.status === "ready");
-    if (!previous) throw new Error(`Previous ready revision not found: ${currentRevision.supersedes_revision_id}`);
-    return this.bind(cwd, previous.revision_id);
+    return withWorkspaceWriteLock(cwd, async () => {
+      const current = await this.binding(cwd);
+      if (!current) throw new Error("Workspace has no bound environment revision");
+      const revisions = await this.list();
+      const currentRevision = revisions.find((item) => item.revision_id === current.revision_id);
+      if (!currentRevision?.supersedes_revision_id)
+        throw new Error("No previous revision to roll back to");
+      const previous = revisions.find(
+        (item) =>
+          item.revision_id === currentRevision.supersedes_revision_id && item.status === "ready",
+      );
+      if (!previous)
+        throw new Error(
+          `Previous ready revision not found: ${currentRevision.supersedes_revision_id}`,
+        );
+      await this.verifyRevisionIntegrity(previous);
+      return this.bindUnlocked(cwd, previous);
+    });
   }
 
   private async provision(cwd: string): Promise<WorkspaceEnvironmentStatus> {
@@ -602,17 +993,43 @@ export class WorkspaceEnvironmentService {
       await this.run(this.basePython, ["-m", "venv", legacy], 120_000);
       return this.status(cwd);
     }
-    const existing = (await this.list()).find((item) => item.environment_id === DEFAULT_ENVIRONMENT_ID && item.status === "ready");
-    const revision = existing ?? await this.createRevision({ environment_id: DEFAULT_ENVIRONMENT_ID, name: "python-standard", display_name: "Python Standard", language: "python", packages: DEFAULT_PACKAGES });
+    const existing = (await this.list()).find(
+      (item) =>
+        item.environment_id === DEFAULT_ENVIRONMENT_ID &&
+        item.status === "ready" &&
+        !item.supersedes_revision_id,
+    );
+    const revision =
+      existing ??
+      (await this.createRevision({
+        environment_id: DEFAULT_ENVIRONMENT_ID,
+        name: "python-standard",
+        display_name: "Python Standard",
+        language: "python",
+        packages: DEFAULT_PACKAGES,
+      }));
     return this.bind(cwd, revision.revision_id);
   }
 
-  private async createRevision(input: Omit<EnvironmentRevision, "revision_id" | "status" | "prefix" | "platform" | "created_at">): Promise<EnvironmentRevision> {
+  private async createRevision(
+    input: Omit<
+      EnvironmentRevision,
+      "revision_id" | "status" | "prefix" | "platform" | "created_at"
+    >,
+    options: { condaExplicit?: string; constraints?: string[]; signal?: AbortSignal } = {},
+  ): Promise<EnvironmentRevision> {
     const revisionId = `rev_${randomUUID().replaceAll("-", "")}`;
     const finalPrefix = join(environmentRoot(), revisionId);
-    let revision: EnvironmentRevision = { ...input, revision_id: revisionId, status: "creating", prefix: finalPrefix, platform: `${process.platform}-${process.arch}`, created_at: new Date().toISOString() };
+    let revision: EnvironmentRevision = {
+      ...input,
+      revision_id: revisionId,
+      status: "creating",
+      prefix: finalPrefix,
+      platform: `${process.platform}-${process.arch}`,
+      created_at: new Date().toISOString(),
+      ...(input.pip_packages?.length ? { build_owner_pid: process.pid } : {}),
+    };
     await this.upsert(revision);
-    await rm(finalPrefix, { recursive: true, force: true });
     try {
       await mkdir(environmentRoot(), { recursive: true });
       const micromamba = await this.ensureMicromamba();
@@ -626,15 +1043,81 @@ export class WorkspaceEnvironmentService {
       await mkdir(finalPrefix, { recursive: true });
       const cache = await realpath(cachePath);
       const installPrefix = await realpath(finalPrefix);
-      await runEnvironmentProcess(micromamba, ["create", "--yes", "--prefix", installPrefix, "--channel", "conda-forge", "--strict-channel-priority", ...input.packages], installPrefix, cache, 20 * 60_000,
-        { MAMBA_ROOT_PREFIX: join(cache, "root"), CONDA_PKGS_DIRS: cache, MAMBA_NO_RC: "true" });
-      await this.runHealthCheck(finalPrefix, input.language);
-      revision = { ...revision, status: "ready", integrity_snapshot: await integritySnapshot(finalPrefix) };
+      const explicitDir = options.condaExplicit
+        ? await mkdtemp(join(cache, ".explicit-"))
+        : undefined;
+      try {
+        const args = ["create", "--yes", "--prefix", installPrefix];
+        if (explicitDir) {
+          const manifest = join(explicitDir, "packages.txt");
+          await writeFile(manifest, options.condaExplicit!, { flag: "wx" });
+          args.push("--file", manifest);
+        } else {
+          args.push("--channel", "conda-forge", "--strict-channel-priority", ...input.packages);
+        }
+        if (input.pip_packages?.length) args.push("--always-copy");
+        await runEnvironmentProcess(
+          micromamba,
+          args,
+          installPrefix,
+          cache,
+          20 * 60_000,
+          { MAMBA_ROOT_PREFIX: join(cache, "root"), CONDA_PKGS_DIRS: cache, MAMBA_NO_RC: "true" },
+          { requireSandbox: !!input.pip_packages?.length, signal: options.signal },
+        );
+      } finally {
+        if (explicitDir) await rm(explicitDir, { recursive: true, force: true });
+      }
+      if (
+        options.condaExplicit &&
+        (await readCondaExplicit(finalPrefix)) !== options.condaExplicit
+      ) {
+        throw new Error("Rebuilt Conda packages differ from the bound revision");
+      }
+      if (input.pip_packages?.length) {
+        const constraints = options.constraints ?? [];
+        const wheels = await installPythonWheels(
+          micromamba,
+          installPrefix,
+          input.pip_packages,
+          constraints,
+          options.signal,
+        );
+        const resolved = await resolvedPythonPackages(
+          environmentPaths(finalPrefix).python,
+          finalPrefix,
+          options.signal,
+        );
+        const installed = new Set(resolved);
+        const changed = constraints.filter((pin) => !installed.has(pin));
+        if (changed.length)
+          throw new Error(
+            `Installation would change existing Python dependencies: ${changed.join(", ")}`,
+          );
+        revision = { ...revision, resolved_python_packages: resolved, pip_wheels: wheels };
+      } else {
+        await this.runHealthCheck(finalPrefix, input.language);
+      }
+      options.signal?.throwIfAborted();
+      revision = {
+        ...revision,
+        status: "ready",
+        build_owner_pid: undefined,
+        integrity_snapshot: await integritySnapshot(finalPrefix),
+      };
       await this.upsert(revision);
       return revision;
     } catch (error) {
       await rm(finalPrefix, { recursive: true, force: true });
-      revision = { ...revision, status: "failed", failure: { stage: "create", message: error instanceof Error ? error.message : String(error) } };
+      revision = {
+        ...revision,
+        status: "failed",
+        build_owner_pid: undefined,
+        failure: {
+          stage: "create",
+          message: error instanceof Error ? error.message : String(error),
+        },
+      };
       await this.upsert(revision);
       throw error;
     }
@@ -642,13 +1125,30 @@ export class WorkspaceEnvironmentService {
 
   private async runHealthCheck(prefix: string, language: EnvironmentLanguage): Promise<void> {
     if (language === "r") {
-      const rscript = join(environmentPaths(prefix).bin, process.platform === "win32" ? "Rscript.exe" : "Rscript");
-      if (!await executable(rscript)) throw new Error("Environment health check failed: Rscript is missing");
-      await runEnvironmentProcess(rscript, ["-e", "cat(R.version.string)"], prefix, undefined, 30_000);
+      const rscript = join(
+        environmentPaths(prefix).bin,
+        process.platform === "win32" ? "Rscript.exe" : "Rscript",
+      );
+      if (!(await executable(rscript)))
+        throw new Error("Environment health check failed: Rscript is missing");
+      await runEnvironmentProcess(
+        rscript,
+        ["-e", "cat(R.version.string)"],
+        prefix,
+        undefined,
+        30_000,
+      );
     } else {
       const python = environmentPaths(prefix).python;
-      if (!await executable(python)) throw new Error("Environment health check failed: Python executable is missing");
-      await runEnvironmentProcess(python, ["-I", "-B", "-c", "import sys; print(sys.version_info[:2])"], prefix, undefined, 30_000);
+      if (!(await executable(python)))
+        throw new Error("Environment health check failed: Python executable is missing");
+      await runEnvironmentProcess(
+        python,
+        ["-I", "-B", "-c", "import sys; print(sys.version_info[:2])"],
+        prefix,
+        undefined,
+        30_000,
+      );
     }
   }
 
@@ -662,21 +1162,29 @@ export class WorkspaceEnvironmentService {
       return;
     }
     if (isVersionedIntegritySnapshot(revision.integrity_snapshot)) {
-      if (current.join("\n") !== revision.integrity_snapshot.join("\n")) throw new Error(snapshotDriftError(revision.revision_id));
+      if (current.join("\n") !== revision.integrity_snapshot.join("\n"))
+        throw new Error(snapshotDriftError(revision.revision_id));
       return;
     }
 
     // Validate the old name-only snapshot once before upgrading it, so a
     // pre-v2 revision is not silently trusted during migration.
     const legacyCurrent = await legacyIntegritySnapshot(revision.prefix);
-    if (legacyCurrent.join("\n") !== revision.integrity_snapshot.join("\n")) throw new Error(snapshotDriftError(revision.revision_id));
+    if (legacyCurrent.join("\n") !== revision.integrity_snapshot.join("\n"))
+      throw new Error(snapshotDriftError(revision.revision_id));
     await this.upsert({ ...revision, integrity_snapshot: current });
   }
 
   private async registry(): Promise<EnvironmentRegistry> {
-    if (this.environmentRepository) return { schema_version: 1, revisions: await this.environmentRepository.list() };
-    const value = await readJson<EnvironmentRegistry>(registryPath(), { schema_version: 1, revisions: [] });
-    return value.schema_version === 1 && Array.isArray(value.revisions) ? value : { schema_version: 1, revisions: [] };
+    if (this.environmentRepository)
+      return { schema_version: 1, revisions: await this.environmentRepository.list() };
+    const value = await readJson<EnvironmentRegistry>(registryPath(), {
+      schema_version: 1,
+      revisions: [],
+    });
+    return value.schema_version === 1 && Array.isArray(value.revisions)
+      ? value
+      : { schema_version: 1, revisions: [] };
   }
 
   private async upsert(revision: EnvironmentRevision): Promise<void> {
@@ -687,26 +1195,68 @@ export class WorkspaceEnvironmentService {
     const path = registryPath();
     await withFileWriteLock(path, async () => {
       const registry = await this.registry();
-      await writeJsonAtomic(path, { schema_version: 1, revisions: [...registry.revisions.filter((item) => item.revision_id !== revision.revision_id), revision] } satisfies EnvironmentRegistry);
+      await writeJsonAtomic(path, {
+        schema_version: 1,
+        revisions: [
+          ...registry.revisions.filter((item) => item.revision_id !== revision.revision_id),
+          revision,
+        ],
+      } satisfies EnvironmentRegistry);
     });
   }
 
-  private statusFor(workspace: string, prefix: string, manager: NonNullable<WorkspaceEnvironmentStatus["manager"]>, extra: Partial<WorkspaceEnvironmentStatus>): WorkspaceEnvironmentStatus {
+  private statusFor(
+    workspace: string,
+    prefix: string,
+    manager: NonNullable<WorkspaceEnvironmentStatus["manager"]>,
+    extra: Partial<WorkspaceEnvironmentStatus>,
+  ): WorkspaceEnvironmentStatus {
     const paths = environmentPaths(prefix);
-    return { ready: false, workspace, prefix: prefix, python: paths.python, pip: paths.pip, r: environmentExecutable(prefix, "r"), manager, npm: { local_prefix: workspace, global_prefix: npmGlobalPrefixFor(workspace), cache: join(metadataRoot(workspace), "cache", "npm") }, ...extra };
+    return {
+      ready: false,
+      workspace,
+      prefix: prefix,
+      python: paths.python,
+      pip: paths.pip,
+      r: environmentExecutable(prefix, "r"),
+      manager,
+      npm: {
+        local_prefix: workspace,
+        global_prefix: npmGlobalPrefixFor(workspace),
+        cache: join(metadataRoot(workspace), "cache", "npm"),
+      },
+      ...extra,
+    };
   }
 
   private async ensureMicromamba(): Promise<string> {
     const runtimeEnvironment = this.micromambaEnvironment();
     if (this.micromambaExecutable !== "micromamba") return this.micromambaExecutable;
-    try { await this.run("micromamba", ["--version"], 10_000, runtimeEnvironment); return "micromamba"; } catch { /* install pinned binary */ }
-    const platform = process.platform === "darwin"
-      ? process.arch === "arm64" ? "osx-arm64" : "osx-64"
-      : process.platform === "linux" ? process.arch === "arm64" ? "linux-aarch64" : "linux-64" : null;
-    if (!platform || !MICROMAMBA_SHA256[platform]) throw new Error(`Micromamba auto-install is unsupported on ${process.platform}-${process.arch}`);
-    const target = configPath(join("micromamba", "bin", process.platform === "win32" ? "micromamba.exe" : "micromamba"));
+    try {
+      await this.run("micromamba", ["--version"], 10_000, runtimeEnvironment);
+      return "micromamba";
+    } catch {
+      /* install pinned binary */
+    }
+    const platform =
+      process.platform === "darwin"
+        ? process.arch === "arm64"
+          ? "osx-arm64"
+          : "osx-64"
+        : process.platform === "linux"
+          ? process.arch === "arm64"
+            ? "linux-aarch64"
+            : "linux-64"
+          : null;
+    if (!platform || !MICROMAMBA_SHA256[platform])
+      throw new Error(
+        `Micromamba auto-install is unsupported on ${process.platform}-${process.arch}`,
+      );
+    const target = configPath(
+      join("micromamba", "bin", process.platform === "win32" ? "micromamba.exe" : "micromamba"),
+    );
     const usable = async (path: string): Promise<boolean> => {
-      if (!await executable(path)) return false;
+      if (!(await executable(path))) return false;
       try {
         await this.run(path, ["--version"], 10_000, runtimeEnvironment);
         return true;
@@ -734,21 +1284,31 @@ export class WorkspaceEnvironmentService {
           // propagates it. Retry 404 and transient server failures only.
           if (response.status !== 404 && response.status < 500) break;
         } catch (error) {
-          const cause = error instanceof Error ? error.cause as NodeJS.ErrnoException | undefined : undefined;
-          lastError = new Error(`${error instanceof Error ? error.message : String(error)}${cause?.code ? ` (${cause.code})` : ""}`);
+          const cause =
+            error instanceof Error ? (error.cause as NodeJS.ErrnoException | undefined) : undefined;
+          lastError = new Error(
+            `${error instanceof Error ? error.message : String(error)}${cause?.code ? ` (${cause.code})` : ""}`,
+          );
         }
-        if (attempt + 1 < MICROMAMBA_DOWNLOAD_ATTEMPTS) await delay(MICROMAMBA_RETRY_DELAY_MS * (attempt + 1));
+        if (attempt + 1 < MICROMAMBA_DOWNLOAD_ATTEMPTS)
+          await delay(MICROMAMBA_RETRY_DELAY_MS * (attempt + 1));
       }
-      if (!data) throw new Error(`Micromamba download failed after ${MICROMAMBA_DOWNLOAD_ATTEMPTS} attempts: ${lastError?.message ?? "unknown error"}`);
+      if (!data)
+        throw new Error(
+          `Micromamba download failed after ${MICROMAMBA_DOWNLOAD_ATTEMPTS} attempts: ${lastError?.message ?? "unknown error"}`,
+        );
       const actual = createHash("sha256").update(data).digest("hex");
-      if (actual !== MICROMAMBA_SHA256[platform]) throw new Error(`Micromamba SHA-256 mismatch: expected ${MICROMAMBA_SHA256[platform]}, got ${actual}`);
+      if (actual !== MICROMAMBA_SHA256[platform])
+        throw new Error(
+          `Micromamba SHA-256 mismatch: expected ${MICROMAMBA_SHA256[platform]}, got ${actual}`,
+        );
       await mkdir(join(configPath("micromamba"), "bin"), { recursive: true });
       const temporary = `${target}.${process.pid}.tmp`;
       let installed = false;
       try {
         await writeFile(temporary, data);
         await chmod(temporary, 0o755);
-        if (!await usable(temporary)) throw new Error("Downloaded micromamba is not executable");
+        if (!(await usable(temporary))) throw new Error("Downloaded micromamba is not executable");
         await rename(temporary, target);
         installed = true;
         return target;
@@ -758,29 +1318,58 @@ export class WorkspaceEnvironmentService {
     });
   }
 
-  private async bindUnlocked(cwd: string, revision: EnvironmentRevision): Promise<WorkspaceEnvironmentStatus> {
+  private async bindUnlocked(
+    cwd: string,
+    revision: EnvironmentRevision,
+  ): Promise<WorkspaceEnvironmentStatus> {
     await mkdir(metadataRoot(cwd), { recursive: true });
     const path = bindingPath(cwd);
-    await writeJsonAtomic(path, { schema_version: 1, environment_id: revision.environment_id, revision_id: revision.revision_id, bound_at: new Date().toISOString() } satisfies ProjectEnvironmentBinding);
+    await writeJsonAtomic(path, {
+      schema_version: 1,
+      environment_id: revision.environment_id,
+      revision_id: revision.revision_id,
+      bound_at: new Date().toISOString(),
+    } satisfies ProjectEnvironmentBinding);
     return this.status(cwd);
   }
 
   private micromambaEnvironment(): NodeJS.ProcessEnv {
-    const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !isInheritedRuntimeState(key)));
+    const environment = Object.fromEntries(
+      Object.entries(process.env).filter(([key]) => !isInheritedRuntimeState(key)),
+    );
     environment.MAMBA_ROOT_PREFIX = configPath("micromamba");
     environment.MAMBA_NO_RC = "true";
     return environment;
   }
 
-  private async run(command: string, args: string[], timeout: number, env: NodeJS.ProcessEnv = process.env): Promise<void> {
-    const result = await new Promise<{ code: number | null; signal: NodeJS.Signals | null; output: string }>((done, reject) => {
-      const child = spawn(command, args, { env, stdio: ["ignore", "pipe", "pipe"], timeout, killSignal: "SIGKILL" });
+  private async run(
+    command: string,
+    args: string[],
+    timeout: number,
+    env: NodeJS.ProcessEnv = process.env,
+  ): Promise<void> {
+    const result = await new Promise<{
+      code: number | null;
+      signal: NodeJS.Signals | null;
+      output: string;
+    }>((done, reject) => {
+      const child = spawn(command, args, {
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout,
+        killSignal: "SIGKILL",
+      });
       const output: Buffer[] = [];
-      child.stdout.on("data", (chunk: Buffer) => output.push(chunk)); child.stderr.on("data", (chunk: Buffer) => output.push(chunk));
-      child.once("error", reject); child.once("close", (code, signal) => done({ code, signal, output: Buffer.concat(output).toString("utf8") }));
+      child.stdout.on("data", (chunk: Buffer) => output.push(chunk));
+      child.stderr.on("data", (chunk: Buffer) => output.push(chunk));
+      child.once("error", reject);
+      child.once("close", (code, signal) =>
+        done({ code, signal, output: Buffer.concat(output).toString("utf8") }),
+      );
     });
     if (result.code !== 0) {
-      if (result.code === null && result.signal === "SIGKILL") throw new Error(`${command} timed out after ${timeout}ms`);
+      if (result.code === null && result.signal === "SIGKILL")
+        throw new Error(`${command} timed out after ${timeout}ms`);
       throw new Error(`${command} failed: ${result.output || `exit ${result.code}`}`);
     }
   }
