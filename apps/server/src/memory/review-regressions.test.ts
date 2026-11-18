@@ -272,10 +272,18 @@ it("keeps the task recall slot when higher-ranked Profile records are present", 
   const task = (await call("write", { content: content() })).record;
   const profile = (
     await call("write", {
-      content: { ...content(), scope: "profile", title: "Reply style", body: "Use concise replies" },
+      content: {
+        ...content(),
+        scope: "profile",
+        title: "Reply style",
+        body: "Use concise replies",
+      },
     })
   ).record;
-  const profileOnly = await call("recall", { q: "reply style use concise replies", scope: "profile" });
+  const profileOnly = await call("recall", {
+    q: "reply style use concise replies",
+    scope: "profile",
+  });
   expect(profileOnly.records.map((record: { id: string }) => record.id)).toEqual([profile.id]);
   const result = await call("recall", { q: "reply style use concise replies" });
   expect(result.records.map((record: { id: string }) => record.id)).toEqual([profile.id, task.id]);
@@ -283,9 +291,9 @@ it("keeps the task recall slot when higher-ranked Profile records are present", 
 
 it("skips unavailable message evidence for this recall and recovers on the next", async () => {
   const findPath = vi.spyOn(memory.sessions, "findPath").mockResolvedValue("transcript");
-  const messages = vi.spyOn(memory.sessions, "messages").mockResolvedValue([
-    { id: "message", role: "user", content: [] },
-  ]);
+  const messages = vi
+    .spyOn(memory.sessions, "messages")
+    .mockResolvedValue([{ id: "message", role: "user", content: [] }]);
   const validated = await memory.validateContent(root, ctx, {
     ...content(),
     sources: [{ kind: "message", locator: "session@message" }],

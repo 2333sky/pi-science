@@ -19,14 +19,21 @@ import type { ExecutionRepository } from "../runtime/executions/execution-reposi
 // Only verifiably invalid evidence can change a record's durable review state.
 class StaleMemoryEvidenceError extends MemoryError {}
 
-async function readArtifactCatalog(cwd: string, strict: boolean) {
+type ArtifactCatalogEntry = { artifact_id: string; version: number; sha256?: string };
+
+async function readArtifactCatalog(cwd: string, strict: boolean): Promise<ArtifactCatalogEntry[]> {
+  const path = workspaceFile(cwd, "artifacts.jsonl");
+  if (!strict) return readJsonLines<ArtifactCatalogEntry>(path);
   try {
-    return await readJsonLines<{ artifact_id: string; version: number; sha256?: string }>(
-      workspaceFile(cwd, "artifacts.jsonl"),
-      { strict },
-    );
+    // Evidence checks need the whole catalog to distinguish a missing version from a torn write.
+    return (await readFile(path, "utf8"))
+      .split(/\r?\n/)
+      .filter((line) => line.trim())
+      .map((line) => JSON.parse(line) as ArtifactCatalogEntry);
   } catch (error) {
-    throw new MemoryError("unavailable", "Artifact catalog could not be verified", { cause: error });
+    throw new MemoryError("unavailable", "Artifact catalog could not be verified", {
+      cause: error,
+    });
   }
 }
 
@@ -191,7 +198,10 @@ export class MemoryService {
             (a) => a.artifact_id === source.locator && String(a.version) === source.version,
           );
           if (!a)
-            throw new StaleMemoryEvidenceError("invalid_input", "Artifact source requires an existing version");
+            throw new StaleMemoryEvidenceError(
+              "invalid_input",
+              "Artifact source requires an existing version",
+            );
           if (requirePinned && !a.sha256)
             throw new MemoryError("unavailable", "Artifact source digest could not be verified");
           if (source.digest && source.digest !== a.sha256)
@@ -209,16 +219,24 @@ export class MemoryService {
           const info = await stat(path).catch((error: unknown) => {
             const code = (error as NodeJS.ErrnoException).code;
             if (code === "ENOENT" || code === "ENOTDIR")
-              throw new StaleMemoryEvidenceError("invalid_input", "Source file not found", { cause: error });
+              throw new StaleMemoryEvidenceError("invalid_input", "Source file not found", {
+                cause: error,
+              });
             throw error;
           });
           if (!info.isFile() || info.size > 8 * 1024 * 1024)
-            throw new StaleMemoryEvidenceError("invalid_input", "Source file too large or no longer a regular file");
+            throw new StaleMemoryEvidenceError(
+              "invalid_input",
+              "Source file too large or no longer a regular file",
+            );
           const digest = createHash("sha256")
             .update(await readFile(path))
             .digest("hex");
           if (source.digest && source.digest !== digest)
-            throw new StaleMemoryEvidenceError("conflict", "File evidence changed; create a new revision");
+            throw new StaleMemoryEvidenceError(
+              "conflict",
+              "File evidence changed; create a new revision",
+            );
           source.digest = digest;
           break;
         }
@@ -234,13 +252,19 @@ export class MemoryService {
               (record.reviewStatus !== "approved" ||
                 record.approvedContentHash !== record.contentHash))
           )
-            throw new StaleMemoryEvidenceError("conflict", "Memory source is not active and accepted");
+            throw new StaleMemoryEvidenceError(
+              "conflict",
+              "Memory source is not active and accepted",
+            );
           if (
             (requirePinned && (!source.version || !source.digest)) ||
             (source.version && source.version !== String(record.revision)) ||
             (source.digest && source.digest !== record.contentHash)
           )
-            throw new StaleMemoryEvidenceError("conflict", "Memory source version or content changed");
+            throw new StaleMemoryEvidenceError(
+              "conflict",
+              "Memory source version or content changed",
+            );
           if (chain.has(record.id) || chain.size >= 8 || --budget.remaining < 0)
             throw new MemoryError("invalid_input", "Cyclic or excessive memory evidence chain");
           const next = new Set(chain);

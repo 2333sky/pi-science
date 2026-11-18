@@ -785,9 +785,8 @@ class Transaction {
           0,
           settings.recall.maxProfileItems,
         );
-        const ranked = i.scope !== "profile" && String(i.q ?? "").trim()
-          ? this.search(i, true)
-          : [];
+        const ranked =
+          i.scope !== "profile" && String(i.q ?? "").trim() ? this.search(i, true) : [];
         let budget = settings.recall.maxTokensPerTurn * 3;
         let profileBudget = 4800;
         const records: MemoryRecord[] = [];
