@@ -442,8 +442,13 @@ describe("review regressions", () => {
     expect(await screen.findByText(/outside the current page/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Execution timeline" }));
     expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${target.execution_id}`);
+    const locationCalls = () => fetchMock.mock.calls.filter(([input]) =>
+      new URL(String(input), "http://localhost").searchParams.has("target_id"),
+    );
+    expect(locationCalls()).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: "Go to execution page" }));
     await waitFor(() => expect(screen.getByLabelText("location")).toHaveTextContent(`offset=${Math.floor((position - 1) / 50) * 50}`));
+    expect(locationCalls()).toHaveLength(1);
     expect(await screen.findByRole("button", { name: /analysis\.ipynb/ })).toBeInTheDocument();
   });
 
@@ -513,6 +518,21 @@ describe("review regressions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show workspace and clear filters" }));
     await screen.findByRole("button", { name: /node train\.js/ });
     expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
+  });
+
+  it("checks whether a deep link matches the filters only on demand", async () => {
+    renderPage("/workspace/project/runs?kind=tool&execution=exec_job");
+    await screen.findByText("node-job-coordinator");
+    const locate = await screen.findByRole("button", { name: "Go to execution page" });
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("target_id="), expect.anything());
+
+    fireEvent.click(locate);
+    const clearFilters = await screen.findByRole("button", { name: "Show workspace and clear filters" });
+    expect(screen.getByLabelText("location")).toHaveTextContent("kind=tool");
+    fireEvent.click(clearFilters);
+    await screen.findByRole("button", { name: /node train\.js/ });
+    expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
+    expect(screen.getByLabelText("location")).not.toHaveTextContent("kind=tool");
   });
 
   it("restores URL mode, paging, window and selection across browser navigation", async () => {

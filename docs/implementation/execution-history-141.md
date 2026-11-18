@@ -40,8 +40,8 @@ Ordinary automatic or clicked row selections carry `selection=page`; Previous/Ne
 clears that selection and selects the new page's first record. Scope and filter
 changes also reset ordinary selection. The page list query never includes the
 selected ID: visible row selection uses existing records without refetching or
-unmounting the timeline. Explicit off-page targets request location metadata
-separately, preserving timeline zoom and collapsed groups. Explicit deep links
+unmounting the timeline. An off-page target opens its details immediately. The
+user can request its page within the current filters with Go to execution page. Explicit deep links
 without this marker retain their exact target across pagination. An empty page
 leaves ordinary selection empty. Search input commits to the URL after 300ms of
 inactivity; URL changes, clearing and unmounting cancel pending edits. Page queries
