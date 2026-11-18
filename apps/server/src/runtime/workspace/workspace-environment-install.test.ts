@@ -8,6 +8,7 @@ import {
   WorkspaceEnvironmentService,
 } from "./workspace-environment.js";
 import { runEnvironmentProcess } from "../sandbox/environment-process.js";
+import { installPythonWheels } from "../sandbox/python-wheel-install.js";
 vi.mock("../sandbox/environment-process.js", () => ({ runEnvironmentProcess: vi.fn() }));
 
 it("creates a canonical package-manager root inside the granted cache before entering the installer sandbox", async () => {
@@ -38,6 +39,32 @@ it("creates a canonical package-manager root inside the granted cache before ent
     await rm(home, { recursive: true, force: true });
   }
 });
+
+it.each([
+  { version: "24.1.2", usesSystemTrust: false },
+  { version: "24.2", usesSystemTrust: true },
+  { version: "26.2.1", usesSystemTrust: true },
+])(
+  "selects the certificate backend for sandboxed pip $version",
+  async ({ version, usesSystemTrust }) => {
+    const prefix = await mkdtemp(join(tmpdir(), "pi-science-pip-certificates-"));
+    const run = vi.mocked(runEnvironmentProcess).mockReset().mockResolvedValue(undefined);
+    try {
+      await installPythonWheels(process.execPath, prefix, ["peppercorn==0.6"], [`pip==${version}`]);
+      const command = run.mock.calls[0]![1];
+      expect(command.includes("--use-deprecated=legacy-certs")).toBe(
+        process.platform === "darwin" && usesSystemTrust,
+      );
+      expect(run.mock.calls[0]![6]).toMatchObject({
+        requireSandbox: true,
+        restrictNetworkTo: ["pypi.org:443", "files.pythonhosted.org:443"],
+      });
+    } finally {
+      run.mockReset();
+      await rm(prefix, { recursive: true, force: true });
+    }
+  },
+);
 
 it("binds complete pip revisions, rejects stale approvals, and restores the previous revision", async () => {
   const root = await mkdtemp(join(tmpdir(), "pi-science-pip-revisions-"));

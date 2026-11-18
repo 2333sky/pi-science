@@ -38,6 +38,16 @@ export async function installPythonWheels(
   signal?: AbortSignal,
 ): Promise<PythonWheelArtifact[]> {
   const packages = normalizePythonPackageSpecs(specs, 512);
+  const [pipMajor = 0, pipMinor = 0] =
+    constraints
+      .find((pin) => pin.startsWith("pip=="))
+      ?.slice(5)
+      .split(".", 2)
+      .map(Number) ?? [];
+  // pip 24.2+ uses macOS trust services by default. Use the CA bundle supplied
+  // by the sandbox launcher instead of relying on those services from inside it.
+  const useBundledCertificates =
+    process.platform === "darwin" && (pipMajor > 24 || (pipMajor === 24 && pipMinor >= 2));
   prefix = await realpath(prefix);
   const temporary = await mkdtemp(join(await realpath(tmpdir()), "pi-science-wheel-install-"));
   try {
@@ -57,6 +67,7 @@ export async function installPythonWheels(
         "-m",
         "pip",
         "--isolated",
+        ...(useBundledCertificates ? ["--use-deprecated=legacy-certs"] : []),
         "--disable-pip-version-check",
         "--no-cache-dir",
         "--no-input",
