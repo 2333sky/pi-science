@@ -36,7 +36,7 @@ export function NativeModelSettings({ onConfigReload }: { onConfigReload?: () =>
   const [refreshing, setRefreshing] = useState(false);
   const [issues, setIssues] = useState<Array<{ provider: CatalogProvider; code: DiscoveryErrorCode | "discovery_review" | "discovery_selection"; candidates?: DiscoveredModel[] }>>([]);
   const refresh = async () => {
-    await Promise.all([client.invalidateQueries({ queryKey: ["model-config"] }), client.invalidateQueries({ queryKey: ["settings"] }), client.invalidateQueries({ queryKey: ["model-resources"] })]);
+    await Promise.all([client.invalidateQueries({ queryKey: ["model-config"] }), client.invalidateQueries({ queryKey: ["settings"] })]);
   };
   // Refresh re-reads the runtime catalog, then re-runs discovery for custom connections: new
   // models are appended and reported capabilities are rewritten in place. Removal stays a manual edit.

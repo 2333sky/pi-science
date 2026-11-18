@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apiErrorMessage, apiRequest } from "./api";
+import { request } from "./http";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -49,4 +50,15 @@ describe("apiRequest", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("plain", { status: 200 })));
     await expect(apiRequest("/api/example")).resolves.toBe("plain");
   });
+});
+
+it("honors the caller signal when a request also has a timeout", async () => {
+  const controller = new AbortController();
+  const reason = new Error("View closed");
+  vi.stubGlobal("fetch", vi.fn((_input: unknown, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+  })));
+  const response = request("/api/example", { signal: controller.signal, timeoutMs: 2000 });
+  controller.abort(reason);
+  await expect(response).rejects.toBe(reason);
 });

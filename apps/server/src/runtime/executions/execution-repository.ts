@@ -142,14 +142,7 @@ export class ExecutionRepository {
         "SELECT record_json FROM execution_records WHERE workspace_path = ?",
         [resolve(cwd)],
       );
-      return rows.flatMap((row) => {
-        try {
-          const parsed = executionRecordSchema.safeParse(JSON.parse(row.record_json));
-          return parsed.success ? [parsed.data] : [];
-        } catch {
-          return [];
-        }
-      });
+      return rows.map(({ record_json }) => parseExecutionRecord(record_json)).filter(isRecord);
     }
     return [...(await this.snapshot(cwd)).records.values()];
   }
@@ -206,6 +199,13 @@ export class ExecutionRepository {
   }
 
   async query(cwd: string, options: ExecutionQuery = {}) {
+    const limit = Number.isFinite(options.limit)
+      ? Math.min(1_000, Math.max(1, Math.floor(options.limit!)))
+      : 100;
+    const offset = Number.isFinite(options.offset) ? Math.max(0, Math.floor(options.offset!)) : 0;
+    if (this.store && !options.search?.trim() && !options.from && !options.to && !options.target_id)
+      return this.queryPage(this.store, cwd, options, limit, offset);
+
     let records = await this.records(cwd);
     if (options.session_id)
       records = records.filter((record) => record.correlation.session_id === options.session_id);
@@ -251,10 +251,6 @@ export class ExecutionRepository {
           .toLocaleLowerCase()
           .includes(needle),
       );
-    const limit = Number.isFinite(options.limit)
-      ? Math.min(1_000, Math.max(1, Math.floor(options.limit!)))
-      : 100;
-    const offset = Number.isFinite(options.offset) ? Math.max(0, Math.floor(options.offset!)) : 0;
     records.sort(
       (left, right) =>
         right.created_at.localeCompare(left.created_at) ||
@@ -282,19 +278,78 @@ export class ExecutionRepository {
     };
   }
 
+  private async queryPage(
+    store: SqliteStateStore,
+    cwd: string,
+    options: ExecutionQuery,
+    limit: number,
+    offset: number,
+  ) {
+    const row = await store.get<{
+      page: string;
+      status_counts: string;
+      total: number;
+      filtered_total: number;
+      completed_duration_ms: number;
+      completed_duration_count: number;
+    }>(
+      `WITH scope AS NOT MATERIALIZED (
+        SELECT execution_id, created_at, record_json,
+          json_extract(record_json, '$.kind') AS kind,
+          json_extract(record_json, '$.status') AS status,
+          unixepoch(json_extract(record_json, '$.started_at'), 'subsec') AS started,
+          unixepoch(json_extract(record_json, '$.ended_at'), 'subsec') AS ended
+        FROM execution_records
+        WHERE workspace_path = ?1
+          AND (?2 IS NULL OR json_extract(record_json, '$.correlation.session_id') = ?2)
+      ), counts AS (
+        SELECT status, count(*) AS total,
+          sum(CASE WHEN (?3 IS NULL OR kind = ?3) AND (?4 IS NULL OR status = ?4) THEN 1 ELSE 0 END) AS filtered,
+          sum(CASE WHEN ended >= started THEN round((ended - started) * 1000) ELSE 0 END) AS duration_ms,
+          count(CASE WHEN ended >= started THEN 1 END) AS duration_count
+        FROM scope
+        GROUP BY status
+      ), page AS (
+        SELECT record_json FROM scope
+        WHERE (?3 IS NULL OR kind = ?3) AND (?4 IS NULL OR status = ?4)
+        ORDER BY created_at DESC, execution_id ASC LIMIT ?5 OFFSET ?6
+      )
+      SELECT (SELECT json_group_array(record_json) FROM page) AS page,
+        json_group_object(status, total) AS status_counts,
+        coalesce(sum(total), 0) AS total,
+        coalesce(sum(filtered), 0) AS filtered_total,
+        coalesce(sum(duration_ms), 0) AS completed_duration_ms,
+        coalesce(sum(duration_count), 0) AS completed_duration_count
+      FROM counts`,
+      [
+        resolve(cwd),
+        options.session_id || null,
+        options.kind ?? null,
+        options.status ?? null,
+        limit,
+        Math.min(offset, Number.MAX_SAFE_INTEGER),
+      ],
+    );
+    if (!row) throw new Error("Execution page query returned no summary");
+    return {
+      total: row.total,
+      filtered_total: row.filtered_total,
+      completed_duration_ms: row.completed_duration_ms,
+      completed_duration_count: row.completed_duration_count,
+      executions: (JSON.parse(row.page) as string[]).map(parseExecutionRecord).filter(isRecord),
+      status_counts: JSON.parse(row.status_counts) as Partial<Record<ExecutionStatus, number>>,
+      limit,
+      offset,
+    };
+  }
+
   async get(cwd: string, executionId: string): Promise<ExecutionRecord | null> {
     if (this.store) {
       const row = await this.store.get<{ record_json: string }>(
         "SELECT record_json FROM execution_records WHERE execution_id = ? AND workspace_path = ?",
         [executionId, resolve(cwd)],
       );
-      if (!row) return null;
-      try {
-        const parsed = executionRecordSchema.safeParse(JSON.parse(row.record_json));
-        return parsed.success ? parsed.data : null;
-      } catch {
-        return null;
-      }
+      return row ? parseExecutionRecord(row.record_json) : null;
     }
     return structuredClone((await this.snapshot(cwd)).records.get(executionId) ?? null);
   }
@@ -452,6 +507,15 @@ export class ExecutionRepository {
       emitExecutionEvent(cwd, appended);
     }
   }
+}
+
+function parseExecutionRecord(json: string): ExecutionRecord | null {
+  const result = executionRecordSchema.safeParse(JSON.parse(json));
+  return result.success ? result.data : null;
+}
+
+function isRecord(record: ExecutionRecord | null): record is ExecutionRecord {
+  return record !== null;
 }
 
 export function executionRecordFromStart(

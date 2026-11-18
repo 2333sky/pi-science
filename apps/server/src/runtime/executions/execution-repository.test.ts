@@ -47,6 +47,60 @@ describe("ExecutionRepository", () => {
     }
   });
 
+  it("paginates SQLite records while returning the full session summary", async () => {
+    const { InMemorySqliteStateStore } = await import("../../storage/sqlite/state-store.js");
+    const cwd = await workspace();
+    const state = new InMemorySqliteStateStore();
+    await state.start();
+    try {
+      const repository = new ExecutionRepository(state);
+      const created_at = "2026-01-01T00:00:00.000Z";
+      for (const [id, session] of [
+        ["b", "s1"],
+        ["a", "s1"],
+        ["other", "s2"],
+      ]) {
+        await repository.start(cwd, {
+          execution_id: id,
+          kind: "tool",
+          surface: "pi",
+          producer: "test",
+          created_at,
+          correlation: { session_id: session },
+        });
+      }
+      await repository.finish(cwd, "a", {
+        status: "succeeded",
+        producer: "test",
+        ended_at: "2026-01-01T00:00:00.123Z",
+      });
+      expect(await repository.query(cwd, { session_id: "s1", limit: 1 })).toMatchObject({
+        executions: [{ execution_id: "a" }],
+        total: 2,
+        filtered_total: 2,
+        completed_duration_ms: 123,
+        completed_duration_count: 1,
+        status_counts: { running: 1, succeeded: 1 },
+      });
+      expect(
+        await repository.query(cwd, { session_id: "s1", status: "running", offset: 1 }),
+      ).toMatchObject({
+        executions: [],
+        total: 2,
+        filtered_total: 1,
+        status_counts: { running: 1, succeeded: 1 },
+      });
+      expect(await repository.query(cwd, { session_id: "missing" })).toMatchObject({
+        executions: [],
+        total: 0,
+        filtered_total: 0,
+        status_counts: {},
+      });
+    } finally {
+      await state.close();
+    }
+  });
+
   it("preserves newer SQLite execution status when legacy rows are imported again", async () => {
     const { SqliteStateStore } = await import("../../storage/sqlite/state-store.js");
     const cwd = await workspace();
