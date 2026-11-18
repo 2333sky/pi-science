@@ -506,6 +506,7 @@ class Transaction {
     if (automatic)
       rows = rows.filter(
         (r) =>
+          (i.scope === "profile" || r.scope !== "profile") &&
           r.status === "active" &&
           (!r.reviewRequired ||
             (r.reviewStatus === "approved" && r.approvedContentHash === r.contentHash)) &&
@@ -784,14 +785,12 @@ class Transaction {
           0,
           settings.recall.maxProfileItems,
         );
-        const ranked = (String(i.q ?? "").trim() ? this.search(i, true) : []).filter(
-          (r) => r.scope !== "profile",
-        );
+        const ranked =
+          i.scope !== "profile" && String(i.q ?? "").trim() ? this.search(i, true) : [];
         let budget = settings.recall.maxTokensPerTurn * 3;
         let profileBudget = 4800;
         const records: MemoryRecord[] = [];
         for (const r of [...profile, ...ranked]) {
-          if (records.some((x) => x.id === r.id)) continue;
           const size = JSON.stringify(r).length;
           if (size > budget || (r.scope === "profile" && size > profileBudget)) continue;
           budget -= size;
