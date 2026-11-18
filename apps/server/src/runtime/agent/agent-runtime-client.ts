@@ -10,6 +10,7 @@ import { EventEmitter } from "node:events";
 import { runtimeApprovalQueue } from "./approval-queue.js";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { configPath } from "../../storage/persistence.js";
 import { AgentRuntimeExitedError, AgentRuntimeTimeoutError } from "./agent-runtime-errors.js";
 import type { AgentRuntime, RuntimeResult, RuntimeSkillPolicy } from "./agent-runtime-types.js";
 import {
@@ -213,6 +214,7 @@ export class AgentCoreRuntimeClient extends EventEmitter implements AgentRuntime
     }
     const launch = {
       ...options,
+      executionDatabasePath: options.executionDatabasePath ?? configPath("state.sqlite"),
       settings: {
         ...options.settings,
         modelConfigBackend: backend,

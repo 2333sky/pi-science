@@ -1,5 +1,5 @@
 import { ProjectArchives } from "../../components/runs/ProjectArchives";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Activity, AlignLeft, Braces, FileSearch, Loader2, Play, AlertTriangle } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -86,11 +86,18 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   const loading = runsResult.isFetching;
   const pageSelected = runs.find((run) => run.execution_id === selectedId);
   const targetResult = useQuery({ ...runQuery(workspaceCwd, selectedId ?? ""), enabled: Boolean(selectedId && !pageSelected) });
-  // Locate explicit cross-page targets separately; selecting a visible row never changes the list key.
+  // Fetch page coordinates only when the user explicitly asks to locate the record.
   const targetPageQuery = runsPageQuery(workspaceCwd, { ...pageFilters, target_id: selectedId ?? undefined }, liveConnected);
-  const targetPageResult = useQuery({ ...targetPageQuery, queryKey: [...targetPageQuery.queryKey, "target-location"], enabled: Boolean(!invalidRange && selectedId && !pageSelection && runsResult.data && !pageSelected && targetResult.data) });
-  const targetPage = !pageSelection && !pageSelected ? targetPageResult.data : undefined;
+  const targetPageResult = useQuery({ ...targetPageQuery, queryKey: [...targetPageQuery.queryKey, "target-location"], enabled: false });
+  const locationRequest = useRef<symbol | undefined>(undefined);
+  useLayoutEffect(() => () => {
+    locationRequest.current = undefined;
+  }, [workspaceCwd, sessionId, searchParams]);
   const selected = pageSelected || (targetResult.data?.execution_id === selectedId ? targetResult.data : undefined);
+  const targetOutsideFilters = Boolean(
+    (activeSessionId && selected?.correlation.session_id !== activeSessionId) ||
+    targetPageResult.data?.target_matches === false,
+  );
   const hasSessionKernel = Boolean(sessionId && activeSessionId === sessionId && runs.some((run) => run.kind === "kernel_cell"));
 
   useEffect(() => subscribeExecutionInvalidation(workspaceCwd, { onConnectionChange: setLiveConnected }), [workspaceCwd]);
@@ -105,10 +112,6 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   useEffect(() => {
     if (runsResult.error) toast(runsResult.error instanceof Error ? runsResult.error.message : t("runs.loadError"), "error");
   }, [runsResult.error, t, toast]);
-
-  useEffect(() => {
-    if (targetPageResult.error) toast(targetPageResult.error instanceof Error ? targetPageResult.error.message : t("runs.loadError"), "error");
-  }, [targetPageResult.error, t, toast]);
 
   const logQuery = runLogQuery(workspaceCwd, selected?.execution_id ?? "");
   const logResult = useQuery({ ...logQuery,
@@ -128,12 +131,19 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     setDetailTab("summary");
   };
 
-  const locateTarget = () => {
-    if (targetPage?.target_offset != null) {
-      updateRoute({ offset: String(targetPage.target_offset), detail: "0" });
-    } else {
-      // Keep the target ID and relax restrictions explicitly; never substitute a row.
+  const locateTarget = async () => {
+    if (targetOutsideFilters) {
       updateRoute({ scope: "workspace", offset: null, search: null, kind: null, status: null, from: null, to: null, detail: "0" });
+      return;
+    }
+    const request = Symbol();
+    locationRequest.current = request;
+    const result = await targetPageResult.refetch();
+    if (locationRequest.current !== request) return;
+    if (result.error) {
+      toast(result.error instanceof Error ? result.error.message : t("runs.loadError"), "error");
+    } else if (result.data?.target_offset != null) {
+      updateRoute({ offset: String(result.data.target_offset), detail: "0" });
     }
   };
 
@@ -188,14 +198,14 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
   const failures = counts ? ["failed", "timed_out", "interrupted", "lost", "cancelled"].reduce((sum, key) => sum + (counts[key] || 0), 0) : undefined;
   const duration = runsResult.data?.completed_duration_count === 0 ? undefined : runsResult.data?.completed_duration_ms;
   const detailError = targetResult.error;
-  const outsidePage = Boolean(selected && !pageSelected && !loading && targetPage);
+  const outsidePage = Boolean(selected && !pageSelection && !pageSelected && !invalidRange && runsResult.data);
 
   return <WorkspacePage className="runs-page">
     <button type="button" className="text-sm text-accent" onClick={()=>setShowArchives(v=>!v)}>{t("memory.archives")}</button>
     {showArchives&&<ProjectArchives cwd={workspaceCwd} onError={message=>{if(message)toast(message,"error");}}/>}
     <WorkspacePageHeader title={t("runs.title")} description={<span title={activeSessionId}>{scopeLabel}{contextTitle && ` · ${contextTitle}`}</span>} actions={<>
       {hasSessionKernel && <button type="button" onClick={() => openInspector({ variant: "notebook-panel" })} className="flex min-h-9 items-center gap-2 rounded-input border border-border bg-surface px-3 text-sm text-text"><Braces size={15} />{t("notebook.openSessionKernel")}</button>}
-      <WorkspacePageRefreshButton label={t("common.refresh")} loading={loading} onClick={() => { void runsResult.refetch(); if (selectedId && !pageSelected) void targetResult.refetch(); if (targetPage) void targetPageResult.refetch(); }} />
+      <WorkspacePageRefreshButton label={t("common.refresh")} loading={loading} onClick={() => { void runsResult.refetch(); if (selectedId && !pageSelected) void targetResult.refetch(); }} />
     </>} />
 
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
@@ -228,7 +238,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
           : <ExecutionLedger runs={runs} selectedId={selected?.execution_id ?? null} onSelect={selectExecution} groupBySession={groupBySession} sessionTitles={sessionTitles} showSession={!activeSessionId} />)
           : <section className="runs-ledger-pane min-w-0">{loading ? <div className="p-10 text-center text-muted"><Loader2 className="mx-auto animate-spin" size={20} />{t("common.loading")}</div> : runsResult.error ? <EmptyState icon={<AlertTriangle size={32} />} title={t("runs.loadError")} hint={String(runsResult.error)} /> : <EmptyState icon={search || kind || status || from || to ? <FileSearch size={36} /> : <Play size={36} />} title={t(search || kind || status || from || to ? "runs.noMatches" : "runs.empty")} hint={t(search || kind || status || from || to ? "runs.noMatchesHint" : "runs.emptyHint")} />}</section>}
         <section aria-label={t("runs.details")} className="runs-detail-pane min-w-0 bg-bg/40">
-          {outsidePage && <div role="status" className="shrink-0 border-b border-border bg-surface-2 px-4 py-3 text-sm text-text"><p>{t(targetPage?.target_matches === false ? "runs.targetOutsideFilters" : "runs.targetOutsidePage")}</p><button type="button" onClick={locateTarget} className="mt-2 rounded-input border border-border bg-surface px-3 py-1.5 text-xs font-medium">{t(targetPage?.target_offset != null ? "runs.locateTargetPage" : "runs.relaxTargetFilters")}</button></div>}
+          {outsidePage && <div role="status" className="shrink-0 border-b border-border bg-surface-2 px-4 py-3 text-sm text-text"><p>{t(targetOutsideFilters ? "runs.targetOutsideFilters" : "runs.targetOutsidePage")}</p><button type="button" onClick={() => void locateTarget()} disabled={targetPageResult.isFetching} className="mt-2 rounded-input border border-border bg-surface px-3 py-1.5 text-xs font-medium disabled:opacity-50">{t(targetPageResult.isFetching ? "common.loading" : targetOutsideFilters ? "runs.relaxTargetFilters" : "runs.locateTargetPage")}</button></div>}
           {selected ? <ExecutionDetails run={selected} tab={detailTab} onTabChange={setDetailTab} onBack={() => updateRoute({ detail: "0" }, true)} onCopy={(text, message) => void copyText(text, message)} onOpenFile={openFile} onOpenArtifact={(artifact) => void openArtifact(artifact)}
             onOpenSession={selected.correlation.session_id && selected.correlation.session_id !== sessionId ? () => openSession(selected) : undefined}
             onLocate={sessionId && selected.correlation.session_id === sessionId && selected.correlation.tool_call_id ? () => locateExecution(selected) : undefined}

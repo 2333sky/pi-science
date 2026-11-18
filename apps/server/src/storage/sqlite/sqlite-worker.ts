@@ -1,5 +1,9 @@
 import { ApplicationError } from "../../modules/application-error.js";
 import { executeMemory } from "../../memory/repository.js";
+import {
+  executionMatchesSearch,
+  parseExecutionRecord,
+} from "../../runtime/executions/execution-search.js";
 import { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
 import type {
@@ -19,6 +23,16 @@ const databasePath = String(
 if (!databasePath) throw new Error("SQLite worker database path is missing");
 
 const database = new DatabaseSync(databasePath, { timeout: 5_000, allowExtension: false });
+// Match JSONL behavior for Unicode search and imported timestamp formats.
+database.function("execution_timestamp", { deterministic: true }, (value) => {
+  const timestamp = typeof value === "string" ? Date.parse(value) : NaN;
+  return Number.isFinite(timestamp) ? timestamp : null;
+});
+database.function("execution_matches_search", { deterministic: true }, (json, needle) => {
+  if (typeof json !== "string" || typeof needle !== "string") return 0;
+  const record = parseExecutionRecord(json);
+  return record && executionMatchesSearch(record, needle) ? 1 : 0;
+});
 database.exec(
   "PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA synchronous = FULL; PRAGMA temp_store = MEMORY;",
 );
@@ -101,7 +115,6 @@ function runMigrations(migrations: Migration[]) {
   const applied = database
     .prepare("SELECT version, name, checksum FROM schema_migrations ORDER BY version")
     .all() as Array<{ version: number; name: string; checksum: string }>;
-  const appliedByVersion = new Map(applied.map((row) => [row.version, row]));
   for (const row of applied) {
     const migration = migrations.find((item) => item.version === row.version);
     if (
@@ -119,16 +132,37 @@ function runMigrations(migrations: Migration[]) {
     throw new Error(
       `SQLite database schema version ${latestApplied} is newer than supported version ${latestSupported}`,
     );
-  const pending = migrations.filter((migration) => !appliedByVersion.has(migration.version));
+  const pending = migrations.filter(
+    (migration) => !applied.some((row) => row.version === migration.version),
+  );
+  const readApplied = database.prepare(
+    "SELECT name, checksum FROM schema_migrations WHERE version = ?",
+  );
   for (const migration of pending) {
     database.exec("BEGIN IMMEDIATE");
     try {
-      database.exec(migration.sql);
-      database
-        .prepare(
-          "INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
-        )
-        .run(migration.version, migration.name, migration.checksum, Date.now());
+      // A second process may have applied this migration while we waited for the lock.
+      const existing = readApplied.get(migration.version) as
+        | { name: string; checksum: string }
+        | undefined;
+      if (existing) {
+        if (
+          existing.name !== migration.name ||
+          (existing.checksum !== migration.checksum &&
+            !migration.compatibleChecksums?.includes(existing.checksum))
+        ) {
+          throw new Error(
+            `SQLite migration checksum mismatch at version ${migration.version} (${existing.name})`,
+          );
+        }
+      } else {
+        database.exec(migration.sql);
+        database
+          .prepare(
+            "INSERT INTO schema_migrations (version, name, checksum, applied_at) VALUES (?, ?, ?, ?)",
+          )
+          .run(migration.version, migration.name, migration.checksum, Date.now());
+      }
       database.exec("COMMIT");
     } catch (error) {
       try {

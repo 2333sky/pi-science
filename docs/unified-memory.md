@@ -32,8 +32,7 @@ Retain the original files/export until the reviewed transfer is verified.
 
 Memory starts enabled with automatic recall and smart review. Extraction and
 Dream can be enabled independently in Settings → Memory.
-Persistent SQLite state is required outside tests; disabling it with
-`PI_SCIENCE_SQLITE_STATE=0` prevents enabling Memory.
+Memory requires persistent SQLite state outside tests.
 
 The application currently has a trusted local owner, authenticated through the
 existing control-plane token/cookie. Model-supplied owner/origin/reviewer strings
