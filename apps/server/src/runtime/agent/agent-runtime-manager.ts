@@ -52,7 +52,10 @@ export async function closeIdleWorkspaceRuntimes(cwd: string): Promise<void> {
 
 /** Owns one child process per durable session and deduplicates concurrent opens. */
 export class AgentRuntimeManager {
-  constructor(private readonly onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>) {}
+  constructor(
+    private readonly onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>,
+    private readonly executionDatabasePath?: string,
+  ) {}
   private readonly retirements = new Map<string, { runtime: AgentCoreRuntimeClient; drain?: () => Promise<void> }>();
   private readonly pendingStops = new Map<string, Promise<void>>();
   private readonly runtimes = new Map<string, AgentCoreRuntimeClient>();
@@ -143,7 +146,11 @@ export class AgentRuntimeManager {
     }
     if (requestedOwner) processOwners.set(requestedOwner, slot);
     let runtime: AgentCoreRuntimeClient;
-    try { runtime = await AgentCoreRuntimeClient.start({ ...options, deferActivation: true }); }
+    try { runtime = await AgentCoreRuntimeClient.start({
+      ...options,
+      executionDatabasePath: this.executionDatabasePath ? resolve(this.executionDatabasePath) : undefined,
+      deferActivation: true,
+    }); }
     catch (error) { capacity.delete(slot); if (requestedOwner) processOwners.delete(requestedOwner); throw error; }
     const release = () => {
       capacity.delete(slot);

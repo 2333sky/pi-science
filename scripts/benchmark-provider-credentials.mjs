@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { buildApp } from "../apps/server/dist/app/app.js";
 import { createServerModules } from "../apps/server/dist/app/server-modules.js";
+import { CredentialStore } from "../apps/server/dist/model-resources/credential-store.js";
 import { ModelConfigService } from "../apps/server/dist/model-config/model-config-service.js";
 import { writeJsonAtomic } from "../apps/server/dist/storage/persistence.js";
 
@@ -21,7 +22,7 @@ const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.l
 let app;
 try {
   const modules = createServerModules(config, { sqliteEnabled: false });
-  const template = await modules.modelResources.credentials.put({ id: "benchmark-key", kind: "api_key", backend: "managed", secret: "synthetic-benchmark-key" });
+  const template = await new CredentialStore().put({ id: "benchmark-key", kind: "api_key", backend: "managed", secret: "synthetic-benchmark-key" });
   const native = new ModelConfigService();
   const providers = {};
   const references = {};

@@ -47,6 +47,40 @@ describe("ExecutionRepository", () => {
     }
   });
 
+  it("preserves newer SQLite execution status when legacy rows are imported again", async () => {
+    const { SqliteStateStore } = await import("../../storage/sqlite/state-store.js");
+    const cwd = await workspace();
+    const state = new SqliteStateStore({ path: join(cwd, "state.sqlite") });
+    await state.start();
+    try {
+      const legacy = new ExecutionRepository();
+      const repository = new ExecutionRepository(state);
+      const started = await legacy.start(cwd, {
+        kind: "tool",
+        surface: "pi",
+        producer: "test",
+      });
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 1 });
+      await repository.finish(cwd, started.execution_id, {
+        status: "succeeded",
+        producer: "test",
+        result: { output_preview: "kept" },
+      });
+
+      await state.close();
+      await state.start();
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 0 });
+      await legacy.start(cwd, { kind: "tool", surface: "pi", producer: "test" });
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 1 });
+      expect(await repository.get(cwd, started.execution_id)).toMatchObject({
+        status: "succeeded",
+        result: { output_preview: "kept" },
+      });
+    } finally {
+      await state.close();
+    }
+  });
+
   it("reduces a lifecycle into one queryable execution", async () => {
     const cwd = await workspace();
     const repository = new ExecutionRepository();

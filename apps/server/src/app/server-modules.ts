@@ -114,7 +114,10 @@ export function createServerModules(
     sqliteEnabled || process.env.NODE_ENV === "test",
   );
   const agentCore = new AgentCoreSessionService(events, environments, sessionServer, {
-    manager: new AgentRuntimeManager(sessionServer.onWorkerExit),
+    manager: new AgentRuntimeManager(
+      sessionServer.onWorkerExit,
+      sqliteEnabled && stateStore.databasePath !== ":memory:" ? stateStore.databasePath : undefined,
+    ),
     repository: new AgentSessionRepository(),
     registry: new AgentSessionRegistry(),
     turns: new DurableTurnLifecycle(events),

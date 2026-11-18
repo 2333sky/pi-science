@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { performance } from "node:perf_hooks";
 import { buildApp } from "../apps/server/dist/app/app.js";
 import { createServerModules } from "../apps/server/dist/app/server-modules.js";
+import { CredentialStore } from "../apps/server/dist/model-resources/credential-store.js";
 import { ModelConfigService } from "../apps/server/dist/model-config/model-config-service.js";
 import { agentModelCatalog } from "../apps/server/dist/runtime/agent/worker/agent-models.js";
 
@@ -25,7 +26,7 @@ try {
   const native = new ModelConfigService();
   const providers = {};
   const references = {};
-  const credential = await modules.modelResources.credentials.put({ id: "benchmark-key", kind: "api_key", backend: "managed", secret: "synthetic-benchmark-credential" });
+  await new CredentialStore().put({ id: "benchmark-key", kind: "api_key", backend: "managed", secret: "synthetic-benchmark-credential" });
   for (let provider = 0; provider < 100; provider++) {
     const id = `user-lab${provider}`;
     providers[id] = { name: `Lab ${provider}`, api: "openai-completions", baseUrl: "http://127.0.0.1:9/v1", models: Array.from({ length: 100 }, (_, model) => ({ id: `model-${model}`, name: `Model ${provider}-${model}`, reasoning: false, contextWindow: 65536, maxTokens: 8192 })) };

@@ -119,7 +119,7 @@ export class ExecutionRepository {
     const before = await fileSignature(path);
     const cached = this.snapshots.get(path);
     if (cached && cached.signature === before) return cached;
-    const events = await this.events(cwd);
+    const events = await this.readLegacyEvents(cwd);
     const records = new Map(
       reduceExecutionEvents(events).map((record) => [record.execution_id, record]),
     );
@@ -160,6 +160,10 @@ export class ExecutionRepository {
 
   async events(cwd: string): Promise<ExecutionEvent[]> {
     if (this.store) return [];
+    return this.readLegacyEvents(cwd);
+  }
+
+  private async readLegacyEvents(cwd: string): Promise<ExecutionEvent[]> {
     const rows = await readJsonLines<unknown>(this.path(cwd));
     return rows.flatMap((row) => {
       const parsed = executionEventSchema.safeParse(row);
@@ -171,15 +175,28 @@ export class ExecutionRepository {
     if (!this.store) return { records: 0 };
     let records = 0;
     for (const cwd of workspaces) {
-      const rows = await readJsonLines<unknown>(this.path(cwd));
-      const events = rows.flatMap((row) => {
-        const parsed = executionEventSchema.safeParse(row);
-        return parsed.success ? [parsed.data] : [];
-      });
-      const reduced = reduceExecutionEvents(events);
-      if (!reduced.length) continue;
-      await this.store.batch(reduced.map((record) => executionRecordInsert(record, true)));
-      records += reduced.length;
+      const path = this.path(cwd);
+      const signature = await fileSignature(path);
+      if (!signature) continue;
+      const source = `execution:${resolve(path)}`;
+      const imported = await this.store.get<{ source_fingerprint: string }>(
+        "SELECT source_fingerprint FROM legacy_imports WHERE source = ?",
+        [source],
+      );
+      if (imported?.source_fingerprint === signature) continue;
+      const reduced = [...(await this.snapshot(cwd)).records.values()];
+      const results = await this.store.batch([
+        ...reduced.map(executionRecordInsert),
+        {
+          sql: `INSERT INTO legacy_imports (source, source_fingerprint, imported_at, row_count)
+            VALUES (?, ?, ?, ?) ON CONFLICT(source) DO UPDATE SET
+            source_fingerprint = excluded.source_fingerprint,
+            imported_at = excluded.imported_at,
+            row_count = excluded.row_count`,
+          params: [source, signature, Date.now(), reduced.length],
+        },
+      ]);
+      records += results.slice(0, -1).reduce((sum, result) => sum + Number(result.changes), 0);
     }
     return { records };
   }
@@ -462,17 +479,13 @@ export function executionRecordFromStart(
   });
 }
 
-export function executionRecordInsert(record: ExecutionRecord, replace = false): SqlStatement {
+export function executionRecordInsert(record: ExecutionRecord): SqlStatement {
   const createdAt = Date.parse(record.created_at);
   return {
     sql: `INSERT INTO execution_records
       (execution_id, workspace_path, record_json, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?)
-      ON CONFLICT(execution_id) DO ${
-        replace
-          ? "UPDATE SET workspace_path = excluded.workspace_path, record_json = excluded.record_json, created_at = excluded.created_at, updated_at = excluded.updated_at"
-          : "NOTHING"
-      }`,
+      ON CONFLICT(execution_id) DO NOTHING`,
     params: [
       record.execution_id,
       record.workspace_id,

@@ -1,3 +1,5 @@
+import { SqliteStateStore } from "../../../storage/sqlite/state-store.js";
+import { ExecutionRepository, executionRepository } from "../../executions/execution-repository.js";
 import { McpExecutionClock } from "./mcp-execution-clock.js";
 import { value } from "@earendil-works/pi-agent-core/node";
 import { networkApprovalEndpoint } from "../../sandbox/network-approval-channel.js";
@@ -196,6 +198,7 @@ export class SessionRuntime {
     publish: (event: RuntimeEvent) => void,
     fatal: (error: unknown) => void,
     acquireApproval?: AcquireApproval,
+    executionStore?: SqliteStateStore,
   ): Promise<SessionRuntime> {
     if (options.initialApproval) initialSessionApprovalSchema.parse(options.initialApproval);
     const runtimeEpoch = randomUUID();
@@ -209,6 +212,7 @@ export class SessionRuntime {
       throw new Error("agent sessions root must be workspace-local");
     const models = agentModels(options.settings);
     const environment = toolEnvironment(options.env ?? {});
+    const executions = executionStore ? new ExecutionRepository(executionStore) : executionRepository;
     const executionEnv = new NodeExecutionEnv({ cwd: options.cwd, shellEnv: environment });
     const repo = new JsonlSessionRepo({ fileSystem: executionEnv, sessionsRoot: requiredRoot });
     const interactions = new InteractionBridge(emit, acquireApproval);
@@ -434,7 +438,10 @@ export class SessionRuntime {
               ),
               sandboxIdentity,
             ),
-            budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories)),
+            budgets.wrap(sandboxBashTool(sandboxIdentity, environment, currentSkillDirectories, async () => {
+              await executionStore?.start();
+              return executions;
+            })),
             workspaceFileTool(
               createEditTool(),
               options.cwd,

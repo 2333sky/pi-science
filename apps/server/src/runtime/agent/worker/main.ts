@@ -1,9 +1,11 @@
+import { SqliteStateStore } from "../../../storage/sqlite/state-store.js";
 import type { RuntimeResult } from "../agent-runtime-types.js";
 import { workerRequestSchema, type WorkerEvent } from "./protocol.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 
 let runtime: SessionRuntime | undefined;
+let executionStore: SqliteStateStore | undefined;
 let shuttingDown = false;
 const approvals = new ApprovalBridge(send);
 
@@ -32,10 +34,12 @@ async function handle(input: unknown): Promise<void> {
   try {
     if (message.type === "initialize") {
       if (runtime) throw new Error("worker is already initialized");
+      if (message.options.executionDatabasePath)
+        executionStore = new SqliteStateStore({ path: message.options.executionDatabasePath });
       runtime = await SessionRuntime.open(message.options, (event) => send({ type: "runtime_event", event }), (error) => {
         send({ type: "fatal", error: error instanceof Error ? error.message : String(error) });
         process.exit(1);
-      }, approvals.acquire);
+      }, approvals.acquire, executionStore);
       send({ type: "ready", sessionId: runtime.sessionId });
       send({ type: "result", requestId: message.requestId, result: { success: true, data: { sessionId: runtime.sessionId } } });
       return;
@@ -57,6 +61,7 @@ async function shutdown(): Promise<void> {
   shuttingDown = true;
   try { await runtime?.close(); }
   catch (error) { send({ type: "fatal", error: String(error) }); }
+  await executionStore?.close().catch((error) => send({ type: "fatal", error: String(error) }));
   process.exit(0);
 }
 
