@@ -7,7 +7,7 @@ import {
 import { join, resolve } from "node:path";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import { metadataRoot } from "../../storage/persistence.js";
-import { AgentCoreRuntimeClient } from "./agent-runtime-client.js";
+import { AgentCoreRuntimeClient, type HandleEnvironmentOperation } from "./agent-runtime-client.js";
 import { AgentRuntimeCapacityError } from "./agent-runtime-errors.js";
 import type { AgentRuntimeStartOptions } from "./worker/protocol.js";
 import { bindSubagentDispatch } from "./subagent-dispatch.js";
@@ -69,6 +69,7 @@ export class AgentRuntimeManager {
   constructor(
     private readonly onWorkerExit?: (cwd: string, sessionId: string) => Promise<void>,
     private readonly executionDatabasePath?: string,
+    private readonly handleEnvironment?: HandleEnvironmentOperation,
   ) {}
   private readonly retirements = new Map<
     string,
@@ -200,13 +201,17 @@ export class AgentRuntimeManager {
     if (requestedOwner) processOwners.set(requestedOwner, slot);
     let runtime: AgentCoreRuntimeClient;
     try {
-      runtime = await AgentCoreRuntimeClient.start({
-        ...options,
-        executionDatabasePath: this.executionDatabasePath
-          ? resolve(this.executionDatabasePath)
-          : undefined,
-        deferActivation: true,
-      });
+      runtime = await AgentCoreRuntimeClient.start(
+        {
+          ...options,
+          executionDatabasePath: this.executionDatabasePath
+            ? resolve(this.executionDatabasePath)
+            : undefined,
+          deferActivation: true,
+        },
+        undefined,
+        this.handleEnvironment,
+      );
     } catch (error) {
       capacity.delete(slot);
       if (requestedOwner) processOwners.delete(requestedOwner);

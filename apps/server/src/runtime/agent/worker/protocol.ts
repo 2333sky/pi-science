@@ -48,9 +48,42 @@ export interface AgentRuntimeStartOptions {
   credentialEnvNames?: string[];
   /** The session service binds events and applies its snapshot before activation. */
   deferActivation?: boolean;
+  environmentOperations?: boolean;
 }
 
+const environmentBindingSchema = z
+  .object({
+    revisionId: z.string().min(1),
+    environmentId: z.string().min(1),
+    prefix: z.string().min(1),
+  })
+  .strict();
+const environmentOperationSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("binding") }).strict(),
+  z
+    .object({
+      action: z.literal("install"),
+      packages: z.array(z.string().min(1).max(256)).min(1).max(32),
+      expectedRevisionId: z.string().min(1).max(128),
+    })
+    .strict(),
+]);
+const environmentResponseSchema = z
+  .object({
+    type: z.literal("environment_result"),
+    id: z.string().uuid(),
+    result: z.union([
+      z.object({ binding: environmentBindingSchema.nullable() }).strict(),
+      z.object({ error: z.string() }).strict(),
+    ]),
+  })
+  .strict();
+export type EnvironmentBinding = z.infer<typeof environmentBindingSchema>;
+export type EnvironmentOperation = z.infer<typeof environmentOperationSchema>;
+export type EnvironmentResponse = z.infer<typeof environmentResponseSchema>;
+
 export type WorkerCommand =
+  | EnvironmentResponse
   | { type: "approval_granted"; id: string }
   | { type: "initialize"; requestId: string; options: AgentRuntimeStartOptions }
   | ({ type: "command"; requestId: string } & RuntimeCommand)
@@ -58,6 +91,8 @@ export type WorkerCommand =
   | { type: "shutdown" };
 
 export type WorkerEvent =
+  | { type: "environment_request"; id: string; operation: EnvironmentOperation }
+  | { type: "environment_cancel"; id: string }
   | { type: "approval_acquire"; id: string; key: string }
   | { type: "approval_release"; id: string }
   | { type: "ready"; sessionId: string }
@@ -109,10 +144,12 @@ const startOptionsSchema = z
     credentialEnvNames: z.array(z.string()).optional(),
     executionDatabasePath: z.string().min(1).optional(),
     deferActivation: z.boolean().optional(),
+    environmentOperations: z.boolean().optional(),
     initialApproval: initialSessionApprovalSchema.optional(),
   })
   .strict();
 export const workerRequestSchema = z.discriminatedUnion("type", [
+  environmentResponseSchema,
   z.object({ type: z.literal("approval_granted"), id: z.string().uuid() }).strict(),
   z
     .object({
@@ -140,6 +177,15 @@ export const workerRequestSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("shutdown") }).strict(),
 ]);
 export const workerEventSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("environment_request"),
+      id: z.string().uuid(),
+      operation: environmentOperationSchema,
+    })
+    .strict(),
+  z.object({ type: z.literal("environment_cancel"), id: z.string().uuid() }).strict(),
+
   z
     .object({
       type: z.literal("approval_acquire"),

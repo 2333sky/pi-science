@@ -544,6 +544,38 @@ describe.skipIf(
     expect(await readFile(join(prefix, "installed"), "utf8")).toBe("");
     await expect(readFile(join(workspace, "escaped"))).rejects.toThrow();
   }, 30_000);
+  it("forces install isolation for a child process even in trusted-host mode", async () => {
+    const root = await fixture();
+    const prefix = join(root, "new-revision"),
+      scratch = join(root, "installer-scratch");
+    const workspace = join(root, "workspace"),
+      oldRevision = join(root, "old-revision");
+    await mkdir(workspace);
+    await mkdir(oldRevision);
+    await writeFile(join(workspace, "secret.txt"), "fixture");
+    await writeFile(join(oldRevision, "history"), "previous");
+    vi.stubEnv("PI_SCIENCE_EXECUTION_MODE", "trusted-host");
+
+    await runEnvironmentProcess(
+      "/bin/bash",
+      [
+        "-c",
+        `exec /bin/bash -c 'test ! -r "$1" && test ! -w "$2" && touch "$3"' child "$@"`,
+        "installer",
+        join(workspace, "secret.txt"),
+        join(oldRevision, "history"),
+        join(prefix, "installed"),
+      ],
+      prefix,
+      scratch,
+      10_000,
+      {},
+      { requireSandbox: true, restrictNetworkTo: [] },
+    );
+
+    expect(await readFile(join(prefix, "installed"), "utf8")).toBe("");
+    expect(await readFile(join(oldRevision, "history"), "utf8")).toBe("previous");
+  }, 30_000);
   it.skipIf(process.platform !== "darwin")(
     "loads a symlinked Homebrew dylib without granting the directories above it",
     async () => {

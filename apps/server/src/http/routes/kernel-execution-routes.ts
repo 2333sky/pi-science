@@ -56,6 +56,19 @@ export function registerKernelExecutionRoutes(
   kernels: NodeKernelManager,
   executions: ExecutionRepository = executionRepository,
 ): void {
+  const authorizeCurrentRevision = async (
+    cwd: string,
+    revision: string | undefined,
+    grant: string | string[] | undefined,
+  ) => {
+    const binding = await environments.binding(cwd);
+    if (binding?.revision_id !== revision)
+      throw new Error(
+        "The workspace environment changed while this cell was queued. Run the cell again.",
+      );
+    return authorizeKernelPolicy(cwd, revision, grant, config.internalToken, "notebook_run");
+  };
+
   app.get("/api/kernels/status", async () => kernels.status());
 
   app.post("/api/kernels/shutdown-all", async () => {
@@ -197,12 +210,10 @@ export function registerKernelExecutionRoutes(
       const result = await kernels.execute({
         sandboxPolicy: policy,
         authorize: () =>
-          authorizeKernelPolicy(
+          authorizeCurrentRevision(
             cwd,
             environment.revision_id,
             request.headers[SANDBOX_GRANT_HEADER],
-            config.internalToken,
-            "notebook_run",
           ),
         abortSignal: controller.signal,
         language: body.language,
@@ -388,12 +399,10 @@ export function registerKernelExecutionRoutes(
       const result = await kernels.execute({
         sandboxPolicy: policy,
         authorize: () =>
-          authorizeKernelPolicy(
+          authorizeCurrentRevision(
             cwd,
             environment.revision_id,
             request.headers[SANDBOX_GRANT_HEADER],
-            config.internalToken,
-            "notebook_run",
           ),
         abortSignal: controller.signal,
         language: body.language,

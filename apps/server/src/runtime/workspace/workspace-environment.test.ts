@@ -3,7 +3,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { metadataRoot } from "../../storage/persistence.js";
-import { DEFAULT_PACKAGES, DEFAULT_R_PACKAGES, defaultPythonExecutable, environmentPythonExecutable, micromambaDownloadUrl, WorkspaceEnvironmentService, workspaceEnvironmentVariables, type EnvironmentRevision } from "./workspace-environment.js";
+import {
+  DEFAULT_PACKAGES,
+  DEFAULT_R_PACKAGES,
+  defaultPythonExecutable,
+  environmentPythonExecutable,
+  micromambaDownloadUrl,
+  WorkspaceEnvironmentService,
+  workspaceEnvironmentVariables,
+  type EnvironmentRevision,
+} from "./workspace-environment.js";
 
 describe("workspace environment platform defaults", () => {
   it("uses the Windows Python launcher name when no override is configured", () => {
@@ -13,7 +22,9 @@ describe("workspace environment platform defaults", () => {
   });
 
   it("builds the pinned micromamba asset URL for macOS arm64", () => {
-    expect(micromambaDownloadUrl("osx-arm64")).toBe("https://github.com/mamba-org/micromamba-releases/releases/download/2.5.0-2/micromamba-osx-arm64");
+    expect(micromambaDownloadUrl("osx-arm64")).toBe(
+      "https://github.com/mamba-org/micromamba-releases/releases/download/2.5.0-2/micromamba-osx-arm64",
+    );
   });
 
   it("prefers Windows Scripts/python.exe and falls back to prefix-root python.exe", async () => {
@@ -36,27 +47,44 @@ describe("workspace environment platform defaults", () => {
   it("preserves a Windows Path-only value under one canonical PATH key", () => {
     const workspace = "C:\\work\\project";
     const status = {
-      ready: true, workspace, prefix: join(workspace, ".venv"), python: "python.exe", pip: "pip.exe",
+      ready: true,
+      workspace,
+      prefix: join(workspace, ".venv"),
+      python: "python.exe",
+      pip: "pip.exe",
       manager: "micromamba" as const,
-      npm: { local_prefix: workspace, global_prefix: join(workspace, ".pi-science", "npm-global"), cache: join(workspace, ".pi-science", "cache", "npm") },
+      npm: {
+        local_prefix: workspace,
+        global_prefix: join(workspace, ".pi-science", "npm-global"),
+        cache: join(workspace, ".pi-science", "cache", "npm"),
+      },
     };
 
-    const environment = workspaceEnvironmentVariables(status, {
-      Path: "C:\\Windows\\System32",
-      TEMP: "C:\\Temp",
-      VIRTUAL_ENV: "C:\\old-venv",
-      UV_PROJECT_ENVIRONMENT: "C:\\old-venv",
-      PIP_REQUIRE_VIRTUALENV: "1",
-      CONDA_PREFIX: "C:\\miniforge3",
-      CONDA_PREFIX_1: "C:\\miniforge3\\envs\\base",
-      CONDA_DEFAULT_ENV: "base",
-      CONDA_EXE: "C:\\miniforge3\\Scripts\\conda.exe",
-      PI_SCIENCE_PYTHON_EXECUTABLE: "C:\\old-python.exe",
-    }, "win32");
+    const environment = workspaceEnvironmentVariables(
+      status,
+      {
+        Path: "C:\\Windows\\System32",
+        TEMP: "C:\\Temp",
+        VIRTUAL_ENV: "C:\\old-venv",
+        UV_PROJECT_ENVIRONMENT: "C:\\old-venv",
+        PIP_REQUIRE_VIRTUALENV: "1",
+        CONDA_PREFIX: "C:\\miniforge3",
+        CONDA_PREFIX_1: "C:\\miniforge3\\envs\\base",
+        CONDA_DEFAULT_ENV: "base",
+        CONDA_EXE: "C:\\miniforge3\\Scripts\\conda.exe",
+        PI_SCIENCE_PYTHON_EXECUTABLE: "C:\\old-python.exe",
+      },
+      "win32",
+    );
 
-    expect(environment.PATH?.split(";").slice(0, 2)).toEqual([join(status.prefix, "Scripts"), status.prefix]);
+    expect(environment.PATH?.split(";").slice(0, 2)).toEqual([
+      join(status.prefix, "Scripts"),
+      status.prefix,
+    ]);
     expect(environment.PATH?.split(";").at(-1)).toBe("C:\\Windows\\System32");
-    expect(Object.keys(environment).filter((key) => key.toLowerCase() === "path")).toEqual(["PATH"]);
+    expect(Object.keys(environment).filter((key) => key.toLowerCase() === "path")).toEqual([
+      "PATH",
+    ]);
     expect(environment.TEMP).toBe("C:\\Temp");
     expect(environment.VIRTUAL_ENV).toBeUndefined();
     expect(environment.UV_PROJECT_ENVIRONMENT).toBeUndefined();
@@ -71,8 +99,16 @@ describe("workspace environment platform defaults", () => {
   it("redirects global npm/pnpm tooling into the workspace node-tools dir by default", () => {
     const workspace = "/work/project";
     const status = {
-      ready: true, workspace, prefix: join(workspace, ".venv"), python: join(workspace, ".venv", "bin", "python"), pip: join(workspace, ".venv", "bin", "pip"),
-      npm: { local_prefix: workspace, global_prefix: join(workspace, ".pi-science", "node-tools", "npm"), cache: join(workspace, ".pi-science", "cache", "npm") },
+      ready: true,
+      workspace,
+      prefix: join(workspace, ".venv"),
+      python: join(workspace, ".venv", "bin", "python"),
+      pip: join(workspace, ".venv", "bin", "pip"),
+      npm: {
+        local_prefix: workspace,
+        global_prefix: join(workspace, ".pi-science", "node-tools", "npm"),
+        cache: join(workspace, ".pi-science", "cache", "npm"),
+      },
     };
 
     const environment = workspaceEnvironmentVariables(status, { PATH: "/usr/bin" }, "linux");
@@ -102,8 +138,12 @@ describe("workspace environment package mutation", () => {
       const provision = vi.fn(() => new Promise<never>(() => undefined));
       (service as unknown as { provision: typeof provision }).provision = provision;
 
-      await expect(service.ensure("/workspace-timeout")).rejects.toMatchObject({ code: "environment_provision_timeout" });
-      await expect(service.ensure("/workspace-timeout")).rejects.toMatchObject({ code: "environment_provision_timeout" });
+      await expect(service.ensure("/workspace-timeout")).rejects.toMatchObject({
+        code: "environment_provision_timeout",
+      });
+      await expect(service.ensure("/workspace-timeout")).rejects.toMatchObject({
+        code: "environment_provision_timeout",
+      });
       expect(provision).toHaveBeenCalledTimes(1);
     } finally {
       if (previous === undefined) delete process.env.PI_SCIENCE_ENVIRONMENT_PROVISION_TIMEOUT_MS;
@@ -121,32 +161,67 @@ describe("workspace environment package mutation", () => {
     await mkdir(readyPrefix, { recursive: true });
     await writeFile(join(failedPrefix, "partial.txt"), "partial", "utf8");
     await mkdir(join(root, "environments"), { recursive: true });
-    await writeFile(join(root, "environments", "registry.json"), JSON.stringify({
-      schema_version: 1,
-      revisions: [
-        { environment_id: "env_test", revision_id: "rev_failed", name: "failed", display_name: "Failed", language: "python", status: "failed", prefix: failedPrefix, packages: [], platform: "test", created_at: new Date().toISOString(), failure: { stage: "create", message: "failed" } },
-        { environment_id: "env_test", revision_id: "rev_ready", name: "ready", display_name: "Ready", language: "python", status: "ready", prefix: readyPrefix, packages: [], platform: "test", created_at: new Date().toISOString() },
-      ],
-    }), "utf8");
+    await writeFile(
+      join(root, "environments", "registry.json"),
+      JSON.stringify({
+        schema_version: 1,
+        revisions: [
+          {
+            environment_id: "env_test",
+            revision_id: "rev_failed",
+            name: "failed",
+            display_name: "Failed",
+            language: "python",
+            status: "failed",
+            prefix: failedPrefix,
+            packages: [],
+            platform: "test",
+            created_at: new Date().toISOString(),
+            failure: { stage: "create", message: "failed" },
+          },
+          {
+            environment_id: "env_test",
+            revision_id: "rev_ready",
+            name: "ready",
+            display_name: "Ready",
+            language: "python",
+            status: "ready",
+            prefix: readyPrefix,
+            packages: [],
+            platform: "test",
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+      "utf8",
+    );
     const service = new WorkspaceEnvironmentService();
 
     await expect(service.deleteRevision("missing")).resolves.toBeNull();
     await expect(service.deleteRevision("rev_ready")).rejects.toThrow("Only failed or archived");
-    await expect(service.deleteRevision("rev_failed")).resolves.toMatchObject({ revision_id: "rev_failed" });
-    await expect(service.list()).resolves.toEqual([expect.objectContaining({ revision_id: "rev_ready" })]);
+    await expect(service.deleteRevision("rev_failed")).resolves.toMatchObject({
+      revision_id: "rev_failed",
+    });
+    await expect(service.list()).resolves.toEqual([
+      expect.objectContaining({ revision_id: "rev_ready" }),
+    ]);
     await expect(rm(failedPrefix)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("rejects option-like package specs after trimming during create", async () => {
     const service = new WorkspaceEnvironmentService();
-    await expect(service.create({ name: "unsafe", packages: [" --file=/host/packages.txt"] })).rejects.toThrow("Package specs must not start with '-'");
+    await expect(
+      service.create({ name: "unsafe", packages: [" --file=/host/packages.txt"] }),
+    ).rejects.toThrow("Package specs must not start with '-'");
   });
 
   it("rejects option-like package specs after trimming during install", async () => {
     const root = await mkdtemp(join(tmpdir(), "pi-science-env-package-validation-"));
     tempDirs.push(root);
     const service = new WorkspaceEnvironmentService();
-    await expect(service.installPackages(root, [" --file=/host/packages.txt"])).rejects.toThrow("Package specs must not start with '-'");
+    await expect(service.installPackages(root, [" --file=/host/packages.txt"])).rejects.toThrow(
+      "Package specs must not start with '-'",
+    );
   });
 
   it("creates a new immutable revision with merged packages and binds it", async () => {
@@ -169,27 +244,58 @@ describe("workspace environment package mutation", () => {
     await chmod(newPython, 0o755);
     await mkdir(join(root, "environments"), { recursive: true });
     const registryPath = join(root, "environments", "registry.json");
-    await writeFile(registryPath, JSON.stringify({
-      schema_version: 1,
-      revisions: [{
-        environment_id: "env_test", revision_id: "rev_old", name: "test-env", display_name: "Test Env",
-        language: "python", status: "ready", prefix, packages: ["python=3.12", "pip"], platform: `${process.platform}-${process.arch}`,
-        created_at: new Date().toISOString(),
-      }],
-    }), "utf8");
-    await writeFile(join(workspace, ".pi-science", "environment.json"), JSON.stringify({
-      schema_version: 1,
-      environment_id: "env_test", revision_id: "rev_old", bound_at: new Date().toISOString(),
-    }), "utf8");
+    await writeFile(
+      registryPath,
+      JSON.stringify({
+        schema_version: 1,
+        revisions: [
+          {
+            environment_id: "env_test",
+            revision_id: "rev_old",
+            name: "test-env",
+            display_name: "Test Env",
+            language: "python",
+            status: "ready",
+            prefix,
+            packages: ["python=3.12", "pip"],
+            platform: `${process.platform}-${process.arch}`,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(workspace, ".pi-science", "environment.json"),
+      JSON.stringify({
+        schema_version: 1,
+        environment_id: "env_test",
+        revision_id: "rev_old",
+        bound_at: new Date().toISOString(),
+      }),
+      "utf8",
+    );
 
     const service = new WorkspaceEnvironmentService();
     const create = vi.spyOn(service, "create").mockImplementation(async () => {
       const revision = {
-        environment_id: "env_test", revision_id: "rev_new", name: "test-env", display_name: "Test Env",
-        language: "python" as const, status: "ready" as const, prefix: newPrefix, packages: ["python=3.12", "pip", "numpy"],
-        platform: `${process.platform}-${process.arch}`, created_at: new Date().toISOString(), supersedes_revision_id: "rev_old",
+        environment_id: "env_test",
+        revision_id: "rev_new",
+        name: "test-env",
+        display_name: "Test Env",
+        language: "python" as const,
+        status: "ready" as const,
+        prefix: newPrefix,
+        packages: ["python=3.12", "pip", "numpy"],
+        platform: `${process.platform}-${process.arch}`,
+        created_at: new Date().toISOString(),
+        supersedes_revision_id: "rev_old",
       };
-      await writeFile(registryPath, JSON.stringify({ schema_version: 1, revisions: [revision] }), "utf8");
+      await writeFile(
+        registryPath,
+        JSON.stringify({ schema_version: 1, revisions: [revision] }),
+        "utf8",
+      );
       return revision;
     });
 
@@ -198,10 +304,12 @@ describe("workspace environment package mutation", () => {
       revision_id: "rev_new",
       prefix: newPrefix,
     });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      packages: ["python=3.12", "pip", "numpy"],
-      supersedes_revision_id: "rev_old",
-    }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packages: ["python=3.12", "pip", "numpy"],
+        supersedes_revision_id: "rev_old",
+      }),
+    );
     await expect(service.binding(workspace)).resolves.toMatchObject({ revision_id: "rev_new" });
   });
 
@@ -220,32 +328,63 @@ describe("workspace environment package mutation", () => {
     await chmod(python, 0o755);
     await mkdir(join(root, "environments"), { recursive: true });
     const oldRevision: EnvironmentRevision = {
-      environment_id: "env_test", revision_id: "rev_old", name: "test-env", display_name: "Test Env",
-      language: "python", status: "ready", prefix: oldPrefix, packages: ["python=3.12", "pip"],
-      platform: `${process.platform}-${process.arch}`, created_at: new Date().toISOString(),
+      environment_id: "env_test",
+      revision_id: "rev_old",
+      name: "test-env",
+      display_name: "Test Env",
+      language: "python",
+      status: "ready",
+      prefix: oldPrefix,
+      packages: ["python=3.12", "pip"],
+      platform: `${process.platform}-${process.arch}`,
+      created_at: new Date().toISOString(),
     };
     const newRevision = {
-      ...oldRevision, revision_id: "rev_new", prefix: newPrefix, packages: ["python=3.12", "pip", "numpy"],
-      supersedes_revision_id: "rev_old", created_at: new Date().toISOString(),
+      ...oldRevision,
+      revision_id: "rev_new",
+      prefix: newPrefix,
+      packages: ["python=3.12", "pip", "numpy"],
+      supersedes_revision_id: "rev_old",
+      created_at: new Date().toISOString(),
     };
     const registryPath = join(root, "environments", "registry.json");
-    await writeFile(registryPath, JSON.stringify({ schema_version: 1, revisions: [oldRevision] }), "utf8");
-    await writeFile(join(workspace, ".pi-science", "environment.json"), JSON.stringify({
-      schema_version: 1, environment_id: "env_test", revision_id: "rev_old", bound_at: new Date().toISOString(),
-    }), "utf8");
+    await writeFile(
+      registryPath,
+      JSON.stringify({ schema_version: 1, revisions: [oldRevision] }),
+      "utf8",
+    );
+    await writeFile(
+      join(workspace, ".pi-science", "environment.json"),
+      JSON.stringify({
+        schema_version: 1,
+        environment_id: "env_test",
+        revision_id: "rev_old",
+        bound_at: new Date().toISOString(),
+      }),
+      "utf8",
+    );
 
     const service = new WorkspaceEnvironmentService();
     const create = vi.spyOn(service, "create").mockImplementation(async () => {
-      await writeFile(registryPath, JSON.stringify({ schema_version: 1, revisions: [oldRevision, newRevision] }), "utf8");
+      await writeFile(
+        registryPath,
+        JSON.stringify({ schema_version: 1, revisions: [oldRevision, newRevision] }),
+        "utf8",
+      );
       return newRevision;
     });
 
     await expect(service.installPackages(workspace, ["numpy"])).resolves.toMatchObject({
-      ready: true, revision_id: "rev_new", prefix: newPrefix,
+      ready: true,
+      revision_id: "rev_new",
+      prefix: newPrefix,
     });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      packages: ["python=3.12", "pip", "numpy"], supersedes_revision_id: "rev_old",
-    }));
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        packages: ["python=3.12", "pip", "numpy"],
+        supersedes_revision_id: "rev_old",
+      }),
+    );
     await expect(service.binding(workspace)).resolves.toMatchObject({ revision_id: "rev_new" });
   });
 
@@ -262,17 +401,37 @@ describe("workspace environment package mutation", () => {
     await writeFile(rscript, "#!/bin/sh\nexit 0\n", "utf8");
     await chmod(rscript, 0o755);
     await mkdir(join(root, "environments"), { recursive: true });
-    await writeFile(join(root, "environments", "registry.json"), JSON.stringify({
-      schema_version: 1,
-      revisions: [{
-        environment_id: "env_r", revision_id: "rev_r", name: "r-env", display_name: "R Env",
-        language: "r", status: "ready", prefix, packages: ["r-base=4.4"],
-        platform: `${process.platform}-${process.arch}`, created_at: new Date().toISOString(),
-      }],
-    }), "utf8");
-    await writeFile(join(workspace, ".pi-science", "environment.json"), JSON.stringify({
-      schema_version: 1, environment_id: "env_r", revision_id: "rev_r", bound_at: new Date().toISOString(),
-    }), "utf8");
+    await writeFile(
+      join(root, "environments", "registry.json"),
+      JSON.stringify({
+        schema_version: 1,
+        revisions: [
+          {
+            environment_id: "env_r",
+            revision_id: "rev_r",
+            name: "r-env",
+            display_name: "R Env",
+            language: "r",
+            status: "ready",
+            prefix,
+            packages: ["r-base=4.4"],
+            platform: `${process.platform}-${process.arch}`,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(workspace, ".pi-science", "environment.json"),
+      JSON.stringify({
+        schema_version: 1,
+        environment_id: "env_r",
+        revision_id: "rev_r",
+        bound_at: new Date().toISOString(),
+      }),
+      "utf8",
+    );
 
     const status = await new WorkspaceEnvironmentService().status(workspace);
     expect(status.ready).toBe(true);
@@ -298,7 +457,10 @@ describe("workspace environment package mutation", () => {
     const service = new WorkspaceEnvironmentService();
     const presets = service.listPresets();
     expect(presets.map((preset) => preset.id)).toEqual([
-      "python-minimal", "python-data", "python-science", "r-minimal",
+      "python-minimal",
+      "python-data",
+      "python-science",
+      "r-minimal",
     ]);
     expect(presets.find((preset) => preset.id === "python-science")?.packages).toContain("scipy");
     expect(presets.find((preset) => preset.id === "r-minimal")?.language).toBe("r");
@@ -308,7 +470,9 @@ describe("workspace environment package mutation", () => {
     const presets = new WorkspaceEnvironmentService().listPresets();
     const science = presets.find((preset) => preset.id === "python-science");
     expect(DEFAULT_PACKAGES).toEqual(science?.packages);
-    expect(DEFAULT_PACKAGES).toEqual(expect.arrayContaining(["ipykernel", "numpy", "pandas", "scipy", "matplotlib", "seaborn"]));
+    expect(DEFAULT_PACKAGES).toEqual(
+      expect.arrayContaining(["ipykernel", "numpy", "pandas", "scipy", "matplotlib", "seaborn"]),
+    );
   });
 
   it("keeps r defaults able to host notebook kernels", () => {
@@ -324,29 +488,54 @@ describe("workspace environment package mutation", () => {
     await mkdir(join(root, "environments"), { recursive: true });
     const revOldPrefix = join(root, "micromamba", "envs", "rev_old");
     const revNewPrefix = join(root, "micromamba", "envs", "rev_new");
-    await writeFile(join(root, "environments", "registry.json"), JSON.stringify({
-      schema_version: 1,
-      revisions: [
-        { environment_id: "env_test", revision_id: "rev_old", name: "test-env", display_name: "Test Env", language: "python", status: "ready", prefix: revOldPrefix, packages: ["python=3.12", "pip"], platform: `${process.platform}-${process.arch}`, created_at: "2026-01-01T00:00:00.000Z" },
-        { environment_id: "env_test", revision_id: "rev_new", name: "test-env", display_name: "Test Env", language: "python", status: "ready", prefix: revNewPrefix, packages: ["python=3.12", "pip", "numpy"], platform: `${process.platform}-${process.arch}`, created_at: "2026-01-02T00:00:00.000Z", supersedes_revision_id: "rev_old" },
-      ],
-    }), "utf8");
-    await writeFile(join(workspace, ".pi-science", "environment.json"), JSON.stringify({
-      schema_version: 1, environment_id: "env_test", revision_id: "rev_new", bound_at: "2026-01-02T00:00:00.000Z",
-    }), "utf8");
+    await writeFile(
+      join(root, "environments", "registry.json"),
+      JSON.stringify({
+        schema_version: 1,
+        revisions: [
+          {
+            environment_id: "env_test",
+            revision_id: "rev_old",
+            name: "test-env",
+            display_name: "Test Env",
+            language: "python",
+            status: "ready",
+            prefix: revOldPrefix,
+            packages: ["python=3.12", "pip"],
+            platform: `${process.platform}-${process.arch}`,
+            created_at: "2026-01-01T00:00:00.000Z",
+          },
+          {
+            environment_id: "env_test",
+            revision_id: "rev_new",
+            name: "test-env",
+            display_name: "Test Env",
+            language: "python",
+            status: "ready",
+            prefix: revNewPrefix,
+            packages: ["python=3.12", "pip", "numpy"],
+            platform: `${process.platform}-${process.arch}`,
+            created_at: "2026-01-02T00:00:00.000Z",
+            supersedes_revision_id: "rev_old",
+          },
+        ],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(workspace, ".pi-science", "environment.json"),
+      JSON.stringify({
+        schema_version: 1,
+        environment_id: "env_test",
+        revision_id: "rev_new",
+        bound_at: "2026-01-02T00:00:00.000Z",
+      }),
+      "utf8",
+    );
 
     const service = new WorkspaceEnvironmentService();
-    const bind = vi.spyOn(service, "bind").mockImplementation(async (_cwd: string, revisionId: string) => ({
-      ready: true, workspace,
-      prefix: join(root, "micromamba", "envs", revisionId),
-      python: join(root, "micromamba", "envs", revisionId, "bin", "python"),
-      pip: join(root, "micromamba", "envs", revisionId, "bin", "pip"),
-      environment_id: "env_test", revision_id: revisionId, manager: "micromamba",
-      npm: { local_prefix: workspace, global_prefix: join(workspace, ".pi-science", "node-tools", "npm"), cache: join(workspace, ".pi-science", "cache", "npm") },
-    }));
-
     await expect(service.rollback(workspace)).resolves.toMatchObject({ revision_id: "rev_old" });
-    expect(bind).toHaveBeenCalledWith(workspace, "rev_old");
+    await expect(service.binding(workspace)).resolves.toMatchObject({ revision_id: "rev_old" });
   });
 });
 
@@ -372,17 +561,37 @@ describe("environment revision integrity", () => {
     await mkdir(join(prefix, "conda-meta"), { recursive: true });
     await writeFile(join(prefix, "conda-meta", "python-3.12.8-h000.json"), "{}", "utf8");
     await mkdir(join(root, "environments"), { recursive: true });
-    await writeFile(join(root, "environments", "registry.json"), JSON.stringify({
-      schema_version: 1,
-      revisions: [{
-        environment_id: "env_test", revision_id: "rev_old", name: "test-env", display_name: "Test Env",
-        language: "python", status: "ready", prefix, packages: ["python=3.12", "pip"],
-        platform: `${process.platform}-${process.arch}`, created_at: new Date().toISOString(),
-      }],
-    }), "utf8");
-    await writeFile(join(workspace, ".pi-science", "environment.json"), JSON.stringify({
-      schema_version: 1, environment_id: "env_test", revision_id: "rev_old", bound_at: new Date().toISOString(),
-    }), "utf8");
+    await writeFile(
+      join(root, "environments", "registry.json"),
+      JSON.stringify({
+        schema_version: 1,
+        revisions: [
+          {
+            environment_id: "env_test",
+            revision_id: "rev_old",
+            name: "test-env",
+            display_name: "Test Env",
+            language: "python",
+            status: "ready",
+            prefix,
+            packages: ["python=3.12", "pip"],
+            platform: `${process.platform}-${process.arch}`,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      }),
+      "utf8",
+    );
+    await writeFile(
+      join(workspace, ".pi-science", "environment.json"),
+      JSON.stringify({
+        schema_version: 1,
+        environment_id: "env_test",
+        revision_id: "rev_old",
+        bound_at: new Date().toISOString(),
+      }),
+      "utf8",
+    );
     return { root, workspace, prefix };
   }
 
@@ -390,10 +599,17 @@ describe("environment revision integrity", () => {
     const { workspace } = await seedWorkspace();
     const service = new WorkspaceEnvironmentService();
 
-    await expect(service.bind(workspace, "rev_old")).resolves.toMatchObject({ ready: true, revision_id: "rev_old" });
+    await expect(service.bind(workspace, "rev_old")).resolves.toMatchObject({
+      ready: true,
+      revision_id: "rev_old",
+    });
     const registryPath = join(process.env.PI_SCIENCE_HOME!, "environments", "registry.json");
-    const registry = JSON.parse(await readFile(registryPath, "utf8")) as { revisions: Array<{ integrity_snapshot?: string[] }> };
-    expect(registry.revisions[0]?.integrity_snapshot).toEqual([expect.stringMatching(/^v2:conda-meta\/python-3\.12\.8-h000\.json:[0-9a-f]{64}$/)]);
+    const registry = JSON.parse(await readFile(registryPath, "utf8")) as {
+      revisions: Array<{ integrity_snapshot?: string[] }>;
+    };
+    expect(registry.revisions[0]?.integrity_snapshot).toEqual([
+      expect.stringMatching(/^v2:conda-meta\/python-3\.12\.8-h000\.json:[0-9a-f]{64}$/),
+    ]);
   });
 
   it("rejects content changes even when the package manifest filename is unchanged", async () => {
@@ -401,7 +617,11 @@ describe("environment revision integrity", () => {
     const service = new WorkspaceEnvironmentService();
     await service.bind(workspace, "rev_old");
 
-    await writeFile(join(prefix, "conda-meta", "python-3.12.8-h000.json"), '{"tampered":true}', "utf8");
+    await writeFile(
+      join(prefix, "conda-meta", "python-3.12.8-h000.json"),
+      '{"tampered":true}',
+      "utf8",
+    );
 
     await expect(service.bind(workspace, "rev_old")).rejects.toThrow(/modified outside Pi-Science/);
   });

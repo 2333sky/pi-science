@@ -51,6 +51,11 @@ const migrationFiles = [
     name: "0009_execution_session_index.sql",
     url: new URL("./migrations/0009_execution_session_index.sql", import.meta.url),
   },
+  {
+    version: 10,
+    name: "0010_environment_package_state.sql",
+    url: new URL("./migrations/0010_environment_package_state.sql", import.meta.url),
+  },
 ] as const;
 
 export async function loadMigrations(): Promise<Migration[]> {

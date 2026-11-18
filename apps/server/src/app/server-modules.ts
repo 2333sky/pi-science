@@ -1,4 +1,5 @@
 import { AgentCoreSessionService } from "../runtime/agent/agent-core-session-service.js";
+import { withWorkspaceAdmission } from "../runtime/workspace/workspace-lifecycle.js";
 import { AgentRuntimeManager } from "../runtime/agent/agent-runtime-manager.js";
 import { AgentSessionRepository } from "../runtime/agent/agent-session-repository.js";
 import { AgentSessionRegistry } from "../runtime/agent/agent-session-registry.js";
@@ -116,6 +117,28 @@ export function createServerModules(
     manager: new AgentRuntimeManager(
       sessionServer.onWorkerExit,
       stateStore.databasePath !== ":memory:" ? stateStore.databasePath : undefined,
+      async (cwd, operation, signal) => {
+        signal.throwIfAborted();
+        const current =
+          operation.action === "install"
+            ? await withWorkspaceAdmission(cwd, () =>
+                environments.installPackages(cwd, {
+                  manager: "pip",
+                  packages: operation.packages,
+                  expectedRevisionId: operation.expectedRevisionId,
+                  signal,
+                }),
+              )
+            : await environments.status(cwd);
+        if (current.error) throw new Error(current.error);
+        return current.ready && current.revision_id && current.environment_id
+          ? {
+              revisionId: current.revision_id,
+              environmentId: current.environment_id,
+              prefix: current.prefix,
+            }
+          : null;
+      },
     ),
     repository: new AgentSessionRepository(),
     registry: new AgentSessionRegistry(),

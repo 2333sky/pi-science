@@ -313,6 +313,13 @@ export function buildApp(
       }
     }
     if (!sqliteEnabled || stateReady) {
+      try {
+        const recovered = await environments.recoverInterruptedInstalls();
+        if (recovered) app.log.info({ recovered }, "Recovered interrupted Python package installs");
+      } catch (error) {
+        app.log.warn({ err: error }, "Python package install recovery failed");
+      }
+
       await jobs.startReconciliation(async () =>
         sqliteEnabled
           ? (await workspaces.listKnown()).map((workspace) => workspace.path)
