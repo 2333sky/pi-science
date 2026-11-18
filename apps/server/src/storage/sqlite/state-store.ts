@@ -74,6 +74,10 @@ export class SqliteStateStore {
     this.workerPath = options.workerPath;
   }
 
+  get databasePath(): string {
+    return this.options.path;
+  }
+
   async start(): Promise<void> {
     if (this.state === "ready") return;
     if (this.startPromise) return this.startPromise;

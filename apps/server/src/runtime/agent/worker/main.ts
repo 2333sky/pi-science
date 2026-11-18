@@ -1,9 +1,11 @@
+import { SqliteStateStore } from "../../../storage/sqlite/state-store.js";
 import type { RuntimeResult } from "../agent-runtime-types.js";
 import { workerRequestSchema, type WorkerEvent } from "./protocol.js";
 import { SessionRuntime } from "./session-runtime.js";
 import { ApprovalBridge } from "./approval-bridge.js";
 
 let runtime: SessionRuntime | undefined;
+let executionStore: SqliteStateStore | undefined;
 let shuttingDown = false;
 const approvals = new ApprovalBridge(send);
 
@@ -12,19 +14,32 @@ function send(message: WorkerEvent): void {
 }
 
 function errorResult(error: unknown): RuntimeResult {
-  return { success: false, code: "worker_error", error: error instanceof Error ? error.message : String(error) };
+  return {
+    success: false,
+    code: "worker_error",
+    error: error instanceof Error ? error.message : String(error),
+  };
 }
 
 async function handle(input: unknown): Promise<void> {
   const decoded = workerRequestSchema.safeParse(input);
   if (!decoded.success) {
-    const requestId = input && typeof input === "object" && "requestId" in input ? input.requestId : undefined;
-    if (typeof requestId === "string" && requestId) send({ type: "result", requestId, result: { success: false, code: "invalid_ipc", error: "invalid worker request" } });
+    const requestId =
+      input && typeof input === "object" && "requestId" in input ? input.requestId : undefined;
+    if (typeof requestId === "string" && requestId)
+      send({
+        type: "result",
+        requestId,
+        result: { success: false, code: "invalid_ipc", error: "invalid worker request" },
+      });
     else send({ type: "fatal", error: "invalid worker request without correlation identity" });
     return;
   }
   const message = decoded.data;
-  if (message.type === "approval_granted") { approvals.grant(message.id); return; }
+  if (message.type === "approval_granted") {
+    approvals.grant(message.id);
+    return;
+  }
   if (message.type === "shutdown") {
     await shutdown();
     return;
@@ -32,17 +47,33 @@ async function handle(input: unknown): Promise<void> {
   try {
     if (message.type === "initialize") {
       if (runtime) throw new Error("worker is already initialized");
-      runtime = await SessionRuntime.open(message.options, (event) => send({ type: "runtime_event", event }), (error) => {
-        send({ type: "fatal", error: error instanceof Error ? error.message : String(error) });
-        process.exit(1);
-      }, approvals.acquire);
+      if (message.options.executionDatabasePath)
+        executionStore = new SqliteStateStore({ path: message.options.executionDatabasePath });
+      runtime = await SessionRuntime.open(
+        message.options,
+        (event) => send({ type: "runtime_event", event }),
+        (error) => {
+          send({ type: "fatal", error: error instanceof Error ? error.message : String(error) });
+          process.exit(1);
+        },
+        approvals.acquire,
+        executionStore,
+      );
       send({ type: "ready", sessionId: runtime.sessionId });
-      send({ type: "result", requestId: message.requestId, result: { success: true, data: { sessionId: runtime.sessionId } } });
+      send({
+        type: "result",
+        requestId: message.requestId,
+        result: { success: true, data: { sessionId: runtime.sessionId } },
+      });
       return;
     }
     if (!runtime) throw new Error("worker is not initialized");
     if (message.type === "notification") {
-      send({ type: "result", requestId: message.requestId, result: runtime.notify(message.notification, message.params) });
+      send({
+        type: "result",
+        requestId: message.requestId,
+        result: runtime.notify(message.notification, message.params),
+      });
       return;
     }
     const result = await runtime.command(message.command, message.params);
@@ -55,14 +86,24 @@ async function handle(input: unknown): Promise<void> {
 async function shutdown(): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  try { await runtime?.close(); }
-  catch (error) { send({ type: "fatal", error: String(error) }); }
+  try {
+    await runtime?.close();
+  } catch (error) {
+    send({ type: "fatal", error: String(error) });
+  }
+  await executionStore?.close().catch((error) => send({ type: "fatal", error: String(error) }));
   process.exit(0);
 }
 
-process.on("message", (message: unknown) => { void handle(message); });
-process.once("disconnect", () => { void shutdown(); });
-process.once("SIGTERM", () => { void shutdown(); });
+process.on("message", (message: unknown) => {
+  void handle(message);
+});
+process.once("disconnect", () => {
+  void shutdown();
+});
+process.once("SIGTERM", () => {
+  void shutdown();
+});
 process.once("uncaughtException", (error) => {
   send({ type: "fatal", error: error.message });
   process.exit(1);

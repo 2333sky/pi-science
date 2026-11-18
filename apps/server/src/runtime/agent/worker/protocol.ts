@@ -36,6 +36,7 @@ export interface AgentRuntimeStartOptions {
   /** Opaque service-issued authority, never a model tool parameter. */
   executionGrantId?: string;
   sessionsRoot: string;
+  executionDatabasePath?: string;
   model: { provider: string; modelId: string };
   thinking?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
   settings?: RuntimeSettings;
@@ -106,6 +107,7 @@ const startOptionsSchema = z
     skillPolicy: skillPolicySchema.optional(),
     env: z.record(z.string(), z.string()).optional(),
     credentialEnvNames: z.array(z.string()).optional(),
+    executionDatabasePath: z.string().min(1).optional(),
     deferActivation: z.boolean().optional(),
     initialApproval: initialSessionApprovalSchema.optional(),
   })

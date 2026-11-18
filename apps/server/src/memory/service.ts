@@ -22,7 +22,7 @@ export class MemoryService {
     readonly store: SqliteStateStore,
     private readonly workspaces: WorkspaceRepository,
     readonly sessions: Pick<SessionRepository, "findPath" | "messages">,
-    private readonly executions: Pick<ExecutionRepository, "get">,
+    readonly executions: Pick<ExecutionRepository, "get" | "list">,
     private readonly durableWrites = true,
   ) {}
   async context(

@@ -75,7 +75,7 @@ describe("SQLite-backed job coordination", () => {
   }, 15_000);
 });
 
-it("reconciles a terminal SQLite job after projection failure and reopening storage", async () => {
+it("commits the terminal Job and Execution projection together and reopens both", async () => {
   const { SqliteStateStore } = await import("../../storage/sqlite/state-store.js");
   const { ExecutionRepository } = await import("../executions/execution-repository.js");
   const cwd = await mkdtemp(join(tmpdir(), "pi-science-job-projection-restart-"));
@@ -83,10 +83,8 @@ it("reconciles a terminal SQLite job after projection failure and reopening stor
   const path = join(cwd, "state.sqlite");
   const state = new SqliteStateStore({ path });
   await state.start();
-  const executions = new ExecutionRepository();
-  const failure = vi
-    .spyOn(executions, "finish")
-    .mockRejectedValue(new Error("injected projection failure"));
+  const executions = new ExecutionRepository(state);
+  const finish = vi.spyOn(executions, "finish");
   const repository = new JobRepository(state);
   const owner = new JobCoordinator(
     { environment: async () => ({ ...process.env }) },
@@ -94,8 +92,6 @@ it("reconciles a terminal SQLite job after projection failure and reopening stor
     executions,
     repository,
   );
-  const log = vi.fn();
-  owner.configureLogging(log);
   const submitted = await owner.submit(cwd, {
     command: [process.execPath, "-e", ""],
     idempotency_key: "durable-key",
@@ -103,21 +99,22 @@ it("reconciles a terminal SQLite job after projection failure and reopening stor
   await owner.shutdown();
   const durable = await repository.get(cwd, submitted.job_id);
   expect(["succeeded", "cancelled", "failed"]).toContain(durable?.status);
-  expect(log).toHaveBeenCalled();
-  expect((await executions.get(cwd, submitted.execution_id!))?.status).toBe("running");
+  expect(finish).not.toHaveBeenCalled();
+  expect((await executions.get(cwd, submitted.execution_id!))?.status).toBe(durable?.status);
   await state.close();
-  failure.mockRestore();
   const reopened = new SqliteStateStore({ path });
   await reopened.start();
+  const reopenedExecutions = new ExecutionRepository(reopened);
   const recovered = new JobCoordinator(
     { environment: async () => ({ ...process.env }) },
     {},
-    new ExecutionRepository(),
+    reopenedExecutions,
     new JobRepository(reopened),
   );
   try {
-    await recovered.startReconciliation(async () => [cwd]);
-    expect((await executions.get(cwd, submitted.execution_id!))?.status).toBe(durable?.status);
+    expect((await reopenedExecutions.get(cwd, submitted.execution_id!))?.status).toBe(
+      durable?.status,
+    );
     expect(
       (
         await recovered.submit(cwd, {
@@ -126,7 +123,7 @@ it("reconciles a terminal SQLite job after projection failure and reopening stor
         })
       ).job_id,
     ).toBe(submitted.job_id);
-    expect(await executions.events(cwd)).toHaveLength(2);
+    expect(await reopenedExecutions.list(cwd)).toHaveLength(1);
   } finally {
     await recovered.shutdown();
     await reopened.close();

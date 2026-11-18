@@ -272,10 +272,9 @@ export class MemoryBackground {
         if (dataBudget < 500) return skip({ kind, reason: "input_budget" });
         const reportLimit = Math.floor(dataBudget * 0.65);
         const messages = [{ id: latest.id, role: latest.role, text: report.slice(0, reportLimit) }];
-        const evidence = (await buildScienceEvidence(cwd, report, options.sessionId)).slice(
-          0,
-          dataBudget - reportLimit,
-        );
+        const evidence = (
+          await buildScienceEvidence(cwd, report, options.sessionId, this.memory.executions)
+        ).slice(0, dataBudget - reportLimit);
         payload = {
           sessionId: options.sessionId,
           messages,

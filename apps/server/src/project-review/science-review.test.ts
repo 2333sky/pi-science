@@ -3,6 +3,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildScienceEvidence, isReportTurn, scienceReviewPrompt } from "./science-review.js";
+import {
+  ExecutionRepository,
+  executionRepository,
+} from "../runtime/executions/execution-repository.js";
+import { SqliteStateStore } from "../storage/sqlite/state-store.js";
 import type { ConversationExcerpt } from "./types.js";
 
 const workspaces: string[] = [];
@@ -71,6 +76,7 @@ describe("buildScienceEvidence", () => {
       cwd,
       "Cites 10.1038/verified, 10.9999/unchecked-one and arXiv:2401.99999v1 here.",
       "s1",
+      executionRepository,
     );
     expect(evidence).toContain("doi:10.1038/verified [verified] Verified Paper (2024), Nature");
     // The reviewer needs the source's own words, and the limits of them.
@@ -83,28 +89,39 @@ describe("buildScienceEvidence", () => {
 
   it("reports unverified citations and missing executions honestly", async () => {
     const cwd = await makeWorkspace();
-    const evidence = await buildScienceEvidence(cwd, "Cites 10.9999/unknown here.", "s1");
+    const evidence = await buildScienceEvidence(
+      cwd,
+      "Cites 10.9999/unknown here.",
+      "s1",
+      executionRepository,
+    );
     expect(evidence).toContain("have NOT been verified");
     expect(evidence).toContain("no executions were recorded");
   });
 
   it("includes execution records when present", async () => {
     const cwd = await makeWorkspace();
-    const { executionRepository } = await import("../runtime/executions/execution-repository.js");
-    const started = await executionRepository.start(cwd, {
-      kind: "kernel_cell",
-      surface: "python",
-      producer: "test",
-      correlation: { session_id: "s1" },
-    });
-    await executionRepository.finish(cwd, started.execution_id, {
-      status: "succeeded",
-      producer: "test",
-      result: { stdout_preview: "accuracy=0.91" },
-    });
-    const evidence = await buildScienceEvidence(cwd, "plain text", "s1");
-    expect(evidence).toContain("kernel_cell/python succeeded");
-    expect(evidence).toContain("accuracy=0.91");
+    const store = new SqliteStateStore({ path: ":memory:" });
+    await store.start();
+    try {
+      const executions = new ExecutionRepository(store);
+      const started = await executions.start(cwd, {
+        kind: "kernel_cell",
+        surface: "python",
+        producer: "test",
+        correlation: { session_id: "s1" },
+      });
+      await executions.finish(cwd, started.execution_id, {
+        status: "succeeded",
+        producer: "test",
+        result: { stdout_preview: "accuracy=0.91" },
+      });
+      const evidence = await buildScienceEvidence(cwd, "plain text", "s1", executions);
+      expect(evidence).toContain("kernel_cell/python succeeded");
+      expect(evidence).toContain("accuracy=0.91");
+    } finally {
+      await store.close();
+    }
   });
 });
 

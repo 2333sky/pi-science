@@ -6,7 +6,11 @@ import {
   type AgentHarnessTool,
 } from "@earendil-works/pi-agent-core/node";
 import { withFileWriteLock, workspaceFile } from "../../../storage/persistence.js";
-import { executionIdFor, executionRepository } from "../../executions/execution-repository.js";
+import {
+  executionIdFor,
+  executionRepository,
+  type ExecutionRepository,
+} from "../../executions/execution-repository.js";
 import { workspacePolicy } from "../../sandbox/policy.js";
 import { skillResourcePolicy } from "../../sandbox/skill-resources.js";
 import { prepareSandbox, type PreparedSandbox } from "../../sandbox/process.js";
@@ -27,6 +31,7 @@ export function sandboxBashTool(
   identity: SandboxIdentity,
   hostEnvironment: Record<string, string> = toolEnvironment(process.env),
   skillDirectories: () => Promise<string[]> = async () => [],
+  getExecutions: () => Promise<ExecutionRepository> = async () => executionRepository,
 ): Tool {
   const original = createBashTool();
   return {
@@ -107,12 +112,13 @@ export function sandboxBashTool(
             failures: published.failures,
           };
         };
+        const executions = await getExecutions();
         try {
-          if (await executionRepository.get(identity.cwd, executionId))
+          if (await executions.get(identity.cwd, executionId))
             throw new Error(
               "Bash invocation already recorded; inspect its result before issuing a new invocation",
             );
-          await executionRepository.start(identity.cwd, {
+          await executions.start(identity.cwd, {
             execution_id: executionId,
             kind: "tool",
             surface: "local",
@@ -238,7 +244,7 @@ export function sandboxBashTool(
             ),
           };
           const evidence = await outputs();
-          await executionRepository.finish(identity.cwd, executionId, {
+          await executions.finish(identity.cwd, executionId, {
             status: "succeeded",
             producer: "bash",
             result: {
@@ -282,7 +288,7 @@ export function sandboxBashTool(
               context.abortSignal.reason.message === "Execution time budget exhausted");
           if (started) {
             const evidence = await outputs();
-            await executionRepository.finish(identity.cwd, executionId, {
+            await executions.finish(identity.cwd, executionId, {
               status: timedOut
                 ? "timed_out"
                 : outcome.errorCode === "aborted" || context.abortSignal?.aborted

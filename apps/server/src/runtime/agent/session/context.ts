@@ -8,6 +8,7 @@ import type { WorkspaceEnvironmentService } from "../../workspace/workspace-envi
 import type { AgentSessionRegistry } from "../agent-session-registry.js";
 import type { DurableTurnLifecycle } from "../../artifacts/turn-lifecycle.js";
 import type { Live, ProductHooks, SessionServerOptions } from "./types.js";
+import type { ExecutionRepository } from "../../executions/execution-repository.js";
 
 export interface SessionContext {
   readonly manager: AgentRuntimeManager;
@@ -17,6 +18,7 @@ export interface SessionContext {
   readonly environments: Pick<WorkspaceEnvironmentService, "environment">;
   readonly server: SessionServerOptions;
   readonly turns: DurableTurnLifecycle;
+  readonly executions: ExecutionRepository;
   readonly approvalRetirements: Map<string, Live | null>;
   readonly live: Map<string, Live>;
   readonly opening: Map<string, Promise<Live | RuntimeResult>>;

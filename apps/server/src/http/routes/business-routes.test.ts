@@ -821,7 +821,6 @@ describe("native control-plane business routes", () => {
       );
     const before = await fingerprints();
     const settingsWrite = vi.spyOn(modules.settings, "update");
-    const resourceWrite = vi.spyOn(modules.modelResources.repository, "update");
     for (let read = 0; read < 3; read++) {
       expect(
         (
@@ -833,7 +832,6 @@ describe("native control-plane business routes", () => {
       ).toBe(200);
     }
     expect(settingsWrite).not.toHaveBeenCalled();
-    expect(resourceWrite).not.toHaveBeenCalled();
     expect(await fingerprints()).toEqual(before);
     // Even changed runtime capabilities only affect the response.
     modelRead.mockResolvedValue({
@@ -859,12 +857,10 @@ describe("native control-plane business routes", () => {
       ).json().model_context_window,
     ).toBe(524288);
     expect(settingsWrite).not.toHaveBeenCalled();
-    expect(resourceWrite).not.toHaveBeenCalled();
     const repaired = await fingerprints();
     expect(repaired).toEqual(before);
     await app.inject({ method: "GET", url: `/api/settings/config?cwd=${encodeURIComponent(cwd)}` });
     expect(settingsWrite).not.toHaveBeenCalled();
-    expect(resourceWrite).not.toHaveBeenCalled();
     expect(await fingerprints()).toEqual(repaired);
   }, 30000);
 

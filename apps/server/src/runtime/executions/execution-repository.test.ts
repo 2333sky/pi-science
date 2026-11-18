@@ -18,6 +18,69 @@ async function workspace(): Promise<string> {
 }
 
 describe("ExecutionRepository", () => {
+  it("stores non-Job executions in SQLite when the application state store is enabled", async () => {
+    const { InMemorySqliteStateStore } = await import("../../storage/sqlite/state-store.js");
+    const cwd = await workspace();
+    const state = new InMemorySqliteStateStore();
+    await state.start();
+    try {
+      const repository = new ExecutionRepository(state);
+      await repository.start(cwd, {
+        execution_id: "exec-sqlite-tool",
+        kind: "tool",
+        surface: "pi",
+        producer: "test",
+        correlation: { session_id: "session-sqlite" },
+      });
+      await repository.finish(cwd, "exec-sqlite-tool", {
+        status: "succeeded",
+        producer: "test",
+        result: { output_preview: "stored" },
+      });
+      expect(await new ExecutionRepository(state).get(cwd, "exec-sqlite-tool")).toMatchObject({
+        status: "succeeded",
+        correlation: { session_id: "session-sqlite" },
+        result: { output_preview: "stored" },
+      });
+    } finally {
+      await state.close();
+    }
+  });
+
+  it("preserves newer SQLite execution status when legacy rows are imported again", async () => {
+    const { SqliteStateStore } = await import("../../storage/sqlite/state-store.js");
+    const cwd = await workspace();
+    const state = new SqliteStateStore({ path: join(cwd, "state.sqlite") });
+    await state.start();
+    try {
+      const legacy = new ExecutionRepository();
+      const repository = new ExecutionRepository(state);
+      const started = await legacy.start(cwd, {
+        kind: "tool",
+        surface: "pi",
+        producer: "test",
+      });
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 1 });
+      await repository.finish(cwd, started.execution_id, {
+        status: "succeeded",
+        producer: "test",
+        result: { output_preview: "kept" },
+      });
+
+      await state.close();
+      await state.start();
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 0 });
+      await legacy.start(cwd, { kind: "tool", surface: "pi", producer: "test" });
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 1 });
+      expect(await repository.get(cwd, started.execution_id)).toMatchObject({
+        status: "succeeded",
+        result: { output_preview: "kept" },
+      });
+    } finally {
+      await state.close();
+    }
+  });
+
   it("reduces a lifecycle into one queryable execution", async () => {
     const cwd = await workspace();
     const repository = new ExecutionRepository();

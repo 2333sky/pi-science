@@ -106,8 +106,8 @@ export function registerExecutionRoutes(
       ...(kind?.success ? { kind: kind.data } : {}),
       ...(status?.success ? { status: status.data } : {}),
     };
-    // Lists read the projection only. Full Job reconciliation runs at startup and
-    // on the background timer; detail reads can repair one explicitly requested Job.
+    // Lists read the projection only. SQLite updates Job and Execution together;
+    // the file fallback retains startup/background recovery for older workspaces.
     return executionListResponseSchema.parse(await executions.query(cwd, options));
   });
 

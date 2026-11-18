@@ -33,6 +33,7 @@ export type SessionStartupContext = Pick<
   | "beforeStart"
   | "credentialEnvNames"
   | "events"
+  | "executions"
   | "hooks"
   | "live"
   | "manager"
@@ -176,8 +177,13 @@ export async function attach(
     startupMs: runtime.startupMs ?? undefined,
     observe: async (event, sessionId, turn) => {
       context.hooks.observe?.(runtime.cwd, sessionId, event);
-      await observeAgentEvent(runtime.cwd, item.model, event, sessionId, (payload) =>
-        context.events.publish(runtime.cwd, sessionId, payload),
+      await observeAgentEvent(
+        runtime.cwd,
+        item.model,
+        event,
+        sessionId,
+        (payload) => context.events.publish(runtime.cwd, sessionId, payload),
+        context.executions,
       );
       if (await context.turns.observe(runtime.cwd, sessionId, event, turn)) {
         context.hooks.settled?.(runtime.cwd, sessionId, String(event.runId), String(event.status));

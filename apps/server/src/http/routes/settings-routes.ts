@@ -28,7 +28,6 @@ import type { NodeSessionService } from "../../runtime/node/node-session-service
 import { resolveCompaction } from "../../runtime/agent/agent-runtime-settings.js";
 import { validateWorkspaceCwd } from "../../security/workspace-security.js";
 import { SettingsStore, type SettingsData as Settings } from "../../storage/settings-store.js";
-import type { ModelResourceService } from "../../model-resources/model-resource-service.js";
 import type { RuntimeCatalogService } from "../../runtime/agent/runtime-catalog.js";
 import { resolveMcpConfig } from "../../catalog/mcp-config.js";
 import type { McpConnectorService } from "../../mcp/connector-service.js";
@@ -53,7 +52,6 @@ export function registerSettingsRoutes(
   app: FastifyInstance,
   nodeSessionService: NodeSessionService,
   settingsStore: SettingsStore,
-  modelResources?: ModelResourceService,
   runtimeCatalog?: Pick<RuntimeCatalogService, "getCatalog">,
   mcp?: McpConnectorService,
 ): void {
@@ -238,7 +236,6 @@ export function registerSettingsRoutes(
     app,
     nodeSessionService,
     settingsStore,
-    modelResources,
     async (cwd) => (await modelCatalog(nodeSessionService, cwd, runtimeCatalog)).available,
   );
   app.put("/api/settings/compaction", async (request, reply) => {

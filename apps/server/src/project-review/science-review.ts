@@ -16,7 +16,7 @@ import {
   MAX_CITATIONS_PER_CALL,
   type CitationView,
 } from "../runtime/citations/citation-verify-service.js";
-import { executionRepository } from "../runtime/executions/execution-repository.js";
+import type { ExecutionRepository } from "../runtime/executions/execution-repository.js";
 import type { ConversationExcerpt } from "./types.js";
 
 export const SCIENCE_REVIEW_ENV = "PI_SCIENCE_SCIENCE_REVIEW";
@@ -82,6 +82,7 @@ export async function buildScienceEvidence(
   cwd: string,
   sessionText: string,
   sessionId: string,
+  executionRepository: Pick<ExecutionRepository, "list">,
 ): Promise<string> {
   const sections: string[] = [];
 
