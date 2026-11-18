@@ -1,9 +1,12 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { expect, it, vi } from "vitest";
-import { WorkspaceEnvironmentService } from "./workspace-environment.js";
+import {
+  environmentPythonExecutable,
+  WorkspaceEnvironmentService,
+} from "./workspace-environment.js";
 import { runEnvironmentProcess } from "../sandbox/environment-process.js";
 vi.mock("../sandbox/environment-process.js", () => ({ runEnvironmentProcess: vi.fn() }));
 
@@ -58,8 +61,9 @@ it("binds complete pip revisions, rejects stale approvals, and restores the prev
   const seed = async (target: string) => {
     await mkdir(join(target, "conda-meta"), { recursive: true });
     await writeFile(join(target, "conda-meta", filename), JSON.stringify(record));
-    await mkdir(join(target, "bin"), { recursive: true });
-    await writeFile(join(target, "bin", "python"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const python = environmentPythonExecutable(target);
+    await mkdir(dirname(python), { recursive: true });
+    await writeFile(python, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
   };
   const service = new WorkspaceEnvironmentService(undefined, process.execPath, repository);
   vi.mocked(runEnvironmentProcess).mockImplementation(
@@ -123,7 +127,6 @@ it("binds complete pip revisions, rejects stale approvals, and restores the prev
       install("sympy", "rev_base"),
       install("pint", "rev_base"),
     ]);
-    expect(first.status).toBe("fulfilled");
     if (first.status !== "fulfilled") throw first.reason;
     expect(stale).toMatchObject({
       status: "rejected",
@@ -189,7 +192,7 @@ it("recovers abandoned pip revisions after restart and preserves live and publis
   const repository = new EnvironmentRepository(store);
   const environments = new WorkspaceEnvironmentService(undefined, process.execPath, repository);
   const workspace = join(home, "workspace");
-  const deadProcess = spawnSync(process.execPath, ["-e", "process.kill(process.pid, 'SIGKILL')"]);
+  const deadProcess = spawnSync(process.execPath, ["-e", "process.exit(1)"]);
   const seed = async (
     suffix: string,
     status: "ready" | "creating",
@@ -198,8 +201,9 @@ it("recovers abandoned pip revisions after restart and preserves live and publis
   ) => {
     const revision_id = `rev_${suffix.repeat(32)}`;
     const prefix = outside ? join(home, "outside") : join(home, "micromamba", "envs", revision_id);
-    await mkdir(join(prefix, "bin"), { recursive: true });
-    await writeFile(join(prefix, "bin", "python"), "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+    const python = environmentPythonExecutable(prefix);
+    await mkdir(dirname(python), { recursive: true });
+    await writeFile(python, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
     return repository.upsert({
       environment_id: "env_test",
       revision_id,
@@ -216,7 +220,7 @@ it("recovers abandoned pip revisions after restart and preserves live and publis
     });
   };
   try {
-    expect(deadProcess.signal).toBe("SIGKILL");
+    expect(deadProcess.status).toBe(1);
     expect(deadProcess.pid).toBeGreaterThan(0);
     await store.start();
     const ready = await seed("a", "ready");

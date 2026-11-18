@@ -6,6 +6,7 @@ import { InMemorySqliteStateStore } from "../../storage/sqlite/state-store.js";
 import { McpRepository } from "../../storage/sqlite/repositories/mcp-repository.js";
 import { WorkspaceRepository } from "../../storage/sqlite/repositories/workspace-repository.js";
 import { SettingsStore } from "../../storage/settings-store.js";
+import { once } from "node:events";
 import { execFileSync, spawn, type SpawnOptions } from "node:child_process";
 import {
   cp,
@@ -374,7 +375,10 @@ describe.skipIf(
       // Test-only hook lets the real launcher exit with code 0 while its workload
       // is still running, without terminating that workload via a group signal.
       const exitHook =
-        "data:text/javascript," + encodeURIComponent("process.on('SIGUSR2',()=>process.exit(0))");
+        "data:text/javascript," +
+        encodeURIComponent(
+          "process.on('message', (message) => { if (message === 'acceptance-exit') process.exit(0); })",
+        );
       const manager = new NodeKernelManager({
         spawnProcess: ((command: string, args: readonly string[], options: SpawnOptions) =>
           (launcher = spawn(command, ["--import", exitHook, ...args], options))) as typeof spawn,
@@ -397,10 +401,10 @@ describe.skipIf(
         code: "import subprocess\nbackground=subprocess.Popen(['/bin/sh','-c','sleep 2; echo leaked > leaked.txt'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)\nprint('spawned')",
       });
       expect(result).toMatchObject({ ok: true, stdout: "spawned\n" });
-      const exited = new Promise<void>((resolve) => launcher!.once("exit", () => resolve()));
-      launcher!.kill("SIGUSR2");
-      await exited;
-      expect(launcher!.exitCode).toBe(0);
+      expect(launcher!.connected).toBe(true);
+      const exited = once(launcher!, "exit", { signal: AbortSignal.timeout(5_000) });
+      launcher!.send("acceptance-exit");
+      await expect(exited).resolves.toEqual([0, null]);
       const service = new AgentCoreSessionService(
         { expectExit: vi.fn(), publish: vi.fn(async () => undefined) } as never,
         {} as never,
