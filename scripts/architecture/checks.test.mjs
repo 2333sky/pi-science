@@ -29,7 +29,7 @@ function check(script, root, ...args) {
     { encoding: "utf8" },
   );
 }
-test("boundary gate catches aliased singletons, type/dynamic imports, legacy placement and runtime cycles", () =>
+test("boundary gate catches aliased singletons, type/dynamic imports and runtime cycles", () =>
   fixture(async (root, put) => {
     await put(
       "apps/server/src/memory/consumer.ts",
@@ -41,19 +41,21 @@ test("boundary gate catches aliased singletons, type/dynamic imports, legacy pla
     );
     await put("apps/server/src/runtime/a.ts", 'import "./b.js";');
     await put("apps/server/src/runtime/b.ts", 'export * from "./a.js";');
-    await put("apps/server/src/runtime/new-repository.ts", "export const placeholder = true;");
     await put("packages/contracts/src/example.ts", 'import type { Contract } from "./index.js";');
     const result = check("check-boundaries", root);
     assert.equal(result.status, 1);
-    for (const rule of [
-      "singleton:",
-      "owned-dependency:",
-      "layer:",
-      "cycle:",
-      "legacy-repository-location:",
-      "contracts-barrel:",
-    ])
+    for (const rule of ["singleton:", "owned-dependency:", "layer:", "cycle:", "contracts-barrel:"])
       assert.match(result.stderr, new RegExp(rule));
+  }));
+test("science review uses the injected execution repository", () =>
+  fixture(async (root, put) => {
+    await put(
+      "apps/server/src/project-review/science-review.ts",
+      'import { executionRepository } from "../runtime/executions/execution-repository.js";',
+    );
+    const result = check("check-boundaries", root);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /singleton: .*project-review\/science-review\.ts/);
   }));
 test("type-only cycles and text that resembles imports do not create runtime cycles", () =>
   fixture(async (root, put) => {

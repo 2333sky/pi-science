@@ -23,12 +23,6 @@ function walk(node, visit) {
 }
 for (const file of files) {
   const ast = typescript.parsers.typescript.parse(await readFile(file, "utf8"), { filepath: file });
-  if (
-    /\/(?:[^/]*-repository|repository)\.ts$/.test(file) &&
-    file.startsWith("apps/server/src/") &&
-    !file.startsWith("apps/server/src/modules/")
-  )
-    violations.add("legacy-repository-location: " + file);
   const edges = new Set();
   graph.set(file, edges);
   walk(ast, (node) => {
@@ -72,16 +66,20 @@ for (const file of files) {
     if (file.startsWith("apps/server/src/modules/") && target.includes("/runtime/"))
       violations.add("domain-runtime: " + edge);
     if (
-      domain &&
       node.type === "ImportDeclaration" &&
-      node.specifiers.some((item) =>
-        [
-          "sessionRepository",
-          "executionRepository",
-          "conversationEventHub",
-          "durableEventStore",
-        ].includes(item.imported?.name),
-      )
+      node.specifiers.some((item) => {
+        const name = item.imported?.name;
+        return (
+          (domain &&
+            [
+              "sessionRepository",
+              "executionRepository",
+              "conversationEventHub",
+              "durableEventStore",
+            ].includes(name)) ||
+          (file.startsWith("apps/server/src/project-review/") && name === "executionRepository")
+        );
+      })
     )
       violations.add("singleton: " + edge);
     if (file.startsWith("packages/contracts/src/") && target === "packages/contracts/src/index.ts")

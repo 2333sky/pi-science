@@ -1,9 +1,6 @@
 import type { ProgressAppearance } from "@pi-science/contracts";
 
-/** Compatibility settings projection plus unrelated settings-page resources. The
- *  canonical model domain lives under `lib/model-resources`; the current Settings
- *  UI still reads this projection while model-selection/provider API migration
- *  remains follow-up work. */
+/** Response types for the settings configuration endpoint. */
 
 export type ProviderAuthKind = "api_key" | "oauth" | "api_key_or_oauth" | "none";
 export type ProviderCredentialStatus = "configured" | "connected" | "needs_key" | "needs_login" | "invalid";
@@ -32,7 +29,7 @@ export interface Provider {
   enabled?: boolean;
 }
 
-/** @deprecated Compatibility fallback; canonical resources live under `lib/model-resources`. */
+/** @deprecated Compatibility projection for custom providers. */
 export interface CustomProvider {
   id: string;
   name: string;
