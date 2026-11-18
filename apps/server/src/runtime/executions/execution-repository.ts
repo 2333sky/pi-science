@@ -14,14 +14,10 @@ import {
   type ExecutionStatus,
   type ExecutionSurface,
 } from "@pi-science/contracts";
-import {
-  appendJsonLineUnlocked,
-  readJsonLines,
-  withFileWriteLock,
-  workspaceFile,
-} from "../../storage/persistence.js";
+import { configPath, readJsonLines, workspaceFile } from "../../storage/persistence.js";
 import { emitExecutionEvent } from "./execution-events.js";
-import type { SqliteStateStore } from "../../storage/sqlite/state-store.js";
+import { parseExecutionRecord } from "./execution-search.js";
+import { SqliteStateStore } from "../../storage/sqlite/state-store.js";
 import type { SqlStatement } from "../../storage/sqlite/protocol.js";
 
 const EXECUTION_LOG = "execution-events-v1.jsonl";
@@ -76,12 +72,6 @@ export interface ExecutionQuery {
   to?: string;
 }
 
-interface ExecutionSnapshot {
-  signature: string | null;
-  records: Map<string, ExecutionRecord>;
-  sequences: Map<string, number>;
-}
-
 async function fileSignature(path: string): Promise<string | null> {
   try {
     const info = await stat(path, { bigint: true });
@@ -93,71 +83,23 @@ async function fileSignature(path: string): Promise<string | null> {
 }
 
 export class ExecutionRepository {
-  // Disposable, bounded indexes. Verify file identity before every use so other
-  // processes and external edits remain visible; own writes update incrementally.
-  private snapshots = new Map<string, ExecutionSnapshot>();
-
   constructor(private readonly store?: SqliteStateStore) {}
 
-  private retain(path: string, snapshot: ExecutionSnapshot): void {
-    this.snapshots.delete(path);
-    if (snapshot.records.size > 100_000) return;
-    let retained = [...this.snapshots.values()].reduce((sum, item) => sum + item.records.size, 0);
-    while (
-      this.snapshots.size &&
-      (this.snapshots.size >= 4 || retained + snapshot.records.size > 100_000)
-    ) {
-      const oldest = this.snapshots.keys().next().value!;
-      retained -= this.snapshots.get(oldest)!.records.size;
-      this.snapshots.delete(oldest);
+  // App and Worker callers share their managed store. Standalone callers open
+  // the same durable database for the duration of the operation.
+  private async withStore<T>(operation: (store: SqliteStateStore) => Promise<T>): Promise<T> {
+    if (this.store) return operation(this.store);
+    const store = new SqliteStateStore({ path: configPath("state.sqlite") });
+    try {
+      await store.start();
+      return await operation(store);
+    } finally {
+      await store.close();
     }
-    this.snapshots.set(path, snapshot);
-  }
-
-  private async snapshot(cwd: string): Promise<ExecutionSnapshot> {
-    const path = this.path(cwd);
-    const before = await fileSignature(path);
-    const cached = this.snapshots.get(path);
-    if (cached && cached.signature === before) return cached;
-    const events = await this.events(cwd);
-    const records = new Map(
-      reduceExecutionEvents(events).map((record) => [record.execution_id, record]),
-    );
-    const sequences = new Map<string, number>();
-    for (const event of events)
-      sequences.set(
-        event.execution_id,
-        Math.max(sequences.get(event.execution_id) ?? 0, event.sequence),
-      );
-    const after = await fileSignature(path);
-    const snapshot = { signature: after, records, sequences };
-    if (before === after) this.retain(path, snapshot);
-    else this.snapshots.delete(path);
-    return snapshot;
-  }
-
-  private async records(cwd: string): Promise<ExecutionRecord[]> {
-    if (this.store) {
-      const rows = await this.store.all<{ record_json: string }>(
-        "SELECT record_json FROM execution_records WHERE workspace_path = ?",
-        [resolve(cwd)],
-      );
-      return rows.map(({ record_json }) => parseExecutionRecord(record_json)).filter(isRecord);
-    }
-    return [...(await this.snapshot(cwd)).records.values()];
-  }
-
-  private path(cwd: string): string {
-    return workspaceFile(cwd, EXECUTION_LOG);
-  }
-
-  async events(cwd: string): Promise<ExecutionEvent[]> {
-    if (this.store) return [];
-    return this.readLegacyEvents(cwd);
   }
 
   private async readLegacyEvents(cwd: string): Promise<ExecutionEvent[]> {
-    const rows = await readJsonLines<unknown>(this.path(cwd));
+    const rows = await readJsonLines<unknown>(workspaceFile(cwd, EXECUTION_LOG));
     return rows.flatMap((row) => {
       const parsed = executionEventSchema.safeParse(row);
       return parsed.success ? [parsed.data] : [];
@@ -165,33 +107,34 @@ export class ExecutionRepository {
   }
 
   async importLegacy(workspaces: readonly string[]): Promise<{ records: number }> {
-    if (!this.store) return { records: 0 };
-    let records = 0;
-    for (const cwd of workspaces) {
-      const path = this.path(cwd);
-      const signature = await fileSignature(path);
-      if (!signature) continue;
-      const source = `execution:${resolve(path)}`;
-      const imported = await this.store.get<{ source_fingerprint: string }>(
-        "SELECT source_fingerprint FROM legacy_imports WHERE source = ?",
-        [source],
-      );
-      if (imported?.source_fingerprint === signature) continue;
-      const reduced = reduceExecutionEvents(await this.readLegacyEvents(cwd));
-      const results = await this.store.batch([
-        ...reduced.map(executionRecordInsert),
-        {
-          sql: `INSERT INTO legacy_imports (source, source_fingerprint, imported_at, row_count)
-            VALUES (?, ?, ?, ?) ON CONFLICT(source) DO UPDATE SET
-            source_fingerprint = excluded.source_fingerprint,
-            imported_at = excluded.imported_at,
-            row_count = excluded.row_count`,
-          params: [source, signature, Date.now(), reduced.length],
-        },
-      ]);
-      records += results.slice(0, -1).reduce((sum, result) => sum + Number(result.changes), 0);
-    }
-    return { records };
+    return this.withStore(async (store) => {
+      let records = 0;
+      for (const cwd of workspaces) {
+        const path = workspaceFile(cwd, EXECUTION_LOG);
+        const signature = await fileSignature(path);
+        if (!signature) continue;
+        const source = `execution:${resolve(path)}`;
+        const imported = await store.get<{ source_fingerprint: string }>(
+          "SELECT source_fingerprint FROM legacy_imports WHERE source = ?",
+          [source],
+        );
+        if (imported?.source_fingerprint === signature) continue;
+        const reduced = reduceExecutionEvents(await this.readLegacyEvents(cwd));
+        const results = await store.batch([
+          ...reduced.map(executionRecordInsert),
+          {
+            sql: `INSERT INTO legacy_imports (source, source_fingerprint, imported_at, row_count)
+              VALUES (?, ?, ?, ?) ON CONFLICT(source) DO UPDATE SET
+              source_fingerprint = excluded.source_fingerprint,
+              imported_at = excluded.imported_at,
+              row_count = excluded.row_count`,
+            params: [source, signature, Date.now(), reduced.length],
+          },
+        ]);
+        records += results.slice(0, -1).reduce((sum, result) => sum + Number(result.changes), 0);
+      }
+      return { records };
+    });
   }
 
   async list(cwd: string, options: ExecutionQuery = {}): Promise<ExecutionRecord[]> {
@@ -203,79 +146,7 @@ export class ExecutionRepository {
       ? Math.min(1_000, Math.max(1, Math.floor(options.limit!)))
       : 100;
     const offset = Number.isFinite(options.offset) ? Math.max(0, Math.floor(options.offset!)) : 0;
-    if (this.store && !options.search?.trim() && !options.from && !options.to && !options.target_id)
-      return this.queryPage(this.store, cwd, options, limit, offset);
-
-    let records = await this.records(cwd);
-    if (options.session_id)
-      records = records.filter((record) => record.correlation.session_id === options.session_id);
-    const total = records.length;
-    const targetInScope = options.target_id
-      ? records.some((record) => record.execution_id === options.target_id)
-      : undefined;
-    const statusCounts: Partial<Record<ExecutionStatus, number>> = {};
-    let completedDurationMs = 0;
-    let completedDurationCount = 0;
-    for (const record of records) {
-      statusCounts[record.status] = (statusCounts[record.status] ?? 0) + 1;
-      const start = Date.parse(record.started_at ?? "");
-      const end = Date.parse(record.ended_at ?? "");
-      if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
-        completedDurationMs += end - start;
-        completedDurationCount++;
-      }
-    }
-    if (options.kind) records = records.filter((record) => record.kind === options.kind);
-    if (options.status) records = records.filter((record) => record.status === options.status);
-    if (options.from || options.to) {
-      const now = Date.now();
-      records = records.filter((record) =>
-        executionOverlapsWindow(record, options.from, options.to, now),
-      );
-    }
-    const needle = options.search?.trim().toLocaleLowerCase();
-    if (needle)
-      records = records.filter((record) =>
-        JSON.stringify([
-          record.execution_id,
-          record.kind,
-          record.surface,
-          record.status,
-          record.producer,
-          record.correlation,
-          record.request,
-          record.result,
-          record.files,
-          record.artifacts,
-        ])
-          .toLocaleLowerCase()
-          .includes(needle),
-      );
-    records.sort(
-      (left, right) =>
-        right.created_at.localeCompare(left.created_at) ||
-        left.execution_id.localeCompare(right.execution_id),
-    );
-    const targetIndex = options.target_id
-      ? records.findIndex((record) => record.execution_id === options.target_id)
-      : -1;
-    return {
-      executions: structuredClone(records.slice(offset, offset + limit)),
-      total,
-      filtered_total: records.length,
-      offset,
-      limit,
-      status_counts: statusCounts,
-      completed_duration_ms: completedDurationMs,
-      completed_duration_count: completedDurationCount,
-      ...(options.target_id
-        ? {
-            target_in_scope: targetInScope,
-            target_matches: targetIndex >= 0,
-            target_offset: targetIndex >= 0 ? Math.floor(targetIndex / limit) * limit : null,
-          }
-        : {}),
-    };
+    return this.withStore((store) => this.queryPage(store, cwd, options, limit, offset));
   }
 
   private async queryPage(
@@ -285,6 +156,10 @@ export class ExecutionRepository {
     limit: number,
     offset: number,
   ) {
+    const sessionId = options.session_id;
+    const needle = options.search?.trim().toLocaleLowerCase() || null;
+    // Reuse expensive search results as IDs only. Plain pages can read in index order.
+    const matchesHint = needle || options.target_id ? "MATERIALIZED" : "NOT MATERIALIZED";
     const row = await store.get<{
       page: string;
       status_counts: string;
@@ -292,42 +167,80 @@ export class ExecutionRepository {
       filtered_total: number;
       completed_duration_ms: number;
       completed_duration_count: number;
+      target_in_scope: number;
+      target_index: number | null;
     }>(
       `WITH scope AS NOT MATERIALIZED (
         SELECT execution_id, created_at, record_json,
           json_extract(record_json, '$.kind') AS kind,
           json_extract(record_json, '$.status') AS status,
-          unixepoch(json_extract(record_json, '$.started_at'), 'subsec') AS started,
-          unixepoch(json_extract(record_json, '$.ended_at'), 'subsec') AS ended
+          execution_timestamp(json_extract(record_json, '$.started_at')) AS started,
+          execution_timestamp(json_extract(record_json, '$.ended_at')) AS ended,
+          nullif(json_extract(record_json, '$.ended_at'), '') AS recorded_end
         FROM execution_records
         WHERE workspace_path = ?1
-          AND (?2 IS NULL OR json_extract(record_json, '$.correlation.session_id') = ?2)
+          ${sessionId ? "AND json_extract(record_json, '$.correlation.session_id') = ?11" : ""}
       ), counts AS (
         SELECT status, count(*) AS total,
-          sum(CASE WHEN (?3 IS NULL OR kind = ?3) AND (?4 IS NULL OR status = ?4) THEN 1 ELSE 0 END) AS filtered,
-          sum(CASE WHEN ended >= started THEN round((ended - started) * 1000) ELSE 0 END) AS duration_ms,
+          sum(CASE WHEN ended >= started THEN ended - started ELSE 0 END) AS duration_ms,
           count(CASE WHEN ended >= started THEN 1 END) AS duration_count
         FROM scope
         GROUP BY status
+      ), intervals AS NOT MATERIALIZED (
+        SELECT *, CASE
+          WHEN recorded_end IS NOT NULL THEN ended
+          WHEN status IN ('pending', 'running') THEN max(?8, started)
+          ELSE started
+        END AS effective_end
+        FROM scope
+      ), matched AS ${matchesHint} (
+        SELECT execution_id, created_at FROM intervals
+        WHERE (?2 IS NULL OR kind = ?2) AND (?3 IS NULL OR status = ?3)
+          AND ((?6 IS NULL AND ?7 IS NULL) OR (
+            effective_end >= started
+            AND (?6 IS NULL OR effective_end >= execution_timestamp(?6))
+            AND (?7 IS NULL OR started <= execution_timestamp(?7))
+          ))
+          AND CASE WHEN ?9 IS NULL THEN 1 ELSE execution_matches_search(record_json, ?9) END
       ), page AS (
-        SELECT record_json FROM scope
-        WHERE (?3 IS NULL OR kind = ?3) AND (?4 IS NULL OR status = ?4)
-        ORDER BY created_at DESC, execution_id ASC LIMIT ?5 OFFSET ?6
+        SELECT execution_id, created_at FROM matched
+        ORDER BY created_at DESC, execution_id ASC LIMIT ?4 OFFSET ?5
       )
-      SELECT (SELECT json_group_array(record_json) FROM page) AS page,
+      SELECT (
+          SELECT json_group_array(r.record_json ORDER BY p.created_at DESC, p.execution_id ASC)
+          FROM page p JOIN execution_records r USING (execution_id)
+        ) AS page,
+        CASE WHEN ?2 IS NULL AND ?3 IS NULL AND ?6 IS NULL AND ?7 IS NULL AND ?9 IS NULL
+          THEN coalesce(sum(total), 0)
+          ELSE (SELECT count(*) FROM matched)
+        END AS filtered_total,
+        CASE WHEN ?10 IS NULL THEN 0 ELSE EXISTS (
+          SELECT 1 FROM scope WHERE execution_id = ?10
+        ) END AS target_in_scope,
+        (
+          SELECT (SELECT count(*) FROM matched preceding
+            WHERE preceding.created_at > target.created_at OR
+              (preceding.created_at = target.created_at AND preceding.execution_id < target.execution_id)
+          )
+          FROM matched target WHERE target.execution_id = ?10
+        ) AS target_index,
         json_group_object(status, total) AS status_counts,
         coalesce(sum(total), 0) AS total,
-        coalesce(sum(filtered), 0) AS filtered_total,
         coalesce(sum(duration_ms), 0) AS completed_duration_ms,
         coalesce(sum(duration_count), 0) AS completed_duration_count
       FROM counts`,
       [
         resolve(cwd),
-        options.session_id || null,
         options.kind ?? null,
         options.status ?? null,
         limit,
         Math.min(offset, Number.MAX_SAFE_INTEGER),
+        options.from || null,
+        options.to || null,
+        Date.now(),
+        needle,
+        options.target_id || null,
+        ...(sessionId ? [sessionId] : []),
       ],
     );
     if (!row) throw new Error("Execution page query returned no summary");
@@ -338,52 +251,46 @@ export class ExecutionRepository {
       completed_duration_count: row.completed_duration_count,
       executions: (JSON.parse(row.page) as string[]).map(parseExecutionRecord).filter(isRecord),
       status_counts: JSON.parse(row.status_counts) as Partial<Record<ExecutionStatus, number>>,
+      ...(options.target_id
+        ? {
+            target_in_scope: Boolean(row.target_in_scope),
+            target_matches: row.target_index !== null,
+            target_offset:
+              row.target_index === null ? null : Math.floor(row.target_index / limit) * limit,
+          }
+        : {}),
       limit,
       offset,
     };
   }
 
   async get(cwd: string, executionId: string): Promise<ExecutionRecord | null> {
-    if (this.store) {
-      const row = await this.store.get<{ record_json: string }>(
-        "SELECT record_json FROM execution_records WHERE execution_id = ? AND workspace_path = ?",
-        [executionId, resolve(cwd)],
-      );
-      return row ? parseExecutionRecord(row.record_json) : null;
-    }
-    return structuredClone((await this.snapshot(cwd)).records.get(executionId) ?? null);
+    return this.withStore((store) => this.readRecord(store, cwd, executionId));
+  }
+
+  private async readRow(store: SqliteStateStore, cwd: string, executionId: string) {
+    return store.get<{ record_json: string }>(
+      "SELECT record_json FROM execution_records WHERE execution_id = ? AND workspace_path = ?",
+      [executionId, resolve(cwd)],
+    );
+  }
+
+  private async readRecord(store: SqliteStateStore, cwd: string, executionId: string) {
+    const row = await this.readRow(store, cwd, executionId);
+    return row ? parseExecutionRecord(row.record_json) : null;
   }
 
   async start(cwd: string, input: StartExecutionInput): Promise<ExecutionRecord> {
     const executionId = input.execution_id ?? `exec_${randomUUID().replaceAll("-", "")}`;
-    if (this.store) {
+    return this.withStore(async (store) => {
       const record = executionRecordFromStart(cwd, executionId, input);
-      const result = await this.store.run(...statementArgs(executionRecordInsert(record)));
-      const saved = await this.get(cwd, executionId);
+      const result = await store.run(...statementArgs(executionRecordInsert(record)));
+      const saved = await this.readRecord(store, cwd, executionId);
       if (!saved) throw new Error(`Execution start was not persisted: ${executionId}`);
       if (Number(result.changes) > 0)
         emitExecutionEvent(cwd, eventFromRecord(record, "execution.started"));
       return saved;
-    }
-    await this.append(
-      cwd,
-      executionId,
-      "execution.started",
-      input.kind,
-      input.surface,
-      input.producer,
-      {
-        started_at: input.created_at ?? new Date().toISOString(),
-        correlation: input.correlation ?? {},
-        request: input.request ?? {},
-        runtime: input.runtime ?? {},
-        files: { read: input.files?.read ?? [], written: input.files?.written ?? [] },
-        artifacts: input.artifacts ?? [],
-      },
-    );
-    const record = await this.get(cwd, executionId);
-    if (!record) throw new Error(`Execution start was not persisted: ${executionId}`);
-    return record;
+    });
   }
 
   async finish(
@@ -391,127 +298,35 @@ export class ExecutionRepository {
     executionId: string,
     input: FinishExecutionInput,
   ): Promise<ExecutionRecord | null> {
-    if (this.store) {
-      return this.store.serialized(`execution:${executionId}`, async () => {
-        const current = await this.get(cwd, executionId);
-        if (!current) return null;
-        if (
-          TERMINAL_STATUSES.has(current.status) &&
-          (current.status === input.status ||
-            current.kind !== "job" ||
-            !input.authoritative_job_id ||
-            current.correlation.job_id !== input.authoritative_job_id)
-        )
-          return current;
-        const event = eventFromFinish(current, input);
-        const records = new Map([[current.execution_id, current]]);
-        applyExecutionEvent(records, event);
-        const next = records.get(executionId)!;
-        await this.store!.run(
-          "UPDATE execution_records SET record_json = ?, updated_at = ? WHERE execution_id = ? AND workspace_path = ?",
-          [JSON.stringify(next), Date.now(), executionId, resolve(cwd)],
-        );
-        emitExecutionEvent(cwd, event);
-        return next;
-      });
-    }
-    const current = await this.get(cwd, executionId);
-    if (!current) return null;
-    if (
-      TERMINAL_STATUSES.has(current.status) &&
-      (current.status === input.status ||
-        current.kind !== "job" ||
-        !input.authoritative_job_id ||
-        current.correlation.job_id !== input.authoritative_job_id)
-    )
-      return current;
-    const eventType = eventTypeForStatus(input.status);
-    await this.append(
-      cwd,
-      executionId,
-      eventType,
-      current.kind,
-      current.surface,
-      input.producer,
-      {
-        status: input.status,
-        ended_at: input.ended_at ?? new Date().toISOString(),
-        result: input.result ?? {},
-        files: { read: input.files?.read ?? [], written: input.files?.written ?? [] },
-        artifacts: input.artifacts ?? [],
-        ...(input.usage ? { usage: input.usage } : {}),
-      },
-      input.authoritative_job_id,
+    return this.withStore((store) =>
+      store.serialized(`execution:${executionId}`, async () => {
+        while (true) {
+          const row = await this.readRow(store, cwd, executionId);
+          if (!row) return null;
+          const current = parseExecutionRecord(row.record_json);
+          if (!current) return null;
+          if (
+            TERMINAL_STATUSES.has(current.status) &&
+            (current.status === input.status ||
+              current.kind !== "job" ||
+              !input.authoritative_job_id ||
+              current.correlation.job_id !== input.authoritative_job_id)
+          )
+            return current;
+          const event = eventFromFinish(current, input);
+          const next = applyExecutionUpdate(current, event);
+          // A separate Worker can finish the same execution using its own connection.
+          const result = await store.run(
+            "UPDATE execution_records SET record_json = ?, updated_at = ? WHERE execution_id = ? AND workspace_path = ? AND record_json = ?",
+            [JSON.stringify(next), Date.now(), executionId, resolve(cwd), row.record_json],
+          );
+          if (Number(result.changes) === 0) continue;
+          emitExecutionEvent(cwd, event);
+          return next;
+        }
+      }),
     );
-    return this.get(cwd, executionId);
   }
-
-  private async append(
-    cwd: string,
-    executionId: string,
-    eventType: ExecutionEventType,
-    kind: ExecutionKind,
-    surface: ExecutionSurface,
-    producer: string,
-    payload: Record<string, unknown>,
-    authoritativeJobId?: string,
-  ): Promise<void> {
-    const path = this.path(cwd);
-    const appended = await withFileWriteLock(path, async () => {
-      const snapshot = await this.snapshot(cwd);
-      const current = snapshot.records.get(executionId);
-      if (eventType === "execution.started" && current) return null;
-      if (
-        eventType !== "execution.started" &&
-        current &&
-        TERMINAL_STATUSES.has(current.status) &&
-        (current.status === payload.status ||
-          current.kind !== "job" ||
-          !authoritativeJobId ||
-          current.correlation.job_id !== authoritativeJobId)
-      )
-        return null;
-      // Persist replacement semantics only after validating the authoritative identity
-      // under the append lock, so cold replay produces the same corrected result.
-      if (
-        current?.kind === "job" &&
-        authoritativeJobId &&
-        authoritativeJobId === current.correlation.job_id &&
-        eventType !== "execution.started"
-      )
-        payload = { ...payload, replace_result: true };
-      const sequence = (snapshot.sequences.get(executionId) ?? 0) + 1;
-      const event = executionEventSchema.parse({
-        schema_version: 1,
-        event_id: `event_${randomUUID().replaceAll("-", "")}`,
-        execution_id: executionId,
-        sequence,
-        event_type: eventType,
-        kind,
-        surface,
-        workspace_id: resolve(cwd),
-        created_at: new Date().toISOString(),
-        producer,
-        payload,
-      });
-      // Invalidate before I/O: a partial append must never retain a trusted index.
-      this.snapshots.delete(path);
-      await appendJsonLineUnlocked(path, event);
-      applyExecutionEvent(snapshot.records, event);
-      snapshot.sequences.set(executionId, sequence);
-      snapshot.signature = await fileSignature(path);
-      this.retain(path, snapshot);
-      return event;
-    });
-    if (appended) {
-      emitExecutionEvent(cwd, appended);
-    }
-  }
-}
-
-function parseExecutionRecord(json: string): ExecutionRecord | null {
-  const result = executionRecordSchema.safeParse(JSON.parse(json));
-  return result.success ? result.data : null;
 }
 
 function isRecord(record: ExecutionRecord | null): record is ExecutionRecord {
@@ -613,14 +428,12 @@ function eventFromFinish(current: ExecutionRecord, input: FinishExecutionInput):
   });
 }
 
-export function reduceExecutionEvents(events: ExecutionEvent[]): ExecutionRecord[] {
+function reduceExecutionEvents(events: ExecutionEvent[]): ExecutionRecord[] {
   const records = new Map<string, ExecutionRecord>();
   const ordered = events
     .slice()
     .sort((left, right) =>
-      left.execution_id === right.execution_id
-        ? left.sequence - right.sequence
-        : left.created_at.localeCompare(right.created_at),
+      left.execution_id.localeCompare(right.execution_id) || left.sequence - right.sequence,
     );
   for (const event of ordered) applyExecutionEvent(records, event);
   return [...records.values()];
@@ -651,10 +464,14 @@ function applyExecutionEvent(records: Map<string, ExecutionRecord>, event: Execu
     if (parsed.success) records.set(event.execution_id, parsed.data);
     return;
   }
-  const status = statusForEvent(event);
-  const next = executionRecordSchema.parse({
+  records.set(event.execution_id, applyExecutionUpdate(previous, event));
+}
+
+function applyExecutionUpdate(previous: ExecutionRecord, event: ExecutionEvent): ExecutionRecord {
+  const payload = event.payload;
+  return executionRecordSchema.parse({
     ...previous,
-    status,
+    status: statusForEvent(event),
     ended_at: stringValue(payload.ended_at) ?? previous.ended_at,
     producer: event.producer,
     correlation: { ...previous.correlation, ...objectValue(payload.correlation) },
@@ -668,7 +485,6 @@ function applyExecutionEvent(records: Map<string, ExecutionRecord>, event: Execu
     artifacts: mergeArtifacts(previous.artifacts, artifactRefs(payload.artifacts)),
     usage: { ...(previous.usage ?? {}), ...objectValue(payload.usage) },
   });
-  records.set(event.execution_id, next);
 }
 
 function eventTypeForStatus(status: FinishExecutionInput["status"]): ExecutionEventType {
@@ -768,19 +584,3 @@ function mergeArtifacts(
 }
 
 export const executionRepository = new ExecutionRepository();
-
-/** Inclusive interval intersection. Unknown starts cannot establish an overlap;
- * terminal records without an end can only establish their known start instant. */
-export function executionOverlapsWindow(
-  record: Pick<ExecutionRecord, "started_at" | "ended_at" | "status">,
-  from?: string,
-  to?: string,
-  now = Date.now(),
-): boolean {
-  const start = Date.parse(record.started_at ?? "");
-  if (!Number.isFinite(start)) return false;
-  const active = record.status === "running" || record.status === "pending";
-  const end = record.ended_at ? Date.parse(record.ended_at) : active ? Math.max(now, start) : start;
-  if (!Number.isFinite(end) || end < start) return false;
-  return end >= (from ? Date.parse(from) : -Infinity) && start <= (to ? Date.parse(to) : Infinity);
-}

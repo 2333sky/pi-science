@@ -1,3 +1,4 @@
+import { configPath } from "../../../storage/persistence.js";
 import { SqliteStateStore } from "../../../storage/sqlite/state-store.js";
 import type { RuntimeResult } from "../agent-runtime-types.js";
 import { workerRequestSchema, type WorkerEvent } from "./protocol.js";
@@ -47,8 +48,9 @@ async function handle(input: unknown): Promise<void> {
   try {
     if (message.type === "initialize") {
       if (runtime) throw new Error("worker is already initialized");
-      if (message.options.executionDatabasePath)
-        executionStore = new SqliteStateStore({ path: message.options.executionDatabasePath });
+      executionStore = new SqliteStateStore({
+        path: message.options.executionDatabasePath ?? configPath("state.sqlite"),
+      });
       runtime = await SessionRuntime.open(
         message.options,
         (event) => send({ type: "runtime_event", event }),

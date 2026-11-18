@@ -69,7 +69,7 @@ export function createServerModules(
   const configuredSqlite = process.env.PI_SCIENCE_SQLITE_STATE;
   const sqliteEnabled =
     options.sqliteEnabled ??
-    (configuredSqlite === "1" || (configuredSqlite !== "0" && process.env.NODE_ENV !== "test"));
+    (configuredSqlite === "1" || process.env.NODE_ENV !== "test");
   const stateStore =
     options.stateStore ??
     new SqliteStateStore({ path: sqliteEnabled ? configPath("state.sqlite") : ":memory:" });
@@ -78,7 +78,7 @@ export function createServerModules(
   const jobRepository = new JobRepository(stateStore, workspaces);
   const eventStore = new DurableEventStore();
   const events = new ConversationEventHub(eventStore);
-  const executions = new ExecutionRepository(sqliteEnabled ? stateStore : undefined);
+  const executions = new ExecutionRepository(stateStore);
   const sessionRepository = new SessionRepository();
   const runtimeCatalog = new AgentCoreCatalogService();
   const environments = new WorkspaceEnvironmentService(
@@ -116,7 +116,7 @@ export function createServerModules(
   const agentCore = new AgentCoreSessionService(events, environments, sessionServer, {
     manager: new AgentRuntimeManager(
       sessionServer.onWorkerExit,
-      sqliteEnabled && stateStore.databasePath !== ":memory:" ? stateStore.databasePath : undefined,
+      stateStore.databasePath !== ":memory:" ? stateStore.databasePath : undefined,
     ),
     repository: new AgentSessionRepository(),
     registry: new AgentSessionRegistry(),

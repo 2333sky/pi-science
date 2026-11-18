@@ -1,13 +1,40 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { ExecutionRepository, executionIdFor } from "./execution-repository.js";
+import { appendJsonLine, workspaceFile } from "../../storage/persistence.js";
+import { InMemorySqliteStateStore, SqliteStateStore } from "../../storage/sqlite/state-store.js";
 import { subscribeExecutionEvents } from "./execution-events.js";
 
 const workspaces: string[] = [];
+const stores: InMemorySqliteStateStore[] = [];
+
+async function sqliteRepository() {
+  const store = new InMemorySqliteStateStore();
+  stores.push(store);
+  await store.start();
+  return new ExecutionRepository(store);
+}
+
+async function writeLegacyEvent(cwd: string, executionId: string, sequence: number, payload: object) {
+  await appendJsonLine(workspaceFile(cwd, "execution-events-v1.jsonl"), {
+    schema_version: 1,
+    event_id: `event-${executionId}-${sequence}`,
+    execution_id: executionId,
+    sequence,
+    event_type: sequence === 1 ? "execution.started" : "execution.completed",
+    kind: "tool",
+    surface: "pi",
+    workspace_id: cwd,
+    created_at: new Date(sequence * 1000).toISOString(),
+    producer: "test",
+    payload,
+  });
+}
 
 afterEach(async () => {
+  await Promise.all(stores.splice(0).map((store) => store.close()));
   await Promise.all(workspaces.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -19,7 +46,6 @@ async function workspace(): Promise<string> {
 
 describe("ExecutionRepository", () => {
   it("stores non-Job executions in SQLite when the application state store is enabled", async () => {
-    const { InMemorySqliteStateStore } = await import("../../storage/sqlite/state-store.js");
     const cwd = await workspace();
     const state = new InMemorySqliteStateStore();
     await state.start();
@@ -48,7 +74,6 @@ describe("ExecutionRepository", () => {
   });
 
   it("paginates SQLite records while returning the full session summary", async () => {
-    const { InMemorySqliteStateStore } = await import("../../storage/sqlite/state-store.js");
     const cwd = await workspace();
     const state = new InMemorySqliteStateStore();
     await state.start();
@@ -101,21 +126,110 @@ describe("ExecutionRepository", () => {
     }
   });
 
+  it("combines SQLite search, time bounds, and target location without changing scope totals", async () => {
+    const cwd = await workspace();
+    const state = new InMemorySqliteStateStore();
+    await state.start();
+    try {
+      const sqlite = new ExecutionRepository(state);
+      const start = "2026-01-01T09:00:00.000Z";
+      const end = "2026-01-01T12:00:00.000Z";
+
+      for (const [id, session, created_at, ended_at] of [
+        ["b", "s1", start, end],
+        ["a", "s1", start, end],
+        ["other-session", "s2", start, end],
+        ["invalid-end", "s1", start, "invalid"],
+        ["before-window", "s1", start, "2026-01-01T09:59:59.999Z"],
+        ["no-start", "s1", "invalid", end],
+      ] as const) {
+        await sqlite.start(cwd, {
+          execution_id: id,
+          kind: "tool",
+          surface: "pi",
+          producer: "test",
+          created_at,
+          correlation: { session_id: session },
+        });
+        await sqlite.finish(cwd, id, {
+          status: "succeeded",
+          producer: "test",
+          ended_at,
+          result: { output_preview: "ÜBER 中文" },
+        });
+      }
+      await sqlite.start(cwd, {
+        execution_id: "running",
+        kind: "tool",
+        surface: "pi",
+        producer: "test",
+        created_at: start,
+        correlation: { session_id: "s1" },
+        request: { input: { title: "ÜBER 中文" } },
+      });
+
+      const filters = {
+        session_id: "s1",
+        kind: "tool",
+        status: "succeeded",
+        search: "über 中文",
+        from: "2026-01-01T11:00:00+01:00",
+        to: "2026-01-01T11:00:00.000Z",
+        limit: 1,
+      } as const;
+      expect(await sqlite.query(cwd, { ...filters, target_id: "b" })).toMatchObject({
+        executions: [{ execution_id: "a" }],
+        total: 6,
+        filtered_total: 2,
+        status_counts: { running: 1, succeeded: 5 },
+        target_offset: 1,
+        target_in_scope: true,
+        target_matches: true,
+      });
+      for (const [target_id, target_in_scope] of [
+        ["running", true], ["other-session", false], ["missing", false],
+      ] as const) {
+        expect(await sqlite.query(cwd, { ...filters, target_id })).toMatchObject({
+          target_in_scope, target_matches: false, target_offset: null,
+        });
+      }
+      expect(await sqlite.query(cwd, { ...filters, status: "running", target_id: "running" }))
+        .toMatchObject({
+          executions: [{ execution_id: "running" }],
+          total: 6,
+          filtered_total: 1,
+          target_offset: 0,
+          target_matches: true,
+        });
+    } finally {
+      await state.close();
+    }
+  });
+
   it("preserves newer SQLite execution status when legacy rows are imported again", async () => {
-    const { SqliteStateStore } = await import("../../storage/sqlite/state-store.js");
     const cwd = await workspace();
     const state = new SqliteStateStore({ path: join(cwd, "state.sqlite") });
     await state.start();
     try {
-      const legacy = new ExecutionRepository();
       const repository = new ExecutionRepository(state);
-      const started = await legacy.start(cwd, {
-        kind: "tool",
-        surface: "pi",
-        producer: "test",
+      const executionId = "legacy-run";
+      const artifact = { artifact_id: "legacy-artifact", version: 2, relation: "output" };
+      await writeLegacyEvent(cwd, executionId, 1, {
+        correlation: { session_id: "legacy-session", tool_call_id: "legacy-call" },
       });
-      expect(await repository.importLegacy([cwd])).toEqual({ records: 1 });
-      await repository.finish(cwd, started.execution_id, {
+      const completedId = "legacy-completed-run";
+      await writeLegacyEvent(cwd, completedId, 1, {
+        correlation: { session_id: "legacy-session", tool_call_id: "legacy-call" },
+      });
+      await writeLegacyEvent(cwd, completedId, 2, { artifacts: [artifact] });
+      expect(await repository.importLegacy([cwd])).toEqual({ records: 2 });
+      expect(await repository.get(cwd, completedId)).toMatchObject({
+        execution_id: completedId,
+        status: "succeeded",
+        correlation: { session_id: "legacy-session", tool_call_id: "legacy-call" },
+        artifacts: [artifact],
+      });
+      await repository.finish(cwd, executionId, {
         status: "succeeded",
         producer: "test",
         result: { output_preview: "kept" },
@@ -124,9 +238,9 @@ describe("ExecutionRepository", () => {
       await state.close();
       await state.start();
       expect(await repository.importLegacy([cwd])).toEqual({ records: 0 });
-      await legacy.start(cwd, { kind: "tool", surface: "pi", producer: "test" });
+      await writeLegacyEvent(cwd, "another-legacy-run", 1, {});
       expect(await repository.importLegacy([cwd])).toEqual({ records: 1 });
-      expect(await repository.get(cwd, started.execution_id)).toMatchObject({
+      expect(await repository.get(cwd, executionId)).toMatchObject({
         status: "succeeded",
         result: { output_preview: "kept" },
       });
@@ -137,7 +251,7 @@ describe("ExecutionRepository", () => {
 
   it("reduces a lifecycle into one queryable execution", async () => {
     const cwd = await workspace();
-    const repository = new ExecutionRepository();
+    const repository = await sqliteRepository();
     const started = await repository.start(cwd, {
       execution_id: "exec-test",
       kind: "job",
@@ -168,7 +282,7 @@ describe("ExecutionRepository", () => {
     "reads retired sandbox_run %s evidence without an executor or replay",
     async (status) => {
       const cwd = await workspace();
-      const repository = new ExecutionRepository();
+      const repository = await sqliteRepository();
       const execution_id = executionIdFor(
         "sandbox_run",
         "historical-session",
@@ -202,23 +316,20 @@ describe("ExecutionRepository", () => {
         result,
         artifacts: [{ artifact_id: "historical-artifact", version: 2, relation: "output" }],
       });
-      const events = await repository.events(cwd);
-      const reopened = new ExecutionRepository();
-      expect(await reopened.get(cwd, execution_id)).toMatchObject({
+      expect(await repository.get(cwd, execution_id)).toMatchObject({
         producer: "sandbox_run",
         status,
         request,
         result,
         artifacts: [{ artifact_id: "historical-artifact", version: 2, relation: "output" }],
       });
-      expect(await reopened.list(cwd)).toHaveLength(1);
-      expect(await reopened.events(cwd)).toEqual(events);
+      expect(await repository.list(cwd)).toHaveLength(1);
     },
   );
 
   it("is idempotent for duplicate starts and terminal updates", async () => {
     const cwd = await workspace();
-    const repository = new ExecutionRepository();
+    const repository = await sqliteRepository();
     const input = {
       execution_id: "exec-idempotent",
       kind: "tool" as const,
@@ -233,9 +344,34 @@ describe("ExecutionRepository", () => {
       result: { error: "first" },
     });
     await repository.finish(cwd, input.execution_id, { status: "succeeded", producer: "test" });
-    const events = await repository.events(cwd);
-    expect(events).toHaveLength(2);
     expect((await repository.get(cwd, input.execution_id))?.status).toBe("failed");
+  });
+
+  it("keeps the first terminal result across SQLite connections", async () => {
+    const cwd = await workspace();
+    const path = join(cwd, "state.sqlite");
+    const firstStore = new SqliteStateStore({ path });
+    const secondStore = new SqliteStateStore({ path });
+    try {
+      await firstStore.start();
+      await secondStore.start();
+      const first = new ExecutionRepository(firstStore);
+      const second = new ExecutionRepository(secondStore);
+      const { execution_id } = await first.start(cwd, {
+        kind: "tool",
+        surface: "pi",
+        producer: "test",
+      });
+      const [left, right] = await Promise.all([
+        first.finish(cwd, execution_id, { status: "succeeded", producer: "one" }),
+        second.finish(cwd, execution_id, { status: "failed", producer: "two" }),
+      ]);
+      expect(left?.status).toMatch(/^(succeeded|failed)$/);
+      expect(right).toEqual(left);
+      expect(await first.get(cwd, execution_id)).toEqual(left);
+    } finally {
+      await Promise.all([firstStore.close(), secondStore.close()]);
+    }
   });
 
   it("derives stable ids from source identities", () => {
@@ -249,7 +385,7 @@ describe("ExecutionRepository", () => {
 
   it("notifies workspace subscribers only after a new event is persisted", async () => {
     const cwd = await workspace();
-    const repository = new ExecutionRepository();
+    const repository = await sqliteRepository();
     const received: string[] = [];
     const unsubscribe = subscribeExecutionEvents(cwd, (event) => received.push(event.event_type));
 
@@ -273,125 +409,9 @@ describe("ExecutionRepository", () => {
   });
 });
 
-it("reuses unchanged materializations and invalidates appends and external edits", async () => {
-  const cwd = await workspace();
-  const repository = new ExecutionRepository();
-  const { vi } = await import("vitest");
-  const events = vi.spyOn(repository, "events");
-  await repository.start(cwd, {
-    execution_id: "cache",
-    kind: "tool",
-    surface: "pi",
-    producer: "test",
-  });
-  await repository.query(cwd);
-  const reads = events.mock.calls.length;
-  const record = await repository.get(cwd, "cache");
-  record!.request.tool = "mutation";
-  expect((await repository.get(cwd, "cache"))!.request.tool).toBeUndefined();
-  await repository.query(cwd);
-  expect(events.mock.calls.length).toBe(reads);
-  await repository.finish(cwd, "cache", { status: "succeeded", producer: "test" });
-  expect((await repository.query(cwd)).executions[0]!.status).toBe("succeeded");
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(join(cwd, ".pi-science", "execution-events-v1.jsonl"), "");
-  expect((await repository.query(cwd)).total).toBe(0);
-});
-
-describe("execution time window intersection", () => {
-  it("includes long executions crossing a window and inclusive edges", async () => {
-    const { executionOverlapsWindow } = await import("./execution-repository.js");
-    const from = "2026-10-13T10:00:00Z",
-      to = "2026-10-13T11:00:00Z";
-    expect(
-      executionOverlapsWindow(
-        {
-          status: "succeeded",
-          started_at: "2026-10-13T09:00:00Z",
-          ended_at: "2026-10-13T12:00:00Z",
-        },
-        from,
-        to,
-      ),
-    ).toBe(true);
-    expect(
-      executionOverlapsWindow(
-        { status: "succeeded", started_at: "2026-10-13T09:00:00Z", ended_at: from },
-        from,
-        to,
-      ),
-    ).toBe(true);
-    expect(
-      executionOverlapsWindow(
-        { status: "succeeded", started_at: to, ended_at: "2026-10-13T12:00:00Z" },
-        from,
-        to,
-      ),
-    ).toBe(true);
-    expect(
-      executionOverlapsWindow(
-        {
-          status: "succeeded",
-          started_at: "2026-10-13T09:00:00Z",
-          ended_at: "2026-10-13T09:59:59Z",
-        },
-        from,
-        to,
-      ),
-    ).toBe(false);
-  });
-  it("uses now for running executions and does not invent missing or invalid intervals", async () => {
-    const { executionOverlapsWindow } = await import("./execution-repository.js");
-    const from = "2026-10-13T10:00:00Z",
-      to = "2026-10-13T11:00:00Z",
-      now = Date.parse(to);
-    expect(
-      executionOverlapsWindow(
-        { status: "running", started_at: "2026-10-13T09:00:00Z" },
-        from,
-        to,
-        now,
-      ),
-    ).toBe(true);
-    expect(executionOverlapsWindow({ status: "succeeded", started_at: from }, from, to, now)).toBe(
-      true,
-    );
-    expect(executionOverlapsWindow({ status: "succeeded" }, from, to, now)).toBe(false);
-    expect(
-      executionOverlapsWindow({ status: "running", started_at: "invalid" }, from, to, now),
-    ).toBe(false);
-    expect(
-      executionOverlapsWindow(
-        { status: "succeeded", started_at: to, ended_at: from },
-        from,
-        to,
-        now,
-      ),
-    ).toBe(false);
-  });
-});
-
-it("updates its write index without rereading history and invalidates on another writer", async () => {
-  const cwd = await workspace();
-  const repository = new ExecutionRepository();
-  const reads = vi.spyOn(repository, "events");
-  const input = { kind: "job" as const, surface: "local" as const, producer: "test" };
-  for (let i = 0; i < 20; i++) {
-    const record = await repository.start(cwd, { ...input, execution_id: `indexed-${i}` });
-    await repository.finish(cwd, record.execution_id, { producer: "test", status: "succeeded" });
-  }
-  expect(reads).toHaveBeenCalledTimes(1);
-  const other = new ExecutionRepository();
-  await other.start(cwd, { ...input, execution_id: "external" });
-  expect((await repository.list(cwd, { limit: 100 })).length).toBe(21);
-  expect(reads).toHaveBeenCalledTimes(2);
-  await repository.finish(cwd, "external", { producer: "test", status: "failed" });
-  expect((await other.get(cwd, "external"))?.status).toBe("failed");
-});
-
 it("lets only the authoritative job repair an earlier terminal projection", async () => {
   const cwd = await workspace();
-  const repository = new ExecutionRepository();
+  const repository = await sqliteRepository();
   const input = {
     execution_id: "job-repair",
     kind: "job" as const,
@@ -429,12 +449,7 @@ it("lets only the authoritative job repair an earlier terminal projection", asyn
     producer: "test",
     authoritative_job_id: "job-authority",
   });
-  expect(await repository.events(cwd)).toHaveLength(3);
   expect((await repository.get(cwd, input.execution_id))?.result).toEqual({
-    exit_code: 0,
-    stdout_preview: "done",
-  });
-  expect((await new ExecutionRepository().get(cwd, input.execution_id))?.result).toEqual({
     exit_code: 0,
     stdout_preview: "done",
   });

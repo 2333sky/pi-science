@@ -71,7 +71,7 @@ export class MemoryService {
     )
       throw new MemoryError(
         "conflict",
-        "Memory requires persistent SQLite state; enable PI_SCIENCE_SQLITE_STATE",
+        "Memory requires persistent SQLite state",
       );
     return this.store.memory<MemoryOutput<K>>({ context: ctx, action, input } as MemoryCommand);
   }

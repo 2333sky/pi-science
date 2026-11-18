@@ -96,25 +96,13 @@ outputs/artifact hashes. Arbitrary tools and stateful kernels do not yet have th
 recorded conditions required to promise deterministic reproduction. Experiment
 DAGs remain future work; no relationships are inferred from chronological order.
 
-## JSONL performance
+## Storage
 
-An initial isolated synthetic local benchmark seeded one valid start event per execution, then made
-three full-history search queries with offset 100 and limit 50 (Node 24.19).
-Before caching, repeated 50,000-event/16.8MB queries took 466–475ms. After a bounded
-materialization, repeated queries took 29–30ms (cold read 447ms); 10,000-event
-queries took 5–6ms warm versus 91–113ms before. These initial measurements precede scope summaries; a later run concurrent with
-the full suite measured 86–88ms warm and 1400ms cold at 50,000 events. Timings depend
-on process load. These are illustrative measurements,
-not production performance guarantees.
-
-JSONL remains authoritative. The cache skips repeated read/schema validation/event
-reduction while the inode/size/nanosecond modification and change timestamps match.
-Writes invalidate it; external changes are detected on the next query. A changed
-file during reading is not cached. Retention is at most four workspaces and 100,000
-records combined; response clones prevent callers mutating cached evidence. Search
-and sorting still run over the selected materialization, while every append still
-reads the event log for idempotency/sequence validation. Larger histories or write
-rates warrant a durable incremental index rather than further cache expansion.
+New execution records and status updates are stored in SQLite. Startup imports
+legacy `execution-events-v1.jsonl` files for known workspaces, preserving execution
+IDs, session associations, and artifact references. Import leaves the source
+files in place and preserves rows already present in SQLite. Once imported, a
+record is available through the same Runs URL and API as a new execution.
 
 ## Verification
 

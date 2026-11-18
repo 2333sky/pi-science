@@ -2,13 +2,23 @@ import Fastify from "fastify";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { executionRepository } from "../../runtime/executions/execution-repository.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ExecutionRepository } from "../../runtime/executions/execution-repository.js";
+import { InMemorySqliteStateStore } from "../../storage/sqlite/state-store.js";
 import { registerExecutionRoutes } from "./execution-routes.js";
 
 const workspaces: string[] = [];
+let store: InMemorySqliteStateStore;
+let executionRepository: ExecutionRepository;
+
+beforeEach(async () => {
+  store = new InMemorySqliteStateStore();
+  await store.start();
+  executionRepository = new ExecutionRepository(store);
+});
 
 afterEach(async () => {
+  await store.close();
   await Promise.all(workspaces.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
@@ -37,7 +47,7 @@ describe("execution routes", () => {
     });
 
     const app = Fastify();
-    registerExecutionRoutes(app);
+    registerExecutionRoutes(app, undefined, executionRepository);
     const list = await app.inject({
       method: "GET",
       url: `/api/executions?cwd=${encodeURIComponent(cwd)}&session_id=session-route`,
@@ -82,7 +92,7 @@ describe("execution routes", () => {
         stdout_truncated: false,
         stderr_truncated: false,
       }),
-    });
+    }, executionRepository);
 
     const response = await app.inject({
       method: "GET",
@@ -98,7 +108,7 @@ describe("execution routes", () => {
   it("rejects invalid filters and unknown executions", async () => {
     const cwd = await workspace();
     const app = Fastify();
-    registerExecutionRoutes(app);
+    registerExecutionRoutes(app, undefined, executionRepository);
     expect(
       (
         await app.inject({
@@ -143,8 +153,9 @@ describe("execution history and previews", () => {
       join(cwd, ".pi-science", "execution-events-v1.jsonl"),
       rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
     );
+    await executionRepository.importLegacy([cwd]);
     const app = Fastify();
-    registerExecutionRoutes(app);
+    registerExecutionRoutes(app, undefined, executionRepository);
     const get = async (query: string) =>
       (await app.inject(`/api/executions?cwd=${encodeURIComponent(cwd)}&${query}`)).json();
     expect(await get("limit=100")).toMatchObject({
@@ -215,7 +226,7 @@ describe("execution history and previews", () => {
       },
     });
     const app = Fastify();
-    registerExecutionRoutes(app);
+    registerExecutionRoutes(app, undefined, executionRepository);
     const response = await app.inject(
       `/api/executions/preview/logs?cwd=${encodeURIComponent(cwd)}`,
     );
@@ -240,7 +251,7 @@ describe("execution history and previews", () => {
   ])("rejects malformed query %s", async (query) => {
     const cwd = await workspace();
     const app = Fastify();
-    registerExecutionRoutes(app);
+    registerExecutionRoutes(app, undefined, executionRepository);
     expect(
       (await app.inject(`/api/executions?cwd=${encodeURIComponent(cwd)}&${query}`)).statusCode,
     ).toBe(400);
@@ -291,9 +302,9 @@ it.each(["status=succeeded&limit=1", "limit=1&offset=1", "status=succeeded&prior
       producer: "test",
       created_at: "2026-02-01T00:00:00Z",
     });
-    const jobs = new JobCoordinator();
+    const jobs = new JobCoordinator(undefined, {}, executionRepository);
     const app = Fastify();
-    registerExecutionRoutes(app, jobs);
+    registerExecutionRoutes(app, jobs, executionRepository);
     try {
       // A plain list must not scan Jobs to repair this stale projection.
       const stale = await app.inject(
@@ -319,10 +330,7 @@ it.each(["kind=tool&limit=20", "status=succeeded&limit=20", "limit=20&offset=100
   async (queryString) => {
     const cwd = await workspace();
     const { writeFile } = await import("node:fs/promises");
-    const { ExecutionRepository } = await import(
-      "../../runtime/executions/execution-repository.js"
-    );
-    const repository = new ExecutionRepository();
+    const repository = executionRepository;
     const rows = Array.from({ length: 22000 }, (_, index) => ({
       schema_version: 1,
       event_id: `event-${index}`,
@@ -340,6 +348,7 @@ it.each(["kind=tool&limit=20", "status=succeeded&limit=20", "limit=20&offset=100
       join(cwd, ".pi-science", "execution-events-v1.jsonl"),
       rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
     );
+    await repository.importLegacy([cwd]);
     const query = vi.spyOn(repository, "query");
     // Any Job read would introduce request cost proportional to historical Jobs.
     const get = vi.fn(async () => {

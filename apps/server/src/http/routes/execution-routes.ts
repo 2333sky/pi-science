@@ -106,8 +106,7 @@ export function registerExecutionRoutes(
       ...(kind?.success ? { kind: kind.data } : {}),
       ...(status?.success ? { status: status.data } : {}),
     };
-    // Lists read the projection only. SQLite updates Job and Execution together;
-    // the file fallback retains startup/background recovery for older workspaces.
+    // Lists read the execution projection. SQLite updates Job and Execution together.
     return executionListResponseSchema.parse(await executions.query(cwd, options));
   });
 

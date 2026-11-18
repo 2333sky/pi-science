@@ -335,7 +335,7 @@ export class SqliteStateStore {
       if (value.startsWith("--input-type=")) continue;
       args.push(value);
     }
-    if (this.isTypeScriptWorker()) args.push("--import", "tsx/esm");
+    if (this.isTypeScriptWorker()) args.push("--import", import.meta.resolve("tsx/esm"));
     return args;
   }
 }
