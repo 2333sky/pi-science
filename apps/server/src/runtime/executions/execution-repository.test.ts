@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -17,7 +17,12 @@ async function sqliteRepository() {
   return new ExecutionRepository(store);
 }
 
-async function writeLegacyEvent(cwd: string, executionId: string, sequence: number, payload: object) {
+async function writeLegacyEvent(
+  cwd: string,
+  executionId: string,
+  sequence: number,
+  payload: object,
+) {
   await appendJsonLine(workspaceFile(cwd, "execution-events-v1.jsonl"), {
     schema_version: 1,
     event_id: `event-${executionId}-${sequence}`,
@@ -70,6 +75,35 @@ describe("ExecutionRepository", () => {
       });
     } finally {
       await state.close();
+    }
+  });
+
+  it("uses the same SQLite records and notifications through workspace aliases", async () => {
+    const cwd = await workspace();
+    const alias = join(await workspace(), "alias");
+    await symlink(cwd, alias, "junction");
+    const repository = await sqliteRepository();
+    const received: string[] = [];
+    const unsubscribe = subscribeExecutionEvents(cwd, (event) => received.push(event.event_type));
+    try {
+      const record = await repository.start(alias, {
+        kind: "tool",
+        surface: "pi",
+        producer: "test",
+      });
+      await repository.finish(cwd, record.execution_id, { status: "succeeded", producer: "test" });
+      await writeLegacyEvent(alias, "aliased-legacy-run", 1, {});
+      expect(await repository.importLegacy([alias])).toEqual({ records: 1 });
+      expect(await repository.get(alias, record.execution_id)).toMatchObject({
+        status: "succeeded",
+      });
+      expect((await repository.query(cwd)).executions.map((row) => row.execution_id)).toEqual([
+        record.execution_id,
+        "aliased-legacy-run",
+      ]);
+      expect(received).toEqual(["execution.started", "execution.completed"]);
+    } finally {
+      unsubscribe();
     }
   });
 
@@ -187,20 +221,25 @@ describe("ExecutionRepository", () => {
         target_matches: true,
       });
       for (const [target_id, target_in_scope] of [
-        ["running", true], ["other-session", false], ["missing", false],
+        ["running", true],
+        ["other-session", false],
+        ["missing", false],
       ] as const) {
         expect(await sqlite.query(cwd, { ...filters, target_id })).toMatchObject({
-          target_in_scope, target_matches: false, target_offset: null,
+          target_in_scope,
+          target_matches: false,
+          target_offset: null,
         });
       }
-      expect(await sqlite.query(cwd, { ...filters, status: "running", target_id: "running" }))
-        .toMatchObject({
-          executions: [{ execution_id: "running" }],
-          total: 6,
-          filtered_total: 1,
-          target_offset: 0,
-          target_matches: true,
-        });
+      expect(
+        await sqlite.query(cwd, { ...filters, status: "running", target_id: "running" }),
+      ).toMatchObject({
+        executions: [{ execution_id: "running" }],
+        total: 6,
+        filtered_total: 1,
+        target_offset: 0,
+        target_matches: true,
+      });
     } finally {
       await state.close();
     }

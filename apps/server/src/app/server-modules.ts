@@ -68,8 +68,7 @@ export function createServerModules(
 ): ServerModules {
   const configuredSqlite = process.env.PI_SCIENCE_SQLITE_STATE;
   const sqliteEnabled =
-    options.sqliteEnabled ??
-    (configuredSqlite === "1" || process.env.NODE_ENV !== "test");
+    options.sqliteEnabled ?? (configuredSqlite === "1" || process.env.NODE_ENV !== "test");
   const stateStore =
     options.stateStore ??
     new SqliteStateStore({ path: sqliteEnabled ? configPath("state.sqlite") : ":memory:" });

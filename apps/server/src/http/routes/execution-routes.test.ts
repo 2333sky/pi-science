@@ -3,7 +3,10 @@ import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ExecutionRepository } from "../../runtime/executions/execution-repository.js";
+import {
+  ExecutionRepository,
+  executionRecordFromStart,
+} from "../../runtime/executions/execution-repository.js";
 import { InMemorySqliteStateStore } from "../../storage/sqlite/state-store.js";
 import { registerExecutionRoutes } from "./execution-routes.js";
 
@@ -84,15 +87,19 @@ describe("execution routes", () => {
       correlation: { job_id: "job_1234567890abcdef" },
     });
     const app = Fastify();
-    registerExecutionRoutes(app, {
-      logs: async () => ({
-        job_id: "job_1234567890abcdef",
-        stdout: "complete output",
-        stderr: "",
-        stdout_truncated: false,
-        stderr_truncated: false,
-      }),
-    }, executionRepository);
+    registerExecutionRoutes(
+      app,
+      {
+        logs: async () => ({
+          job_id: "job_1234567890abcdef",
+          stdout: "complete output",
+          stderr: "",
+          stdout_truncated: false,
+          stderr_truncated: false,
+        }),
+      },
+      executionRepository,
+    );
 
     const response = await app.inject({
       method: "GET",
@@ -329,26 +336,24 @@ it.each(["kind=tool&limit=20", "status=succeeded&limit=20", "limit=20&offset=100
   "does not read historical Jobs for a large list: %s",
   async (queryString) => {
     const cwd = await workspace();
-    const { writeFile } = await import("node:fs/promises");
     const repository = executionRepository;
-    const rows = Array.from({ length: 22000 }, (_, index) => ({
-      schema_version: 1,
-      event_id: `event-${index}`,
-      execution_id: `exec-${index}`,
-      sequence: 1,
-      event_type: "execution.started",
-      kind: index < 20000 ? "job" : "tool",
+    const template = executionRecordFromStart(cwd, "template", {
+      kind: "tool",
       surface: "local",
-      workspace_id: cwd,
-      created_at: new Date(0).toISOString(),
       producer: "test",
-      payload: { correlation: index < 20000 ? { job_id: `job-${index}` } : {} },
-    }));
-    await writeFile(
-      join(cwd, ".pi-science", "execution-events-v1.jsonl"),
-      rows.map((row) => JSON.stringify(row)).join("\n") + "\n",
+      created_at: new Date(0).toISOString(),
+    });
+    // Seed the query fixture in SQLite. Legacy replay has its own coverage above.
+    await store.run(
+      `WITH RECURSIVE ids(n) AS (VALUES (0) UNION ALL SELECT n + 1 FROM ids WHERE n < 21999)
+       INSERT INTO execution_records (execution_id, workspace_path, record_json, created_at, updated_at)
+       SELECT 'exec-' || n, ?1, json_set(?2,
+         '$.execution_id', 'exec-' || n,
+         '$.kind', CASE WHEN n < 20000 THEN 'job' ELSE 'tool' END,
+         '$.correlation', json(CASE WHEN n < 20000 THEN json_object('job_id', 'job-' || n) ELSE '{}' END)
+       ), 0, 0 FROM ids`,
+      [template.workspace_id, JSON.stringify(template)],
     );
-    await repository.importLegacy([cwd]);
     const query = vi.spyOn(repository, "query");
     // Any Job read would introduce request cost proportional to historical Jobs.
     const get = vi.fn(async () => {

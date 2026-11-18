@@ -613,8 +613,11 @@ describe("native Node conversation routes", () => {
     );
     const url = `/api/sessions/session-title-priority/title?cwd=${encodeURIComponent(cwd)}`;
     try {
-      const automatic = server.inject({ method: "POST", url, payload: {} });
-      const manual = server.inject({ method: "POST", url, payload: { manual: true } });
+      const automatic = Promise.resolve(server.inject({ method: "POST", url, payload: {} }));
+      await vi.waitFor(() => expect(releases).toHaveLength(1));
+      const manual = Promise.resolve(
+        server.inject({ method: "POST", url, payload: { manual: true } }),
+      );
       await vi.waitFor(() => expect(releases).toHaveLength(2));
       // The automatic generation returns first, but the user has asked again.
       releases[0]!("自动标题");
@@ -624,6 +627,7 @@ describe("native Node conversation routes", () => {
       const raw = await readFile(join(cwd, ".pi-science", "session-titles.jsonl"), "utf8");
       expect(JSON.parse(raw.trim())).toMatchObject({ title: "手动标题", revision: 1 });
     } finally {
+      for (const release of releases) release("");
       await server.close();
     }
   });

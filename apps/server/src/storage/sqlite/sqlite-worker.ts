@@ -1,6 +1,9 @@
 import { ApplicationError } from "../../modules/application-error.js";
 import { executeMemory } from "../../memory/repository.js";
-import { executionMatchesSearch, parseExecutionRecord } from "../../runtime/executions/execution-search.js";
+import {
+  executionMatchesSearch,
+  parseExecutionRecord,
+} from "../../runtime/executions/execution-search.js";
 import { DatabaseSync } from "node:sqlite";
 import { parentPort, workerData } from "node:worker_threads";
 import type {
@@ -129,20 +132,28 @@ function runMigrations(migrations: Migration[]) {
     throw new Error(
       `SQLite database schema version ${latestApplied} is newer than supported version ${latestSupported}`,
     );
-  const pending = migrations.filter((migration) => !applied.some((row) => row.version === migration.version));
-  const readApplied = database.prepare("SELECT name, checksum FROM schema_migrations WHERE version = ?");
+  const pending = migrations.filter(
+    (migration) => !applied.some((row) => row.version === migration.version),
+  );
+  const readApplied = database.prepare(
+    "SELECT name, checksum FROM schema_migrations WHERE version = ?",
+  );
   for (const migration of pending) {
     database.exec("BEGIN IMMEDIATE");
     try {
       // A second process may have applied this migration while we waited for the lock.
-      const existing = readApplied.get(migration.version) as { name: string; checksum: string } | undefined;
+      const existing = readApplied.get(migration.version) as
+        | { name: string; checksum: string }
+        | undefined;
       if (existing) {
         if (
           existing.name !== migration.name ||
           (existing.checksum !== migration.checksum &&
             !migration.compatibleChecksums?.includes(existing.checksum))
         ) {
-          throw new Error(`SQLite migration checksum mismatch at version ${migration.version} (${existing.name})`);
+          throw new Error(
+            `SQLite migration checksum mismatch at version ${migration.version} (${existing.name})`,
+          );
         }
       } else {
         database.exec(migration.sql);

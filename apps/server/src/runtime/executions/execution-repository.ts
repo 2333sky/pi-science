@@ -16,6 +16,7 @@ import {
 } from "@pi-science/contracts";
 import { configPath, readJsonLines, workspaceFile } from "../../storage/persistence.js";
 import { emitExecutionEvent } from "./execution-events.js";
+import { workspaceIdentity } from "../agent/workspace-session-identity.js";
 import { parseExecutionRecord } from "./execution-search.js";
 import { SqliteStateStore } from "../../storage/sqlite/state-store.js";
 import type { SqlStatement } from "../../storage/sqlite/protocol.js";
@@ -119,9 +120,12 @@ export class ExecutionRepository {
           [source],
         );
         if (imported?.source_fingerprint === signature) continue;
+        const workspacePath = workspaceIdentity(cwd);
         const reduced = reduceExecutionEvents(await this.readLegacyEvents(cwd));
         const results = await store.batch([
-          ...reduced.map(executionRecordInsert),
+          ...reduced.map((record) =>
+            executionRecordInsert({ ...record, workspace_id: workspacePath }),
+          ),
           {
             sql: `INSERT INTO legacy_imports (source, source_fingerprint, imported_at, row_count)
               VALUES (?, ?, ?, ?) ON CONFLICT(source) DO UPDATE SET
@@ -230,7 +234,7 @@ export class ExecutionRepository {
         coalesce(sum(duration_count), 0) AS completed_duration_count
       FROM counts`,
       [
-        resolve(cwd),
+        workspaceIdentity(cwd),
         options.kind ?? null,
         options.status ?? null,
         limit,
@@ -271,7 +275,7 @@ export class ExecutionRepository {
   private async readRow(store: SqliteStateStore, cwd: string, executionId: string) {
     return store.get<{ record_json: string }>(
       "SELECT record_json FROM execution_records WHERE execution_id = ? AND workspace_path = ?",
-      [executionId, resolve(cwd)],
+      [executionId, workspaceIdentity(cwd)],
     );
   }
 
@@ -318,7 +322,7 @@ export class ExecutionRepository {
           // A separate Worker can finish the same execution using its own connection.
           const result = await store.run(
             "UPDATE execution_records SET record_json = ?, updated_at = ? WHERE execution_id = ? AND workspace_path = ? AND record_json = ?",
-            [JSON.stringify(next), Date.now(), executionId, resolve(cwd), row.record_json],
+            [JSON.stringify(next), Date.now(), executionId, current.workspace_id, row.record_json],
           );
           if (Number(result.changes) === 0) continue;
           emitExecutionEvent(cwd, event);
@@ -345,7 +349,7 @@ export function executionRecordFromStart(
     kind: input.kind,
     surface: input.surface,
     status: "running",
-    workspace_id: resolve(cwd),
+    workspace_id: workspaceIdentity(cwd),
     created_at: startedAt,
     started_at: startedAt,
     producer: input.producer,
@@ -432,8 +436,9 @@ function reduceExecutionEvents(events: ExecutionEvent[]): ExecutionRecord[] {
   const records = new Map<string, ExecutionRecord>();
   const ordered = events
     .slice()
-    .sort((left, right) =>
-      left.execution_id.localeCompare(right.execution_id) || left.sequence - right.sequence,
+    .sort(
+      (left, right) =>
+        left.execution_id.localeCompare(right.execution_id) || left.sequence - right.sequence,
     );
   for (const event of ordered) applyExecutionEvent(records, event);
   return [...records.values()];
