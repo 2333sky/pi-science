@@ -1,6 +1,8 @@
 import { useMemo, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import hljs from "highlight.js/lib/common";
 import { cn } from "@/lib/ui";
+import { shouldSkipHighlight } from "@/lib/artifacts/highlight-policy";
 import { isSelectAllShortcut, selectAllWithin } from "@/lib/ui/select-all-within";
 import "./highlight-theme.css";
 
@@ -14,21 +16,27 @@ interface Props {
 
 /** Read-only code with a line-number gutter. Scrolls horizontally; no wrapping. */
 export function CodeViewer({ code, language, startLine = 1, className, fontSize = 12.5 }: Props) {
+  const { t } = useTranslation();
   const codeRef = useRef<HTMLElement>(null);
+  const lineCount = code.replace(/\n$/, "").split("\n").length;
+  const skipHighlight = shouldSkipHighlight(code);
+
   const html = useMemo(() => {
+    if (skipHighlight) return escapeHtml(code);
     try {
-      if (language && hljs.getLanguage(language)) {
-        return hljs.highlight(code, { language }).value;
-      }
-      return hljs.highlightAuto(code).value;
+      // An explicit plaintext request and an unknown declared language both
+      // render unhighlighted. Auto-detection is only for text files with no
+      // declared language, and is capped by the size guards above.
+      if (language === "plaintext") return escapeHtml(code);
+      if (!language) return hljs.highlightAuto(code).value;
+      if (!hljs.getLanguage(language)) return escapeHtml(code);
+      return hljs.highlight(code, { language }).value;
     } catch {
       return escapeHtml(code);
     }
-  }, [code, language]);
+  }, [code, language, skipHighlight]);
 
-  const lineCount = code.replace(/\n$/, "").split("\n").length;
-
-  return (
+  const viewer = (
     <div
       className={cn("flex overflow-x-auto rounded-input border border-border bg-surface font-mono text-[12.5px] leading-[1.55] outline-none focus-visible:ring-2 focus-visible:ring-accent/40", className)}
       style={{ fontSize: Math.round(fontSize * 100) / 100 }}
@@ -52,6 +60,19 @@ export function CodeViewer({ code, language, startLine = 1, className, fontSize 
       <pre className="flex-1 overflow-visible px-4 py-3">
         <code ref={codeRef} className="hljs bg-transparent" dangerouslySetInnerHTML={{ __html: html }} />
       </pre>
+    </div>
+  );
+
+  if (!skipHighlight) return viewer;
+  return (
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
+      <div
+        role="status"
+        className="rounded-input border border-accent/25 bg-accent/5 px-3 py-2 text-xs text-muted"
+      >
+        {t("filePreview.highlightSkipped")}
+      </div>
+      {viewer}
     </div>
   );
 }
