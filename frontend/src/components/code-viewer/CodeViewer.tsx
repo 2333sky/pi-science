@@ -21,6 +21,7 @@ export function CodeViewer({ code, language, startLine = 1, className, fontSize 
   const lineCount = useMemo(() => code.replace(/\n$/, "").split("\n").length, [code]);
   const skipHighlight = shouldSkipHighlight(code);
   const skipAuto = !language && !skipHighlight && shouldSkipAutoDetect(code);
+  const skipReason = skipHighlight ? "size" : skipAuto ? "noGrammar" : null;
 
   const html = useMemo(() => {
     if (skipHighlight || skipAuto) return escapeHtml(code);
@@ -64,14 +65,14 @@ export function CodeViewer({ code, language, startLine = 1, className, fontSize 
     </div>
   );
 
-  if (!skipHighlight && !skipAuto) return viewer;
+  if (!skipReason) return viewer;
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
       <div
         role="status"
         className="rounded-input border border-accent/25 bg-accent/5 px-3 py-2 text-xs text-muted"
       >
-        {t("filePreview.highlightSkipped")}
+        {t(skipReason === "size" ? "filePreview.highlightSkipped" : "filePreview.highlightSkippedNoGrammar")}
       </div>
       {viewer}
     </div>
