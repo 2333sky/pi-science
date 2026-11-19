@@ -2,7 +2,7 @@ import { useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import hljs from "highlight.js/lib/common";
 import { cn } from "@/lib/ui";
-import { shouldSkipHighlight } from "@/lib/artifacts/highlight-policy";
+import { shouldSkipAutoDetect, shouldSkipHighlight } from "@/lib/artifacts/highlight-policy";
 import { isSelectAllShortcut, selectAllWithin } from "@/lib/ui/select-all-within";
 import "./highlight-theme.css";
 
@@ -18,11 +18,12 @@ interface Props {
 export function CodeViewer({ code, language, startLine = 1, className, fontSize = 12.5 }: Props) {
   const { t } = useTranslation();
   const codeRef = useRef<HTMLElement>(null);
-  const lineCount = code.replace(/\n$/, "").split("\n").length;
+  const lineCount = useMemo(() => code.replace(/\n$/, "").split("\n").length, [code]);
   const skipHighlight = shouldSkipHighlight(code);
+  const skipAuto = !language && !skipHighlight && shouldSkipAutoDetect(code);
 
   const html = useMemo(() => {
-    if (skipHighlight) return escapeHtml(code);
+    if (skipHighlight || skipAuto) return escapeHtml(code);
     try {
       // An explicit plaintext request and an unknown declared language both
       // render unhighlighted. Auto-detection is only for text files with no
@@ -34,7 +35,7 @@ export function CodeViewer({ code, language, startLine = 1, className, fontSize 
     } catch {
       return escapeHtml(code);
     }
-  }, [code, language, skipHighlight]);
+  }, [code, language, skipHighlight, skipAuto]);
 
   const viewer = (
     <div
@@ -63,7 +64,7 @@ export function CodeViewer({ code, language, startLine = 1, className, fontSize 
     </div>
   );
 
-  if (!skipHighlight) return viewer;
+  if (!skipHighlight && !skipAuto) return viewer;
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-2">
       <div

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { MAX_HIGHLIGHT_CHARS, MAX_HIGHLIGHT_LINES, codeViewLanguage, shouldSkipHighlight } from "./highlight-policy";
+import {
+  MAX_AUTO_CHARS,
+  MAX_HIGHLIGHT_CHARS,
+  MAX_HIGHLIGHT_LINES,
+  codeViewLanguage,
+  shouldSkipAutoDetect,
+  shouldSkipHighlight,
+} from "./highlight-policy";
 
 describe("shouldSkipHighlight", () => {
   it("keeps normal source files highlighted", () => {
@@ -14,6 +21,17 @@ describe("shouldSkipHighlight", () => {
 
   it("skips files above the line guard even when they are small in bytes", () => {
     expect(shouldSkipHighlight(Array.from({ length: MAX_HIGHLIGHT_LINES + 1 }, () => "x").join("\n"))).toBe(true);
+  });
+});
+
+describe("shouldSkipAutoDetect", () => {
+  it("allows auto-detection at and below the cap", () => {
+    expect(shouldSkipAutoDetect("")).toBe(false);
+    expect(shouldSkipAutoDetect("x".repeat(MAX_AUTO_CHARS))).toBe(false);
+  });
+
+  it("skips auto-detection above the cap", () => {
+    expect(shouldSkipAutoDetect("x".repeat(MAX_AUTO_CHARS + 1))).toBe(true);
   });
 });
 

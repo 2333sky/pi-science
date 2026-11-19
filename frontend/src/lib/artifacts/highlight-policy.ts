@@ -15,6 +15,16 @@ export const MAX_HIGHLIGHT_CHARS = 1_000_000;
 /** A second guard for files with very short lines (e.g. 5 MB PDB = 61k lines). */
 export const MAX_HIGHLIGHT_LINES = 20_000;
 
+/** Auto-detection scans every bundled grammar (35 in the common bundle) and is
+ *  measured at ~11x the cost of an explicit grammar, while often guessing wrong
+ *  (PDB -> yaml, log -> lua). Files with no declared language get auto-detection
+ *  only while short; larger ones are shown as plain text. */
+export const MAX_AUTO_CHARS = 20_000;
+
+export function shouldSkipAutoDetect(code: string): boolean {
+  return code.length > MAX_AUTO_CHARS;
+}
+
 /** True when highlighting this file would block the main thread for seconds. */
 export function shouldSkipHighlight(code: string): boolean {
   if (code.length > MAX_HIGHLIGHT_CHARS) return true;
