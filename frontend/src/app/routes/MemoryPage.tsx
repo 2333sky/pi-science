@@ -268,7 +268,7 @@ export function MemoryPage() {
   return (
     <WorkspacePage>
       <div className="space-y-3">
-        <WorkspacePageHeader className="max-sm:flex-row max-sm:justify-between max-sm:gap-3 max-sm:pb-3" title={t("memory.title")} description={<span className="hidden sm:inline">{t("memory.description")}</span>} actions={<button className={control} aria-label={t("memory.openSettings")} onClick={() => openSettings(cwd, "memory")}><Settings2 size={16} className="sm:hidden" /><span className="hidden sm:inline">{t("memory.openSettings")}</span></button>} />
+        <WorkspacePageHeader className="max-sm:flex-row max-sm:justify-between max-sm:gap-3 max-sm:pb-3" title={t("memory.title")} actions={<button className={control} aria-label={t("memory.openSettings")} onClick={() => openSettings(cwd, "memory")}><Settings2 size={16} className="sm:hidden" /><span className="hidden sm:inline">{t("memory.openSettings")}</span></button>} />
         <nav
           className="grid grid-cols-3 gap-1 sm:flex sm:flex-wrap sm:gap-2"
           aria-label={t("memory.title")}
