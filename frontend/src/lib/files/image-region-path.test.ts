@@ -57,4 +57,18 @@ describe("image region paths", () => {
       expect(referencesFromMessage(`<workspace_references>\n- image-region (read this PNG for the marked overview above and detail below): ${JSON.stringify([path, "x"])}\n</workspace_references>`)).toEqual([]);
     }
   });
+
+  it("accepts exactly one directory and one uuid file, nothing longer", () => {
+    const region = `image-regions/${RANDOM_UUID_ID}.png`;
+    expect(isImageRegionPath(region)).toBe(true);
+    const rejected = [
+      `${region}/evil`,
+      "image-regions/../../x",
+      `/${region}`,
+    ];
+    for (const path of rejected) {
+      expect(isImageRegionPath(path)).toBe(false);
+      expect(referencesFromMessage(`<workspace_references>\n- image-region (read this PNG for the marked overview above and detail below): ${JSON.stringify([path, "x"])}\n</workspace_references>`)).toEqual([]);
+    }
+  });
 });

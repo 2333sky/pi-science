@@ -23,12 +23,15 @@ export function imageRegionPath(id: string = imageRegionId()): string {
   return `${IMAGE_REGION_DIR}/${id}.png`;
 }
 
-/** Whether `path` names a region snapshot this frontend could have uploaded. */
+/** Whether `path` names a region snapshot this frontend could have uploaded.
+ *  Exactly `<dir>/<uuid>.png`: extra segments, relative hops, and absolute
+ *  paths are rejected even though the workspace serves them elsewhere. */
 export function isImageRegionPath(path: string): boolean {
-  const [directory, file] = path.split("/");
+  const segments = path.split("/");
+  if (segments.length !== 2) return false;
+  const [directory, file] = segments;
   return (
     directory === IMAGE_REGION_DIR &&
-    file !== undefined &&
     file.endsWith(".png") &&
     IMAGE_REGION_ID.test(file.slice(0, -".png".length))
   );
