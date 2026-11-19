@@ -75,7 +75,7 @@ describe("CodeViewer highlighting policy", () => {
     expect(auto).not.toHaveBeenCalled();
     expect(highlight).not.toHaveBeenCalled();
     expect(codeText(container)).toBe(code);
-    expect(screen.getByRole("status")).toHaveTextContent(i18n.t("filePreview.highlightSkippedNoGrammar"));
+    expect(screen.getByRole("status")).toHaveTextContent(i18n.t("filePreview.highlightSkippedNoLanguage"));
   });
 
   it("keeps highlighting an explicit grammar above the auto-detection cap", () => {
