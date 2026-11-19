@@ -265,12 +265,7 @@ export function ProjectsPage() {
 
           <header className="mb-8 flex flex-col justify-between gap-5 sm:flex-row sm:items-end">
             <div>
-              <div className="mb-2 flex items-center gap-2 text-ui-caption font-semibold uppercase tracking-[0.16em] text-accent">
-                <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-                {t("projects.workbench")}
-              </div>
               <h1 className="text-3xl font-semibold tracking-[-0.035em] text-text sm:text-4xl">{t("nav.projects")}</h1>
-              <p className="mt-2 max-w-xl text-sm leading-6 text-muted">{t("projects.description")}</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" aria-expanded={settingsOpen}
