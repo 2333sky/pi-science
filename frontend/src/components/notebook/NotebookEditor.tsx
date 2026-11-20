@@ -222,7 +222,7 @@ export function NotebookEditor({
         <button
           type="button"
           onClick={requestClose}
-          aria-label={t("common.close")}
+          aria-label={t("notebook.close")}
           className="flex h-9 w-9 items-center justify-center rounded-input text-text hover:bg-surface-2"
         >
           <X size={14} strokeWidth={1.5} />
