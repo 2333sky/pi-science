@@ -54,7 +54,7 @@ export function QCodeView({ filename, text }: { filename: string; text: string }
           {filename} · {t("qcode.sourceCount", { count: doc.sources.length })} ·{" "}
           {t("qcode.codeCount", { count: doc.codes.length })}
         </span>
-        <span className="inline-flex items-center gap-1 text-[11px] text-ok-text" title={t("qcode.exactSpansTitle")}>
+        <span className="inline-flex items-center gap-1 text-[11px] text-ok-text">
           <ShieldCheck size={13} /> {t("qcode.exactSpansBadge")}
         </span>
       </ViewerToolbar>

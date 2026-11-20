@@ -46,12 +46,10 @@ export function ExecutionDetails({ run, tab, onTabChange, onBack, onCopy, onOpen
           <div className="min-w-0">
             <div className="flex items-center gap-2"><ExecutionStatusIcon status={run.status} size={16} /><h2 title={executionPreview(executionLabel(run))} className="line-clamp-2 break-all text-base font-semibold leading-6 text-text">{executionShortLabel(run)}</h2></div>
             <div className="mt-1.5 flex flex-wrap gap-2 text-xs text-muted">
-              <span className="rounded bg-surface-2 px-1.5 py-0.5 font-semibold uppercase tracking-wide text-text">{run.surface}</span>
               <span className="rounded bg-surface-2 px-1.5 py-0.5">{t(`runs.kind.${run.kind}`)}</span>
-              <span className="rounded bg-surface-2 px-1.5 py-0.5">{t(`runs.status.${run.status}`)}</span>
             </div>
           </div>
-          <span className="shrink-0 font-mono text-xs text-muted">{executionDuration(run, t("runs.running"))}</span>
+          <span className="shrink-0 font-mono text-xs text-muted">{executionDuration(run, "")}</span>
         </div>
         <p className="mt-2 truncate text-xs text-muted" title={run.correlation.session_id}>{sessionTitle || run.correlation.session_id || t("runs.unassociated")} · {formatTimestamp(run.started_at ?? run.created_at)}</p>
         <div className="mt-3 flex flex-wrap gap-1.5">
@@ -131,7 +129,7 @@ function FileList({ title, icon, files, empty, onOpen, compact = false }: { titl
 
 function TimingDetails({ run }: { run: ExecutionRecord }) {
   const { t } = useTranslation();
-  return <dl className="runs-detail-fields grid gap-x-3 gap-y-3 text-xs"><DetailTerm>{t("runs.field.created")}</DetailTerm><DetailValue mono>{formatTimestamp(run.created_at)}</DetailValue><DetailTerm>{t("runs.field.started")}</DetailTerm><DetailValue mono>{formatTimestamp(run.started_at)}</DetailValue><DetailTerm>{t("runs.field.ended")}</DetailTerm><DetailValue mono>{formatTimestamp(run.ended_at)}</DetailValue><DetailTerm>{t("runs.duration")}</DetailTerm><DetailValue mono>{executionDuration(run, t("runs.running"))}</DetailValue></dl>;
+  return <dl className="runs-detail-fields grid gap-x-3 gap-y-3 text-xs"><DetailTerm>{t("runs.field.created")}</DetailTerm><DetailValue mono>{formatTimestamp(run.created_at)}</DetailValue><DetailTerm>{t("runs.field.started")}</DetailTerm><DetailValue mono>{formatTimestamp(run.started_at)}</DetailValue><DetailTerm>{t("runs.field.ended")}</DetailTerm><DetailValue mono>{formatTimestamp(run.ended_at)}</DetailValue><DetailTerm>{t("runs.duration")}</DetailTerm><DetailValue mono>{executionDuration(run, "")}</DetailValue></dl>;
 }
 
 function DetailSection({ title, icon, children }: { title: string; icon?: ReactNode; children: ReactNode }) { return <section><h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-muted">{icon}{title}</h3>{children}</section>; }

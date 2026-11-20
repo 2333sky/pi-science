@@ -111,7 +111,7 @@ describe("QueuedMessagesPanel", () => {
         entry({ id: "3c4c0c4e-6f0e-4f0e-9c1a-2b3d4e5f6a7b", status: "dispatched" }),
       ],
     });
-    expect(screen.getByRole("button", { name: "Hide queued messages" })).toHaveTextContent("2 messages");
+    expect(screen.getByRole("button", { name: "Hide queued messages" })).toHaveTextContent("2 queued");
   });
 
   it("keeps the queued count while every message is still waiting", () => {

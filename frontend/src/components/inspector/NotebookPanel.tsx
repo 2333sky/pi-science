@@ -156,7 +156,7 @@ export function NotebookPanel({ onClose, cwd, notebookId: requestedNotebookId, s
             {interrupting ? <Loader2 size={11} className="animate-spin" /> : <Square size={11} fill="currentColor" />} {t("common.stop")}
           </button>
         )}
-        <button onClick={onClose} aria-label={t("notebook.close")} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X size={14} /></button>
+        <button onClick={onClose} aria-label={t("common.close")} className="flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-text"><X size={14} /></button>
       </header>
 
       <div className="min-h-0 flex-1 overflow-y-auto">

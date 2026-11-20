@@ -31,7 +31,7 @@ export function PdfInspector({
         <span className="truncate text-sm font-medium text-text">{title}</span>
         <div className="flex-1" />
         {controls}
-        {!compactHeader && <button className="text-text hover:opacity-60" aria-label={t("shell.closeInspector")} onClick={onClose}>
+        {!compactHeader && <button className="text-text hover:opacity-60" aria-label={t("common.close")} onClick={onClose}>
           <X size={14} strokeWidth={1.5} />
         </button>}
       </header>

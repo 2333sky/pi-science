@@ -26,10 +26,9 @@ export function ThinkingActivity({ className }: { className?: string }) {
   const { t } = useTranslation();
   const config = useProgressAppearance();
   const title = t("conversation.activity.thinking");
-  const detail = t("conversation.activity.continuing");
   return <div data-state="running" data-motion={config.motion} style={activityStyle(config)} className={cn(styles.root, "flex w-full items-center gap-2 py-1", className)}>
     <span className={styles.glyph}><ProgressVisual slot="thinking" config={config} activityState="orient" text={title} /></span>
-    <ActivityLabel title={title} detail={detail} />
+    <ActivityLabel title={title} detail={null} />
   </div>;
 }
 
@@ -141,7 +140,7 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
             min-height, so the row does not grow. */}
         <div className="flex min-h-primary w-full items-center gap-2 py-2 text-left">
           <span key={state} className="flex w-3.5 shrink-0 justify-center"><ActivityIcon state={state} slot={visualSlot} config={progressAppearance} compact label={title} activityState={activityStateFor(lifecycle, shown)} /></span>
-          <ActivityLabel title={title} detail={narrativeDetail} error={false} elapsed={<LiveElapsed live turnStartedAt={turnStartedAt} />} />
+          <ActivityLabel title={title} detail={narrativeDetail} error={false} srOnlyTitle={title === t("conversation.activity.processLive")} elapsed={<LiveElapsed live turnStartedAt={turnStartedAt} />} />
         </div>
       </div>
     );
@@ -319,9 +318,9 @@ function useDisplayedActivity(blocks: ToolCallBlock[], lifecycle: TurnLifecycle)
   return live ? target?.mergeKey === displayed?.mergeKey ? target : displayed : null;
 }
 
-function ActivityLabel({ title, detail, error = false, elapsed }: { title: string; detail: string | null; error?: boolean; elapsed?: ReactNode }) {
+function ActivityLabel({ title, detail, error = false, elapsed, srOnlyTitle = false }: { title: string; detail: string | null; error?: boolean; elapsed?: ReactNode; srOnlyTitle?: boolean }) {
   return <span aria-live="polite" aria-atomic="true" className={styles.label}>
-    <span className={cn(styles.title, "text-text", error && "text-error-text")}>{title}</span>
+    <span className={cn(styles.title, "text-text", error && "text-error-text", srOnlyTitle && "sr-only")}>{title}</span>
     {detail && <span className={cn(styles.detail, "text-muted")}>{detail}</span>}
     {elapsed}
   </span>;

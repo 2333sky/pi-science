@@ -489,11 +489,11 @@ describe("review regressions", () => {
       expect(screen.getByLabelText("location")).toHaveTextContent(`execution=${deepLink ? "exec_job" : "exec_tool"}`);
       expect(screen.getByRole("button", { name: /write/ })).toBeInTheDocument();
     });
-    if (deepLink) expect(await screen.findByText(/outside the current scope or filters/)).toBeInTheDocument();
+    if (deepLink) expect(await screen.findByText(/outside the current page, scope, or filters/)).toBeInTheDocument();
     else {
       await screen.findByText("agent-event-observer");
       expect(screen.queryByText("node-job-coordinator")).toBeNull();
-      expect(screen.queryByText(/outside the current scope or filters/)).toBeNull();
+      expect(screen.queryByText(/outside the current page, scope, or filters/)).toBeNull();
     }
     fireEvent.change(screen.getByLabelText("Filter by execution type"), { target: { value: "kernel_cell" } });
     await waitFor(() => {
@@ -513,7 +513,7 @@ describe("review regressions", () => {
   it("keeps an out-of-scope target and offers an explicit range adjustment", async () => {
     renderPage("/workspace/project/runs?session_id=session-1&execution=exec_job");
     await screen.findByText("node-job-coordinator");
-    expect(await screen.findByText(/outside the current scope or filters/)).toBeInTheDocument();
+    expect(await screen.findByText(/outside the current page, scope, or filters/)).toBeInTheDocument();
     expect(screen.getByLabelText("location")).toHaveTextContent("execution=exec_job");
     fireEvent.click(screen.getByRole("button", { name: "Show workspace and clear filters" }));
     await screen.findByRole("button", { name: /node train\.js/ });
