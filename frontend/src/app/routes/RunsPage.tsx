@@ -227,9 +227,10 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     {invalidRange && <p role="alert" className="mt-2 text-sm text-error-text">{t("runs.invalidRange")}</p>}
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
       <span>{t("runs.matchingPage", { filtered: filteredTotal, visible: runs.length })}</span>
-      {!activeSessionId && <label title={t("runs.groupSessionHint")} className="flex items-center gap-2"><input type="checkbox" checked={groupBySession} onChange={(e) => updateRoute({ group: e.target.checked ? null : "none" })} />{t("runs.groupSession")}</label>}
+      {!activeSessionId && <label title={t("runs.groupSessionHint")} className="flex items-center gap-2"><input type="checkbox" aria-describedby="runs-group-session-hint" checked={groupBySession} onChange={(e) => updateRoute({ group: e.target.checked ? null : "none" })} />{t("runs.groupSession")}</label>}
       <span className="flex items-center gap-1.5"><span className={cn("h-1.5 w-1.5 rounded-full", liveConnected ? "bg-ok" : "bg-muted")} />{t("runs.live")}</span>
     </div>
+    {!activeSessionId && <span id="runs-group-session-hint" className="sr-only">{t("runs.groupSessionHint")}</span>}
 
     <div className="runs-workbench-container mt-3">
       <div data-testid="runs-workbench" data-compact-detail={compactDetailOpen ? "true" : "false"} className="runs-ledger-layout runs-workbench grid min-h-[560px] overflow-hidden rounded-card border border-border bg-surface">

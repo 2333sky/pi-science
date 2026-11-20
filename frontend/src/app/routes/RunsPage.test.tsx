@@ -562,6 +562,13 @@ describe("review regressions", () => {
     expect(screen.getByTestId("timeline-canvas")).toHaveStyle({ width: "100%" });
   });
 
+  it("describes the grouping control with its page limitation", async () => {
+    renderPage();
+    const group = await screen.findByRole("checkbox", { name: "Group by session" });
+    expect(group).toHaveAttribute("aria-describedby", "runs-group-session-hint");
+    expect(document.getElementById("runs-group-session-hint")).toHaveTextContent("Applies to the executions on this page.");
+  });
+
   it("shows code, results and actual output filenames without expanding raw JSON", async () => {
     renderPage("/workspace/project/runs?execution=exec_kernel");
     await screen.findByText("node-kernel-gateway");
