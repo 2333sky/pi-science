@@ -209,8 +209,8 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     </>} />
 
     <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted" aria-label={t("runs.scopeStatistics")}>
-        <span className="text-xl font-semibold tabular-nums text-text" aria-label={t("runs.scopeStatistics")}>{total ?? "—"}</span>
+      <div role="group" aria-label={t("runs.scopeStatistics")} className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-muted">
+        <span className="text-xl font-semibold tabular-nums text-text">{total ?? "—"}</span>
         {counts && <><span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-ok" />{t("runs.succeededCount", { count: counts.succeeded || 0 })}</span><span className={cn("flex items-center gap-1.5", failures && "text-error-text")}><AlertTriangle size={14} />{t("runs.problemCount", { count: failures })}</span></>}
         {duration !== undefined && <span>{t("runs.completedDuration", { seconds: (duration / 1_000).toLocaleString(undefined, { maximumFractionDigits: 1 }) })}</span>}
       </div>
@@ -227,7 +227,7 @@ export function RunsPage({ sessionId }: { sessionId?: string } = {}) {
     {invalidRange && <p role="alert" className="mt-2 text-sm text-error-text">{t("runs.invalidRange")}</p>}
     <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
       <span>{t("runs.matchingPage", { filtered: filteredTotal, visible: runs.length })}</span>
-      {!activeSessionId && <label className="flex items-center gap-2"><input type="checkbox" checked={groupBySession} onChange={(e) => updateRoute({ group: e.target.checked ? null : "none" })} />{t("runs.groupSession")}</label>}
+      {!activeSessionId && <label title={t("runs.groupSessionHint")} className="flex items-center gap-2"><input type="checkbox" checked={groupBySession} onChange={(e) => updateRoute({ group: e.target.checked ? null : "none" })} />{t("runs.groupSession")}</label>}
       <span className="flex items-center gap-1.5"><span className={cn("h-1.5 w-1.5 rounded-full", liveConnected ? "bg-ok" : "bg-muted")} />{t("runs.live")}</span>
     </div>
 

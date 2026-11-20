@@ -645,7 +645,7 @@ function Body({
     if (url) {
       return (
         <iframe
-          title={filename}
+          title={t("filePreview.htmlPreview")}
           src={url}
           sandbox="allow-scripts allow-same-origin"
           className="h-full min-h-[480px] w-full bg-[var(--bg)]"

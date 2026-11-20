@@ -554,7 +554,7 @@ describe("review regressions", () => {
     renderPage("/workspace/project/runs?session_id=session-1");
     await screen.findByText("agent-event-observer");
     expect(screen.getByRole("button", { name: "Execution timeline" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByLabelText("Group by session (current page)")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Group by session")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Zoom in" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
     expect(screen.getByTestId("timeline-canvas")).toHaveStyle({ width: "200%" });
