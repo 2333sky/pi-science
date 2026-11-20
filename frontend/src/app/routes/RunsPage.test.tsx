@@ -234,7 +234,7 @@ describe("RunsPage execution ledger", () => {
     });
 
     fireEvent.change(screen.getByLabelText("Filter by status"), { target: { value: "succeeded" } });
-    expect(await screen.findByText("No matching executions")).toBeInTheDocument();
+    expect(await screen.findByText("No executions to show")).toBeInTheDocument();
   });
 
   it("shows input, files, artifacts, timing, and lazily loaded output", async () => {

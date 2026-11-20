@@ -41,6 +41,7 @@ export function QueuedMessagesPanel({ entries, paused, onResume, onEditInCompose
   const [expanded, setExpanded] = useState(true);
 
   const visible = entries.filter(visibleInQueue);
+  const queuedCount = visible.filter((entry) => entry.status === "queued").length;
   if (visible.length === 0 && !paused) return null;
 
   const run = async (entryId: string, operation: () => Promise<void>) => {
@@ -59,7 +60,7 @@ export function QueuedMessagesPanel({ entries, paused, onResume, onEditInCompose
         onClick={() => setExpanded((current) => !current)}
         className="mb-1 flex w-full items-center gap-1 px-1 text-xs text-muted hover:text-text"
       >
-        <span>{t("conversation.queue.summary", { count: visible.length })}</span>
+        <span>{queuedCount ? t("conversation.queue.summary", { count: queuedCount }) : t("conversation.queue.title")}</span>
         {expanded ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
       </button>
       {expanded && paused && (

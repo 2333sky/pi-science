@@ -291,8 +291,8 @@ export function MemoryPage() {
         {sectionQuery.isError && <ErrorState retry={() => void sectionQuery.refetch()} retryLabel={t("common.retry")} busy={sectionQuery.isFetching}>{t("common.loadFailed", { section: t(`memory.${tab}`) })}{sectionQuery.data && <p>{t("common.refreshFailed")}</p>}</ErrorState>}
         {settings.isError && <ErrorState retry={() => void settings.refetch()} retryLabel={t("common.retry")}>{t("common.loadFailed", { section: t("memory.settings") })}</ErrorState>}
         {sectionQuery.isPending && <p role="status" className="text-ui-body text-muted">{t("common.loading")}</p>}
-        {tab === "reviews" && reviews.isSuccess && !reviews.data.records.length && !reviews.data.proposals.length && <EmptyState>{t("memory.noReviews")}</EmptyState>}
-        {tab === "runs" && runs.isSuccess && !runs.data.runs.length && <EmptyState>{t("memory.noRuns")}</EmptyState>}
+        {tab === "reviews" && reviews.isSuccess && !reviews.data.records.length && !reviews.data.proposals.length && <EmptyState>{t("memory.emptyState", { section: t("memory.reviews") })}</EmptyState>}
+        {tab === "runs" && runs.isSuccess && !runs.data.runs.length && <EmptyState>{t("memory.emptyState", { section: t("memory.runs") })}</EmptyState>}
         {notice && (
           <div role="status" className="flex items-center gap-3">
             <p>{notice}</p>
@@ -385,7 +385,7 @@ export function MemoryPage() {
             </div>
             {!records.isError && records.data?.records.length === 0 && (
               <p className="text-ui-caption text-muted">
-                {t(activeFilters ? "memory.noMatches" : "memory.empty")}
+                {t("memory.emptyState", { section: t("memory.title") })}
               </p>
             )}
             {totalPages > 1 && (

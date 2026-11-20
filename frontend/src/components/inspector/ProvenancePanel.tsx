@@ -195,6 +195,7 @@ export function ProvenancePanel({ path, language, cwd: cwdOverride }: { path: st
                   {(r.content || (r.executionId && runsById.has(r.executionId))) && (
                     <button
                       className="flex items-center gap-1 text-link hover:underline"
+                      title={t("provenance.reproduceHint")}
                       onClick={() => reproduce(r)}
                     >
                       <RotateCcw size={12} /> {t("provenance.reproduce")}
