@@ -140,7 +140,7 @@ export function AgentActivity({ blocks, lifecycle = "active", cwd, part = "both"
             min-height, so the row does not grow. */}
         <div className="flex min-h-primary w-full items-center gap-2 py-2 text-left">
           <span key={state} className="flex w-3.5 shrink-0 justify-center"><ActivityIcon state={state} slot={visualSlot} config={progressAppearance} compact label={title} activityState={activityStateFor(lifecycle, shown)} /></span>
-          <ActivityLabel title={title} detail={narrativeDetail} error={false} srOnlyTitle={title === t("conversation.activity.processLive")} elapsed={<LiveElapsed live turnStartedAt={turnStartedAt} />} />
+          <ActivityLabel title={title} detail={narrativeDetail} error={false} srOnlyTitle={narrativeDetail !== null} elapsed={<LiveElapsed live turnStartedAt={turnStartedAt} />} />
         </div>
       </div>
     );

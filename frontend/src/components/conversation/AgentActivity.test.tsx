@@ -236,6 +236,14 @@ describe("AgentActivity live stream", () => {
     expect(within(trace).getByText("Searching for tool.updated")).toBeInTheDocument();
   });
 
+  it("hides the phase word only while a narrative detail carries the state", () => {
+    const described = tool("read", "read", "running", { path: "a.ts", description: "Find why the second reply stops following" });
+    const { rerender } = render(<AgentActivity blocks={[described]} />);
+    expect(screen.getByText("Working")).toHaveClass("sr-only");
+    rerender(<AgentActivity blocks={[tool("todo", "todo")]} />);
+    expect(screen.getByText("Working")).not.toHaveClass("sr-only");
+  });
+
   it("keeps the active status visible for todo-only turns", () => { render(<AgentActivity blocks={[tool("todo", "todo")]} />); expect(screen.getByText("Working")).toBeInTheDocument(); expect(screen.queryByLabelText("Execution trace")).not.toBeInTheDocument(); });
 
   it.each(["settled", "aborted", "failed"] as const)("streams open through %s until the turn ends", (lifecycle) => {
